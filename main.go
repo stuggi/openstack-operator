@@ -43,8 +43,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	corev1beta1 "github.com/openstack-k8s-operators/openstack-operator/apis/core/v1beta1"
+	netv1beta1 "github.com/openstack-k8s-operators/openstack-operator/apis/net/v1beta1"
 	rabbitmqv1beta1 "github.com/openstack-k8s-operators/openstack-operator/apis/rabbitmq/v1beta1"
 	corecontrollers "github.com/openstack-k8s-operators/openstack-operator/controllers/core"
+	netcontrollers "github.com/openstack-k8s-operators/openstack-operator/controllers/net"
 	rabbitmqcontrollers "github.com/openstack-k8s-operators/openstack-operator/controllers/rabbitmq"
 	//+kubebuilder:scaffold:imports
 )
@@ -64,6 +66,7 @@ func init() {
 	utilruntime.Must(glancev1.AddToScheme(scheme))
 	utilruntime.Must(cinderv1.AddToScheme(scheme))
 	utilruntime.Must(rabbitmqv1beta1.AddToScheme(scheme))
+	utilruntime.Must(netv1beta1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -136,6 +139,17 @@ func main() {
 		Log:     ctrl.Log.WithName("controllers").WithName("TrasnportURL"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "TransportURL")
+		os.Exit(1)
+	}
+	if err = (&netcontrollers.OpenStackNetReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "OpenStackNet")
+		os.Exit(1)
+	}
+	if err = (&netv1beta1.OpenStackNet{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "OpenStackNet")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
