@@ -68,6 +68,18 @@ rules:
   - update
   - watch
 - apiGroups:
+  - k8s.cni.cncf.io
+  resources:
+  - network-attachment-definitions
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - keystone.openstack.org
   resources:
   - keystoneapis
@@ -94,6 +106,32 @@ rules:
 - apiGroups:
   - net.openstack.org
   resources:
+  - openstacknetattachments
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - net.openstack.org
+  resources:
+  - openstacknetattachments/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - net.openstack.org
+  resources:
+  - openstacknetattachments/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - net.openstack.org
+  resources:
   - openstacknets
   verbs:
   - create
@@ -117,6 +155,26 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - nmstate.io
+  resources:
+  - nodenetworkconfigurationenactments
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - nmstate.io
+  resources:
+  - nodenetworkconfigurationpolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - placement.openstack.org
   resources:
@@ -167,3 +225,27 @@ rules:
   - get
   - patch
   - update
+- apiGroups:
+  - sriovnetwork.openshift.io
+  resources:
+  - sriovnetworknodepolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - sriovnetwork.openshift.io
+  resources:
+  - sriovnetworks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

@@ -25,6 +25,26 @@ webhooks:
     resources:
     - openstacknets
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-net-openstack-org-v1beta1-openstacknetattachment
+  failurePolicy: Fail
+  name: mopenstacknetattachment.kb.io
+  rules:
+  - apiGroups:
+    - net.openstack.org
+    apiVersions:
+    - v1beta1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - openstacknetattachments
+  sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -51,4 +71,24 @@ webhooks:
     - UPDATE
     resources:
     - openstacknets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-net-openstack-org-v1beta1-openstacknetattachment
+  failurePolicy: Fail
+  name: vopenstacknetattachment.kb.io
+  rules:
+  - apiGroups:
+    - net.openstack.org
+    apiVersions:
+    - v1beta1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - openstacknetattachments
   sideEffects: None

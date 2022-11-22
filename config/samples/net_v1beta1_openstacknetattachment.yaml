@@ -1,0 +1,22 @@
+apiVersion: net.openstack.org/v1beta1
+kind: OpenStackNetAttachment
+metadata:
+  name: openstacknetattachment-sample
+spec:
+  attachConfiguration:
+    nodeNetworkConfigurationPolicy:
+      desiredState:
+        interfaces:
+        - bridge:
+            options:
+              stp:
+                enabled: false
+            port:
+            - name: enp7s0
+          description: Linux bridge with enp7s0 as a port
+          mtu: 1500
+          name: br-osp
+          state: up
+          type: linux-bridge
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""

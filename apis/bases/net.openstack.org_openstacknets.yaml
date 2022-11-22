@@ -12,10 +12,42 @@ spec:
     kind: OpenStackNet
     listKind: OpenStackNetList
     plural: openstacknets
+    shortNames:
+    - osnet
+    - osnets
     singular: openstacknet
   scope: Namespaced
   versions:
-  - name: v1beta1
+  - additionalPrinterColumns:
+    - jsonPath: .spec.cidr
+      name: CIDR
+      type: string
+    - jsonPath: .spec.domainName
+      name: DOMAIN
+      type: string
+    - jsonPath: .spec.mtu
+      name: MTU
+      type: string
+    - jsonPath: .spec.vlan
+      name: VLAN
+      type: string
+    - jsonPath: .spec.vip
+      name: VIP
+      type: boolean
+    - jsonPath: .spec.gateway
+      name: Gateway
+      type: string
+    - jsonPath: .spec.routes
+      name: Routes
+      type: string
+    - jsonPath: .status.reservedIpCount
+      name: Reserved IPs
+      type: integer
+    - description: Status
+      jsonPath: .status.currentState
+      name: Status
+      type: string
+    name: v1beta1
     schema:
       openAPIV3Schema:
         description: OpenStackNet is the Schema for the openstacknets API
@@ -35,13 +67,175 @@ spec:
           spec:
             description: OpenStackNetSpec defines the desired state of OpenStackNet
             properties:
-              foo:
-                description: Foo is an example field of OpenStackNet. Edit openstacknet_types.go
-                  to remove/update
+              allocationEnd:
+                description: AllocationEnd a set of IPs that are reserved and will
+                  not be assigned
                 type: string
+              allocationStart:
+                description: AllocationStart a set of IPs that are reserved and will
+                  not be assigned
+                type: string
+              attachConfiguration:
+                description: AttachConfiguration, used for virtual machines to attach
+                  to this network
+                type: string
+              cidr:
+                description: Cidr the cidr to use for this network
+                type: string
+              domainName:
+                description: DomainName the name of the domain for this network, usually
+                  lower(Name)."OSNetConfig.Spec.DomainName"
+                type: string
+              gateway:
+                description: Gateway optional gateway for the network
+                type: string
+              mtu:
+                default: 1500
+                description: MTU of the network
+                type: integer
+              name:
+                description: Name of the tripleo network this network belongs to,
+                  e.g. Control, External, InternalApi, ...
+                type: string
+              nameLower:
+                description: NameLower the name of the subnet, name_lower name of
+                  the tripleo subnet, e.g. ctlplane, external, internal_api, internal_api_leaf1
+                type: string
+              roleReservations:
+                additionalProperties:
+                  description: RoleReservation defines the observed state of the Role
+                    Net reservation
+                  properties:
+                    reservations:
+                      description: Reservations IP address reservations
+                      items:
+                        description: IPReservation contains an IP, Hostname, and a
+                          VIP flag
+                        properties:
+                          deleted:
+                            type: boolean
+                          hostname:
+                            type: string
+                          ip:
+                            type: string
+                          serviceVIP:
+                            default: false
+                            type: boolean
+                          vip:
+                            type: boolean
+                        required:
+                        - deleted
+                        - hostname
+                        - ip
+                        - vip
+                        type: object
+                      type: array
+                  required:
+                  - reservations
+                  type: object
+                description: Reservations, IP address reservations per role
+                type: object
+              routes:
+                description: Routes, list of networks that should be routed via network
+                  gateway.
+                items:
+                  description: Route definition
+                  properties:
+                    destination:
+                      description: Destination, network CIDR
+                      type: string
+                    nexthop:
+                      description: Nexthop, gateway for the destination
+                      type: string
+                  required:
+                  - destination
+                  - nexthop
+                  type: object
+                type: array
+              vip:
+                default: true
+                description: VIP create virtual ip on the network
+                type: boolean
+              vlan:
+                description: Vlan ID of the network
+                maximum: 4094
+                type: integer
+            required:
+            - allocationEnd
+            - allocationStart
+            - attachConfiguration
+            - cidr
+            - domainName
+            - name
+            - nameLower
             type: object
           status:
             description: OpenStackNetStatus defines the observed state of OpenStackNet
+            properties:
+              conditions:
+                description: Conditions
+                items:
+                  description: Condition defines an observation of a API resource
+                    operational state.
+                  properties:
+                    lastTransitionTime:
+                      description: Last time the condition transitioned from one status
+                        to another. This should be when the underlying condition changed.
+                        If that is not known, then using the time when the API field
+                        changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: A human readable message indicating details about
+                        the transition.
+                      type: string
+                    reason:
+                      description: The reason for the condition's last transition
+                        in CamelCase.
+                      type: string
+                    severity:
+                      description: Severity provides a classification of Reason code,
+                        so the current situation is immediately understandable and
+                        could act accordingly. It is meant for situations where Status=False
+                        and it should be indicated if it is just informational, warning
+                        (next reconciliation might fix it) or an error (e.g. DB create
+                        issue and no actions to automatically resolve the issue can/should
+                        be done). For conditions where Status=Unknown or Status=True
+                        the Severity should be SeverityNone.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type of condition in CamelCase.
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - status
+                  - type
+                  type: object
+                type: array
+              reservations:
+                additionalProperties:
+                  description: NodeIPReservation contains an IP and Deleted flag
+                  properties:
+                    deleted:
+                      type: boolean
+                    ip:
+                      type: string
+                  required:
+                  - deleted
+                  - ip
+                  type: object
+                description: Reservations MAC address reservations per node
+                type: object
+              reservedIpCount:
+                description: ReservedIPCount - the count of all IPs ever reserved
+                  on this network
+                type: integer
+            required:
+            - reservations
+            - reservedIpCount
             type: object
         type: object
     served: true

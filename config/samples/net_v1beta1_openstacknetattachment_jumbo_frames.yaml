@@ -1,0 +1,35 @@
+apiVersion: net.openstack.org/v1beta1
+kind: OpenStackNetAttachment
+metadata:
+  name: openstacknetattachment-jumbo-frame-sample
+spec:
+  attachConfiguration:
+    nodeNetworkConfigurationPolicy:
+      desiredState:
+        interfaces:
+        - bridge:
+            options:
+              stp:
+                enabled: false
+            port:
+            - name: enp7s0
+          description: Linux bridge with enp7s0 as a port
+          ipv4:
+            enabled: false
+          ipv6:
+            enabled: false
+          mtu: 9000
+          name: br-osp
+          state: up
+          type: linux-bridge
+        - description: Configuring enp7s0 on workers
+          ipv4:
+            enabled: false
+          ipv6:
+            enabled: false
+          mtu: 9000
+          name: enp7s0
+          state: up
+          type: ethernet
+      nodeSelector:
+        node-role.kubernetes.io/worker: ""

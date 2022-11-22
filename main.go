@@ -44,6 +44,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	// TODO fix corev1beta1 -> corev1
+	networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
+	nmstatev1 "github.com/nmstate/kubernetes-nmstate/api/v1"
 	corev1beta1 "github.com/openstack-k8s-operators/openstack-operator/apis/core/v1beta1"
 	netv1 "github.com/openstack-k8s-operators/openstack-operator/apis/net/v1beta1"
 
@@ -82,6 +84,8 @@ func init() {
 	utilruntime.Must(cinderv1.AddToScheme(scheme))
 	utilruntime.Must(rabbitmqv1beta1.AddToScheme(scheme))
 	utilruntime.Must(netv1.AddToScheme(scheme))
+	utilruntime.Must(nmstatev1.AddToScheme(scheme))
+	utilruntime.Must(networkv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
@@ -166,6 +170,15 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenStackNet")
 		os.Exit(1)
 	}
+	if err = (&netcontrollers.OpenStackNetAttachmentReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Kclient: kclient,
+		Log:     ctrl.Log.WithName("controllers").WithName("OpenStackNetAttachment"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "OpenStackNetAttachment")
+		os.Exit(1)
+	}
 
 	if strings.ToLower(os.Getenv("ENABLE_WEBHOOKS")) != "false" {
 		enableWebhooks = true
@@ -185,7 +198,12 @@ func main() {
 			setupLog.Error(err, "unable to create webhook", "webhook", "OpenStackNet")
 			os.Exit(1)
 		}
+		if err = (&netv1.OpenStackNetAttachment{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "OpenStackNetAttachment")
+			os.Exit(1)
+		}
 	}
+
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

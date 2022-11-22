@@ -17,29 +17,100 @@ limitations under the License.
 package v1beta1
 
 import (
+	condition "github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
-
 // OpenStackNetSpec defines the desired state of OpenStackNet
 type OpenStackNetSpec struct {
-	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of OpenStackNet. Edit openstacknet_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// +kubebuilder:validation:Required
+	// Name of the tripleo network this network belongs to, e.g. Control, External, InternalApi, ...
+	Name string `json:"name"`
+
+	// +kubebuilder:validation:Required
+	// NameLower the name of the subnet, name_lower name of the tripleo subnet, e.g. ctlplane, external, internal_api, internal_api_leaf1
+	NameLower string `json:"nameLower"`
+
+	// +kubebuilder:validation:Required
+	// Cidr the cidr to use for this network
+	Cidr string `json:"cidr"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Maximum=4094
+	// Vlan ID of the network
+	Vlan int `json:"vlan"`
+
+	// +kubebuilder:validation:Required
+	// AllocationStart a set of IPs that are reserved and will not be assigned
+	AllocationStart string `json:"allocationStart"`
+
+	// +kubebuilder:validation:Required
+	// AllocationEnd a set of IPs that are reserved and will not be assigned
+	AllocationEnd string `json:"allocationEnd"`
+
+	// +kubebuilder:validation:Optional
+	// Gateway optional gateway for the network
+	Gateway string `json:"gateway"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=1500
+	// MTU of the network
+	MTU int `json:"mtu"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=true
+	// VIP create virtual ip on the network
+	VIP bool `json:"vip"`
+
+	// +kubebuilder:validation:Optional
+	// Routes, list of networks that should be routed via network gateway.
+	Routes []Route `json:"routes"`
+
+	// +kubebuilder:validation:Required
+	// AttachConfiguration, used for virtual machines to attach to this network
+	AttachConfiguration string `json:"attachConfiguration"`
+
+	// +kubebuilder:validation:Required
+	// DomainName the name of the domain for this network, usually lower(Name)."OSNetConfig.Spec.DomainName"
+	DomainName string `json:"domainName"`
+
+	// +kubebuilder:validation:Optional
+	// Reservations, IP address reservations per role
+	RoleReservations map[string]RoleReservation `json:"roleReservations"`
 }
 
 // OpenStackNetStatus defines the observed state of OpenStackNet
 type OpenStackNetStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// Reservations MAC address reservations per node
+	Reservations map[string]NodeIPReservation `json:"reservations"`
+
+	// ReservedIPCount - the count of all IPs ever reserved on this network
+	ReservedIPCount int `json:"reservedIpCount"`
+
+	// Conditions
+	Conditions condition.Conditions `json:"conditions,omitempty" optional:"true"`
+}
+
+// IsReady - Is this resource in its fully-configured (quiesced) state?
+func (instance *OpenStackNet) IsReady() bool {
+	return true
+	//return instance.Status.CurrentState == shared.NetConfigured
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+// +kubebuilder:resource:shortName=osnet;osnets
+// +operator-sdk:csv:customresourcedefinitions:displayName="OpenStack Net"
+// +kubebuilder:printcolumn:name="CIDR",type=string,JSONPath=`.spec.cidr`
+// +kubebuilder:printcolumn:name="DOMAIN",type=string,JSONPath=`.spec.domainName`
+// +kubebuilder:printcolumn:name="MTU",type=string,JSONPath=`.spec.mtu`
+// +kubebuilder:printcolumn:name="VLAN",type=string,JSONPath=`.spec.vlan`
+// +kubebuilder:printcolumn:name="VIP",type=boolean,JSONPath=`.spec.vip`
+// +kubebuilder:printcolumn:name="Gateway",type=string,JSONPath=`.spec.gateway`
+// +kubebuilder:printcolumn:name="Routes",type=string,JSONPath=`.spec.routes`
+// +kubebuilder:printcolumn:name="Reserved IPs",type="integer",JSONPath=".status.reservedIpCount"
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.currentState`,description="Status"
 
 // OpenStackNet is the Schema for the openstacknets API
 type OpenStackNet struct {

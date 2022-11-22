@@ -6,6 +6,7 @@ require (
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-logr/logr v1.2.3
 	github.com/imdario/mergo v0.3.13
+	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.3.0
 	github.com/onsi/ginkgo v1.16.5
 	github.com/onsi/gomega v1.24.1
 	github.com/openstack-k8s-operators/cinder-operator/api v0.0.0-20221121160856-6240496cc613
@@ -17,11 +18,18 @@ require (
 	github.com/openstack-k8s-operators/placement-operator/api v0.0.0-20221122143733-c44b1ab0ea53
 	github.com/operator-framework/api v0.17.1
 	github.com/rabbitmq/cluster-operator v1.14.0
+	//github.com/openshift/sriov-network-operator v0.0.0-20221121131106-d88117ad8fd8
 	go.uber.org/zap v1.23.0
 	k8s.io/api v0.25.4
 	k8s.io/apimachinery v0.25.4
 	k8s.io/client-go v0.25.4
 	sigs.k8s.io/controller-runtime v0.13.1
+)
+
+require (
+	github.com/nmstate/kubernetes-nmstate/api v0.0.0-20220503140604-a72ffb762dd0
+	github.com/tidwall/gjson v1.14.4
+	sigs.k8s.io/yaml v1.3.0
 )
 
 require (
@@ -70,6 +78,8 @@ require (
 	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.7.0 // indirect
 	golang.org/x/crypto v0.0.0-20220315160706-3147a52a75dd // indirect
@@ -93,7 +103,6 @@ require (
 	k8s.io/utils v0.0.0-20220922133306-665eaaec4324 // indirect
 	sigs.k8s.io/json v0.0.0-20220713155537-f223a00ba0e2 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
-	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
 replace github.com/openstack-k8s-operators/openstack-operator/apis => ./apis
