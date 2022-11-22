@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"os"
+	"strings"
 
 	"go.uber.org/zap/zapcore"
 
@@ -42,13 +43,27 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
+	// TODO fix corev1beta1 -> corev1
 	corev1beta1 "github.com/openstack-k8s-operators/openstack-operator/apis/core/v1beta1"
-	netv1beta1 "github.com/openstack-k8s-operators/openstack-operator/apis/net/v1beta1"
+	netv1 "github.com/openstack-k8s-operators/openstack-operator/apis/net/v1beta1"
+
+	// TODO fix rabbitmqv1beta1 -> rabbitmqv1 ? overlaps with external rabbitmqv1 above
 	rabbitmqv1beta1 "github.com/openstack-k8s-operators/openstack-operator/apis/rabbitmq/v1beta1"
 	corecontrollers "github.com/openstack-k8s-operators/openstack-operator/controllers/core"
 	netcontrollers "github.com/openstack-k8s-operators/openstack-operator/controllers/net"
 	rabbitmqcontrollers "github.com/openstack-k8s-operators/openstack-operator/controllers/rabbitmq"
 	//+kubebuilder:scaffold:imports
+)
+
+const (
+	// WebhookPort -
+	WebhookPort = 4343
+	// WebhookCertDir -
+	WebhookCertDir = "/apiserver.local.config/certificates"
+	// WebhookCertName -
+	WebhookCertName = "apiserver.crt"
+	// WebhookKeyName -
+	WebhookKeyName = "apiserver.key"
 )
 
 var (
@@ -66,13 +81,14 @@ func init() {
 	utilruntime.Must(glancev1.AddToScheme(scheme))
 	utilruntime.Must(cinderv1.AddToScheme(scheme))
 	utilruntime.Must(rabbitmqv1beta1.AddToScheme(scheme))
-	utilruntime.Must(netv1beta1.AddToScheme(scheme))
+	utilruntime.Must(netv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 }
 
 func main() {
 	var metricsAddr string
 	var enableLeaderElection bool
+	var enableWebhooks bool
 	var probeAddr string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
@@ -142,15 +158,33 @@ func main() {
 		os.Exit(1)
 	}
 	if err = (&netcontrollers.OpenStackNetReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Kclient: kclient,
+		Log:     ctrl.Log.WithName("controllers").WithName("OpenStackNet"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenStackNet")
 		os.Exit(1)
 	}
-	if err = (&netv1beta1.OpenStackNet{}).SetupWebhookWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "OpenStackNet")
-		os.Exit(1)
+
+	if strings.ToLower(os.Getenv("ENABLE_WEBHOOKS")) != "false" {
+		enableWebhooks = true
+
+		// We're just getting a pointer here and overriding the default values
+		srv := mgr.GetWebhookServer()
+		srv.CertDir = WebhookCertDir
+		srv.CertName = WebhookCertName
+		srv.KeyName = WebhookKeyName
+		srv.Port = WebhookPort
+	}
+	if enableWebhooks {
+		//
+		// Register webhooks
+		//
+		if err = (&netv1.OpenStackNet{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "OpenStackNet")
+			os.Exit(1)
+		}
 	}
 	//+kubebuilder:scaffold:builder
 

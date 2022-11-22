@@ -92,6 +92,32 @@ rules:
   - update
   - watch
 - apiGroups:
+  - net.openstack.org
+  resources:
+  - openstacknets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - net.openstack.org
+  resources:
+  - openstacknets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - net.openstack.org
+  resources:
+  - openstacknets/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - placement.openstack.org
   resources:
   - placementapis

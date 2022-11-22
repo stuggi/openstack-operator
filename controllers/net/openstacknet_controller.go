@@ -20,17 +20,21 @@ import (
 	"context"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	netv1beta1 "github.com/openstack-k8s-operators/openstack-operator/apis/net/v1beta1"
+	"github.com/go-logr/logr"
+	netv1 "github.com/openstack-k8s-operators/openstack-operator/apis/net/v1beta1"
 )
 
 // OpenStackNetReconciler reconciles a OpenStackNet object
 type OpenStackNetReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme  *runtime.Scheme
+	Kclient kubernetes.Interface
+	Log     logr.Logger
 }
 
 //+kubebuilder:rbac:groups=net.openstack.org,resources=openstacknets,verbs=get;list;watch;create;update;patch;delete
@@ -57,6 +61,6 @@ func (r *OpenStackNetReconciler) Reconcile(ctx context.Context, req ctrl.Request
 // SetupWithManager sets up the controller with the Manager.
 func (r *OpenStackNetReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		For(&netv1beta1.OpenStackNet{}).
+		For(&netv1.OpenStackNet{}).
 		Complete(r)
 }
