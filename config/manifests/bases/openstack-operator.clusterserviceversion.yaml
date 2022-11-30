@@ -16,6 +16,17 @@ spec:
       kind: OpenStackControlPlane
       name: openstackcontrolplanes.core.openstack.org
       version: v1beta1
+    - description: OpenStackNetAttachment is the Schema for the openstacknetattachments
+        API
+      displayName: OpenStack NetAttachment
+      kind: OpenStackNetAttachment
+      name: openstacknetattachments.net.openstack.org
+      version: v1beta1
+    - description: OpenStackNet is the Schema for the openstacknets API
+      displayName: OpenStack Net
+      kind: OpenStackNet
+      name: openstacknets.net.openstack.org
+      version: v1beta1
     - description: TransportURL is the Schema for the transporturls API
       displayName: Transport URL
       kind: TransportURL

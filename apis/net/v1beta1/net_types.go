@@ -17,7 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
-	nmstateapi "github.com/nmstate/kubernetes-nmstate/api/shared"
+	nmstateshared "github.com/nmstate/kubernetes-nmstate/api/shared"
 )
 
 // IPReservation contains an IP, Hostname, and a VIP flag
@@ -69,7 +69,7 @@ const (
 type NodeConfigurationPolicy struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default={}
-	NodeNetworkConfigurationPolicy nmstateapi.NodeNetworkConfigurationPolicySpec `json:"nodeNetworkConfigurationPolicy,omitempty"`
+	NodeNetworkConfigurationPolicy nmstateshared.NodeNetworkConfigurationPolicySpec `json:"nodeNetworkConfigurationPolicy,omitempty"`
 
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default={}

@@ -78,6 +78,8 @@ func GetOpenStackNetAttachmentsWithLabel(
 	return osNetAttachList, nil
 }
 
+/*
+
 // GetOpenStackNetAttachmentWithAttachReference - Return OpenStackNetAttachment for the reference name use in the osnet config
 func GetOpenStackNetAttachmentWithAttachReference(
 	ctx context.Context,
@@ -141,3 +143,4 @@ func GetOpenStackNetAttachmentBridgeName(
 
 	return osNetAttach.Status.BridgeName, nil
 }
+*/

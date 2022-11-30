@@ -26,6 +26,7 @@ import (
 // log is for logging in this package.
 var openstacknetattachmentlog = logf.Log.WithName("openstacknetattachment-resource")
 
+// SetupWebhookWithManager -
 func (r *OpenStackNetAttachment) SetupWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
 		For(r).

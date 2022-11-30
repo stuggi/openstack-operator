@@ -24,8 +24,12 @@ spec:
   versions:
   - additionalPrinterColumns:
     - description: Status
-      jsonPath: .status.currentState
+      jsonPath: .status.conditions[0].status
       name: Status
+      type: string
+    - description: Message
+      jsonPath: .status.conditions[0].message
+      name: Message
       type: string
     name: v1beta1
     schema:
@@ -140,8 +144,7 @@ spec:
                 description: BridgeName of the OpenStackNetAttachment
                 type: string
               conditions:
-                description: Conditions - conditions to display in the OpenShift GUI,
-                  which reflect CurrentState
+                description: Conditions - conditions which reflect current state
                 items:
                   description: Condition defines an observation of a API resource
                     operational state.

@@ -30,7 +30,7 @@ type OpenStackNetAttachmentSpec struct {
 
 // OpenStackNetAttachmentStatus defines the observed state of OpenStackNetAttachment
 type OpenStackNetAttachmentStatus struct {
-	// Conditions - conditions to display in the OpenShift GUI, which reflect CurrentState
+	// Conditions - conditions which reflect current state
 	Conditions condition.Conditions `json:"conditions,omitempty" optional:"true"`
 
 	// AttachType of the OpenStackNetAttachment
@@ -42,15 +42,20 @@ type OpenStackNetAttachmentStatus struct {
 
 // IsReady - Is this resource in its fully-configured (quiesced) state?
 func (instance *OpenStackNetAttachment) IsReady() bool {
-	return true
-	//return instance.Status.CurrentState == shared.NetAttachConfigured
+	return instance.Status.Conditions.IsTrue(NNCPReadyCondition) || instance.Status.Conditions.IsTrue(SrIOVReadyCondition)
+}
+
+// GetConditions - returns the conditions of the OpenStackNetAttachment object
+func (instance *OpenStackNetAttachment) GetConditions() *condition.Conditions {
+	return &instance.Status.Conditions
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:shortName=osnetattachment;osnetsattachment;osnetattach;osnetsattach;osnetatt;osnetsatt
 //+operator-sdk:csv:customresourcedefinitions:displayName="OpenStack NetAttachment"
-//+kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.currentState`,description="Status"
+//+kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.conditions[0].status",description="Status"
+//+kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.conditions[0].message",description="Message"
 
 // OpenStackNetAttachment is the Schema for the openstacknetattachments API
 type OpenStackNetAttachment struct {

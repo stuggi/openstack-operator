@@ -19,6 +19,9 @@ package net
 import (
 	"context"
 	"fmt"
+	"reflect"
+
+	//	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,11 +36,17 @@ import (
 
 	condition "github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	helper "github.com/openstack-k8s-operators/lib-common/modules/common/helper"
-	label "github.com/openstack-k8s-operators/lib-common/modules/common/labels"
+	labels "github.com/openstack-k8s-operators/lib-common/modules/common/labels"
 	util "github.com/openstack-k8s-operators/lib-common/modules/common/util"
-	nmstate "github.com/openstack-k8s-operators/openstack-operator/pkg/net/nmstate"
 
+	nmstate "github.com/openstack-k8s-operators/openstack-operator/pkg/net/nmstate"
+	nncp "github.com/openstack-k8s-operators/openstack-operator/pkg/net/nncp"
+	"github.com/openstack-k8s-operators/openstack-operator/pkg/net/openstacknetattachment"
+	osnetattach "github.com/openstack-k8s-operators/openstack-operator/pkg/net/openstacknetattachment"
+
+	nmstateshared "github.com/nmstate/kubernetes-nmstate/api/shared"
 	nmstatev1 "github.com/nmstate/kubernetes-nmstate/api/v1"
+
 	//sriovnetworkv1 "github.com/openshift/sriov-network-operator/api/v1"
 	netv1 "github.com/openstack-k8s-operators/openstack-operator/apis/net/v1beta1"
 
@@ -91,20 +100,24 @@ func (r *OpenStackNetAttachmentReconciler) Reconcile(ctx context.Context, req ct
 		instance.Status.Conditions = condition.Conditions{}
 		// initialize conditions used later as Status=Unknown
 
-		cl := condition.CreateList()
-		//	condition.UnknownCondition(corev1beta1.OpenStackControlPlaneRabbitMQReadyCondition, condition.InitReason, corev1beta1.OpenStackControlPlaneRabbitMQReadyInitMessage),
-		//	condition.UnknownCondition(corev1beta1.OpenStackControlPlaneMariaDBReadyCondition, condition.InitReason, corev1beta1.OpenStackControlPlaneMariaDBReadyInitMessage),
-		//	condition.UnknownCondition(corev1beta1.OpenStackControlPlaneKeystoneAPIReadyCondition, condition.InitReason, corev1beta1.OpenStackControlPlaneKeystoneAPIReadyInitMessage),
-		//	condition.UnknownCondition(corev1beta1.OpenStackControlPlanePlacementAPIReadyCondition, condition.InitReason, corev1beta1.OpenStackControlPlanePlacementAPIReadyInitMessage),
-		//	condition.UnknownCondition(corev1beta1.OpenStackControlPlaneGlanceReadyCondition, condition.InitReason, corev1beta1.OpenStackControlPlaneGlanceReadyInitMessage),
-		//)
+		var cl condition.Conditions
+
+		// init conditions list depending if it is nncp or sriov
+		if instance.Spec.AttachConfiguration.NodeSriovConfigurationPolicy.DesiredState.Port != "" {
+			cl = condition.CreateList(
+			// TODO sriov nncps
+			)
+		} else {
+
+			cl = condition.CreateList(
+				condition.UnknownCondition(netv1.NNCPReadyCondition, condition.InitReason, netv1.NNCPReadyInitMessage),
+			)
+		}
 
 		instance.Status.Conditions.Init(&cl)
 
 		// Register overall status immediately to have an early feedback e.g. in the cli
-		if err := r.Status().Update(ctx, instance); err != nil {
-			return ctrl.Result{}, err
-		}
+		return ctrl.Result{}, r.Status().Update(ctx, instance)
 	}
 
 	helper, err := helper.NewHelper(
@@ -154,16 +167,15 @@ func (r *OpenStackNetAttachmentReconciler) SetupWithManager(mgr ctrl.Manager) er
 	// (nncp/sriov) change
 	//
 	ownerLabelWatcher := handler.EnqueueRequestsFromMapFunc(func(o client.Object) []reconcile.Request {
-		labels := o.GetLabels()
+		objLabels := o.GetLabels()
 		//
 		// verify object has OwnerNameLabelSelector
 		//
-		serviceName := o.GetObjectKind().GroupVersionKind().Kind
-		owner, ok := labels[label.GetOwnerNameLabelSelector(label.GetGroupLabel(serviceName))]
+		owner, ok := objLabels[labels.GetOwnerNameLabelSelector(labels.GetGroupLabel(osnetattach.OwnerLabel))]
 		if !ok {
 			return []reconcile.Request{}
 		}
-		namespace := labels[label.GetOwnerNameSpaceLabelSelector(label.GetGroupLabel(serviceName))]
+		namespace := objLabels[labels.GetOwnerNameSpaceLabelSelector(labels.GetGroupLabel(osnetattach.OwnerLabel))]
 		return []reconcile.Request{
 			{NamespacedName: types.NamespacedName{
 				Name:      owner,
@@ -195,13 +207,19 @@ func (r *OpenStackNetAttachmentReconciler) reconcileDelete(ctx context.Context, 
 	// 2. Clean up resources used by the operator
 	///
 	// NNCP resources
+	nncpObj, err := nncp.GetNNCPByName(ctx, helper, fmt.Sprintf("%s-%s", instance.Namespace, instance.Name))
+	if err != nil && !k8s_errors.IsNotFound(err) {
+		return ctrl.Result{}, err
+	}
+
+	ctrlResult, err := nncpObj.Delete(ctx, helper)
+	if err != nil && !k8s_errors.IsNotFound(err) {
+		return ctrl.Result{}, err
+	} else if !reflect.DeepEqual(ctrlResult, ctrl.Result{}) {
+		return ctrlResult, nil
+	}
+
 	/*
-		ctrlResult, err := r.cleanupNodeNetworkConfigurationPolicy(ctx, instance)
-		if err != nil && !k8s_errors.IsNotFound(err) {
-			return ctrl.Result{}, err
-		} else if !reflect.DeepEqual(ctrlResult, ctrl.Result{}) {
-			return ctrlResult, nil
-		}
 		// SRIOV resources
 		err = r.sriovResourceCleanup(ctx, instance)
 		if err != nil && !k8s_errors.IsNotFound(err) {
@@ -229,259 +247,125 @@ func (r *OpenStackNetAttachmentReconciler) reconcileNormal(ctx context.Context, 
 		// If the service object doesn't have our finalizer, add it.
 		controllerutil.AddFinalizer(instance, helper.GetFinalizer())
 		// Register the finalizer immediately to avoid orphaning resources on delete
-		err := r.Update(ctx, instance)
-
-		return ctrl.Result{}, err
+		return ctrl.Result{}, r.Update(ctx, instance)
 	}
+
+	if instance.Spec.AttachConfiguration.NodeSriovConfigurationPolicy.DesiredState.Port != "" {
+		//
+		// reconcile if SRIOV
+		//
+		ctrlResult, err := r.reconcileSRIOV(ctx, instance, helper)
+		if err != nil && !k8s_errors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		} else if !reflect.DeepEqual(ctrlResult, ctrl.Result{}) {
+			return ctrlResult, nil
+		}
+		//
+		// SRIOV end
+		//
+
+	} else {
+		//
+		// reconcile if NNCP
+		//
+		ctrlResult, err := r.reconcileNodeNetworkConfigurationPolicy(ctx, instance, helper)
+		if err != nil && !k8s_errors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		} else if !reflect.DeepEqual(ctrlResult, ctrl.Result{}) {
+			return ctrlResult, nil
+		}
+		//
+		// NNCP end
+		//
+	}
+
+	//
+	// SRIOV end
+	//
+
+	//instance.Status.AttachType = netv1.AttachTypeBridge
 
 	r.Log.Info("Reconciled Service successfully")
 	return ctrl.Result{}, nil
 }
 
-// createOrUpdateNetworkConfigurationPolicy - create or update NetworkConfigurationPolicy
-func (r *OpenStackNetAttachmentReconciler) createOrUpdateNodeNetworkConfigurationPolicy(
-	ctx context.Context,
-	instance *netv1.OpenStackNetAttachment,
-	helper *helper.Helper,
-) error {
-	//
-	// get bridgeName from desiredState
-	//
-	bridgeName, err := nmstate.GetDesiredStateBridgeName(instance.Spec.AttachConfiguration.NodeNetworkConfigurationPolicy.DesiredState.Raw)
+func (r *OpenStackNetAttachmentReconciler) reconcileNodeNetworkConfigurationPolicy(ctx context.Context, instance *netv1.OpenStackNetAttachment, helper *helper.Helper) (ctrl.Result, error) {
+	r.Log.Info("Reconciling NodeNetworkConfigurationPolicy")
+
+	nncpLabels := labels.GetLabels(instance, labels.GetGroupLabel(openstacknetattachment.OwnerLabel), map[string]string{})
+
+	//TODO do we need those?
+	//networkConfigurationPolicy.Labels[common.OwnerControllerNameLabelSelector] = openstacknetattachment.AppLabel
+	//networkConfigurationPolicy.Labels[openstacknetattachment.BridgeLabel] = bridgeName
+	//networkConfigurationPolicy.Labels[shared.OpenStackNetConfigReconcileLabel] = instance.GetLabels()[common.OwnerNameLabelSelector]
+
+	// Define a new NNCP object
+	// NNCPs are not namespaced, lets add the namespace to the name for better separation
+	// TODO webhook to validate that there are not multiple NNCPs which manage the same devices
+	nncpObj := nncp.NewNNCP(
+		fmt.Sprintf("%s-%s", instance.Namespace, instance.Name),
+		&instance.Spec.AttachConfiguration.NodeNetworkConfigurationPolicy,
+		nncpLabels,
+		map[string]string{},
+		5,
+	)
+
+	ctrlResult, err := nncpObj.CreateOrPatch(ctx, helper)
 	if err != nil {
-		msg := fmt.Sprintf("Error get bridge name from NetworkConfigurationPolicy desired state - %s", instance.Name)
-		//cond.Message = fmt.Sprintf("Error get bridge name from NetworkConfigurationPolicy desired state - %s", instance.Name)
-		//cond.Type = shared.NetAttachError
-
-		err = util.WrapErrorForObject(msg, instance, err)
-
-		return err
+		instance.Status.Conditions.Set(condition.FalseCondition(
+			netv1.NNCPReadyCondition,
+			condition.ErrorReason,
+			condition.SeverityWarning,
+			netv1.NNCPReadyErrorMessage,
+			err.Error()))
+		return ctrlResult, err
+	} else if (ctrlResult != ctrl.Result{}) {
+		instance.Status.Conditions.Set(condition.FalseCondition(
+			netv1.NNCPReadyCondition,
+			condition.RequestedReason,
+			condition.SeverityInfo,
+			netv1.NNCPReadyRunningMessage))
+		return ctrlResult, nil
 	}
 
-	networkConfigurationPolicy := &nmstatev1.NodeNetworkConfigurationPolicy{}
-	networkConfigurationPolicy.Name = bridgeName
+	if nncpObj.GetNNCP().Status.Conditions != nil && len(nncpObj.GetNNCP().Status.Conditions) > 0 {
+		nncpCond := nmstate.GetCurrentCondition(nncpObj.GetNNCP().Status.Conditions)
+		if nncpCond != nil {
+			msg := fmt.Sprintf("%s %s: %s", nncpObj.GetNNCP().Kind, nncpObj.GetNNCP().Name, nncpCond.Message)
 
-	// set bridgeName to instance status to be able to consume information from there
-	instance.Status.BridgeName = bridgeName
+			if nncpCond.Type == nmstateshared.NodeNetworkConfigurationPolicyConditionDegraded {
+				instance.Status.Conditions.Set(condition.FalseCondition(
+					netv1.NNCPReadyCondition,
+					condition.ErrorReason,
+					condition.SeverityWarning,
+					nncpCond.Message,
+					err.Error()))
 
-	apply := func() error {
-		util.InitMap(&networkConfigurationPolicy.Labels)
-		networkConfigurationPolicy.Labels[label.GetOwnerUIDLabelSelector(helper.GetFinalizer())] = string(instance.UID)
-		networkConfigurationPolicy.Labels[label.GetOwnerNameLabelSelector(helper.GetFinalizer())] = instance.Name
-		networkConfigurationPolicy.Labels[label.GetOwnerNameLabelSelector(helper.GetFinalizer())] = instance.Namespace
-		//networkConfigurationPolicy.Labels[common.OwnerControllerNameLabelSelector] = openstacknetattachment.AppLabel
-		networkConfigurationPolicy.Labels[fmt.Sprintf("%s/controller", label.GetGroupLabel(helper.GetFinalizer()))] = helper.GetFinalizer()
-		//networkConfigurationPolicy.Labels[openstacknetattachment.BridgeLabel] = bridgeName
-		networkConfigurationPolicy.Labels["osp-bridge"] = bridgeName
-		//networkConfigurationPolicy.Labels[shared.OpenStackNetConfigReconcileLabel] = instance.GetLabels()[label.OwnerNameLabelSelector]
-		// TODO:
-		//networkConfigurationPolicy.Labels["osnetconfig-ref"] = instance.GetLabels()[label.OwnerNameLabelSelector]
+				return ctrl.Result{}, util.WrapErrorForObject(msg, instance, err)
 
-		networkConfigurationPolicy.Spec = instance.Spec.AttachConfiguration.NodeNetworkConfigurationPolicy
+			} else if nncpCond.Type == nmstateshared.NodeNetworkConfigurationPolicyConditionAvailable &&
+				nncpCond.Reason == nmstateshared.NodeNetworkConfigurationPolicyConditionSuccessfullyConfigured {
 
-		return nil
-	}
-
-	op, err := controllerutil.CreateOrPatch(ctx, r.Client, networkConfigurationPolicy, apply)
-	if err != nil {
-		msg := fmt.Sprintf("Updating %s networkConfigurationPolicy", bridgeName)
-		//cond.Message = fmt.Sprintf("Updating %s networkConfigurationPolicy", bridgeName)
-		//cond.Type = shared.NetAttachError
-
-		err = util.WrapErrorForObject(msg, networkConfigurationPolicy, err)
-
-		return err
-	}
-
-	if op != controllerutil.OperationResultNone {
-		msg := fmt.Sprintf("NodeNetworkConfigurationPolicy %s is %s", networkConfigurationPolicy.Name, string(op))
-		//cond.Message = fmt.Sprintf("NodeNetworkConfigurationPolicy %s is %s", networkConfigurationPolicy.Name, string(op))
-		//cond.Type = shared.NetAttachConfiguring
-
-		util.LogForObject(helper, string(op), networkConfigurationPolicy)
-		util.LogForObject(helper, msg, instance)
-	}
-
-	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
-		if !controllerutil.ContainsFinalizer(networkConfigurationPolicy, helper.GetFinalizer()) {
-			controllerutil.AddFinalizer(networkConfigurationPolicy, helper.GetFinalizer())
-			if err := r.Update(ctx, networkConfigurationPolicy); err != nil {
-				return err
+				instance.Status.Conditions.MarkTrue(netv1.NNCPReadyCondition, nncpCond.Message)
+				util.LogForObject(helper, msg, instance)
 			}
-			util.LogForObject(helper, fmt.Sprintf("Finalizer %s added to %s", helper.GetFinalizer(), networkConfigurationPolicy.Name), instance)
 		}
 	}
+	// create NNCP - end
 
-	return nil
+	r.Log.Info("Reconciled NodeNetworkConfigurationPolicy successfully")
+	return ctrl.Result{}, nil
 }
 
-func (r *OpenStackNetAttachmentReconciler) getNodeNetworkConfigurationPolicyStatus(
-	ctx context.Context,
-	instance *netv1.OpenStackNetAttachment,
-	helper *helper.Helper,
-) error {
-	networkConfigurationPolicy := &nmstatev1.NodeNetworkConfigurationPolicy{}
+func (r *OpenStackNetAttachmentReconciler) reconcileSRIOV(ctx context.Context, instance *netv1.OpenStackNetAttachment, helper *helper.Helper) (ctrl.Result, error) {
+	// TODO
+	r.Log.Info("Reconciling SrIOV")
 
-	err := r.Get(ctx, types.NamespacedName{Name: instance.Status.BridgeName}, networkConfigurationPolicy)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to get %s %s ", networkConfigurationPolicy.Kind, networkConfigurationPolicy.Name)
-
-		//cond.Reason = shared.CommonCondReasonNNCPError
-		//cond.Type = shared.NetAttachError
-
-		err = util.WrapErrorForObject(msg, instance, err)
-		return err
-	}
-
-	msg := fmt.Sprintf("%s %s is configuring targeted node(s)", networkConfigurationPolicy.Kind, networkConfigurationPolicy.Name)
-	//cond.Type = shared.NetAttachConfiguring
-
-	/*
-		//
-		// sync latest status of the nncp object to the osnetattach
-		//
-		if networkConfigurationPolicy.Status.Conditions != nil && len(networkConfigurationPolicy.Status.Conditions) > 0 {
-			condition := nmstate.GetCurrentCondition(networkConfigurationPolicy.Status.Conditions)
-			if condition != nil {
-				msg = fmt.Sprintf("%s %s: %s", networkConfigurationPolicy.Kind, networkConfigurationPolicy.Name, condition.Message)
-				//cond.Message = fmt.Sprintf("%s %s: %s", networkConfigurationPolicy.Kind, networkConfigurationPolicy.Name, condition.Message)
-				//cond.Reason = shared.ConditionReason(condition.Reason)
-				//cond.Type = shared.ConditionType(condition.Type)
-
-				if condition.Type == nmstateshared.NodeNetworkConfigurationPolicyConditionAvailable &&
-					condition.Reason == nmstateshared.NodeNetworkConfigurationPolicyConditionSuccessfullyConfigured {
-					cond.Type = shared.NetAttachConfigured
-				} else if condition.Type == nmstateshared.NodeNetworkConfigurationPolicyConditionDegraded {
-					cond.Type = shared.NetAttachError
-
-					return util.WrapErrorForObject(cond.Message, instance, err)
-				}
-			}
-		}
-	*/
-	util.LogForObject(helper, msg, instance)
-
-	return nil
+	r.Log.Info("Reconciled SrIOV successfully")
+	return ctrl.Result{}, nil
 }
 
 /*
-
-func (r *OpenStackNetAttachmentReconciler) cleanupNodeNetworkConfigurationPolicy(
-	ctx context.Context,
-	instance *netv1.OpenStackNetAttachment,
-	helper *helper.Helper,
-) (ctrl.Result, error) {
-	networkConfigurationPolicy := &nmstatev1.NodeNetworkConfigurationPolicy{}
-
-	err := r.Get(ctx, types.NamespacedName{Name: instance.Status.BridgeName}, networkConfigurationPolicy)
-	if err != nil && !k8s_errors.IsNotFound(err) {
-		return ctrl.Result{}, err
-	}
-
-	//
-	// Set/update CR status from NNCP status
-	//
-	err = r.getNodeNetworkConfigurationPolicyStatus(ctx, instance, helper)
-
-	// in case of nncp cond.Reason == FailedToConfigure, still continue to try to
-	// cleanup and delete the nncp
-	if err != nil &&
-		cond.Reason != shared.ConditionReason(nmstateshared.NodeNetworkConfigurationPolicyConditionFailedToConfigure) {
-		return ctrl.Result{}, err
-	}
-
-	bridgeState, err := nmstate.GetDesiredStateBridgeInterfaceState(networkConfigurationPolicy.Spec.DesiredState.Raw)
-	if err != nil {
-		cond.Message = fmt.Sprintf("Error getting interface state for bride %s from %s networkConfigurationPolicy", instance.Status.BridgeName, networkConfigurationPolicy.Name)
-		cond.Reason = shared.ConditionReason(cond.Message)
-		cond.Type = shared.NetAttachError
-
-		err = util.WrapErrorForObject(cond.Message, networkConfigurationPolicy, err)
-		return ctrl.Result{}, err
-	}
-
-	if bridgeState != "absent" && bridgeState != "down" {
-		apply := func() error {
-			desiredState, err := nmstate.GetDesiredStateAsString(networkConfigurationPolicy.Spec.DesiredState.Raw)
-			if err != nil {
-				return err
-			}
-
-			//
-			// Update nncp desired state to absent of all interfaces from the NNCP to unconfigure the device on the worker nodes
-			// https://docs.openshift.com/container-platform/4.9/networking/k8s_nmstate/k8s-nmstate-updating-node-network-config.html
-			//
-			re := regexp.MustCompile(`"state":"up"`)
-			desiredStateAbsent := re.ReplaceAllString(desiredState, `"state":"absent"`)
-
-			networkConfigurationPolicy.Spec.DesiredState = nmstateshared.State{
-				Raw: nmstateshared.RawState(desiredStateAbsent),
-			}
-
-			return nil
-		}
-
-		//
-		// 1) Update nncp desired state to down to unconfigure the device on the worker nodes
-		//
-		op, err := controllerutil.CreateOrPatch(ctx, r.Client, networkConfigurationPolicy, apply)
-		if err != nil {
-			cond.Message = fmt.Sprintf("Updating %s networkConfigurationPolicy", instance.Status.BridgeName)
-			cond.Reason = shared.ConditionReason(cond.Message)
-			cond.Type = shared.NetAttachError
-
-			err = util.WrapErrorForObject(cond.Message, networkConfigurationPolicy, err)
-			return ctrl.Result{}, err
-		}
-
-		if op != controllerutil.OperationResultNone {
-			util.LogForObject(r, string(op), networkConfigurationPolicy)
-		}
-
-		//
-		// 2) Delete nncp that DeletionTimestamp get set
-		//
-		if err := r.Delete(ctx, networkConfigurationPolicy); err != nil && !k8s_errors.IsNotFound(err) {
-			return ctrl.Result{}, err
-		}
-
-	} else if bridgeState == "absent" && networkConfigurationPolicy.DeletionTimestamp != nil {
-		deletionTime := networkConfigurationPolicy.GetDeletionTimestamp().Time
-		condition := nmstate.GetCurrentCondition(networkConfigurationPolicy.Status.Conditions)
-		if condition != nil {
-			nncpStateChangeTime := condition.LastTransitionTime.Time
-
-			//
-			// 3) Remove finalizer if nncp update finished
-			//
-			if nncpStateChangeTime.Sub(deletionTime).Seconds() > 0 &&
-				condition.Type == "Available" &&
-				condition.Reason == "SuccessfullyConfigured" {
-
-				controllerutil.RemoveFinalizer(networkConfigurationPolicy, openstacknetattachment.FinalizerName)
-				if err := r.Update(ctx, networkConfigurationPolicy); err != nil && !k8s_errors.IsNotFound(err) {
-					cond.Message = fmt.Sprintf("Failed to update %s %s", instance.Kind, instance.Name)
-					cond.Reason = shared.CommonCondReasonRemoveFinalizerError
-					cond.Type = shared.CommonCondTypeError
-
-					err = util.WrapErrorForObject(cond.Message, instance, err)
-
-					return ctrl.Result{}, err
-				}
-
-				util.LogForObject(r, fmt.Sprintf("NodeNetworkConfigurationPolicy is no longer required and has been deleted: %s", networkConfigurationPolicy.Name), instance)
-
-				return ctrl.Result{}, nil
-
-			}
-		}
-	}
-	//
-	// RequeueAfter after 20s and get the nncp CR deleted when the device got removed from the worker
-	//
-	return ctrl.Result{RequeueAfter: time.Second * 20}, nil
-}
-
 func (r *OpenStackNetAttachmentReconciler) sriovResourceCleanup(
 	ctx context.Context,
 	instance *netv1.OpenStackNetAttachment,

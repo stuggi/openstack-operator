@@ -7,16 +7,43 @@ spec:
     nodeNetworkConfigurationPolicy:
       desiredState:
         interfaces:
-        - bridge:
+        - name: br-osp.20
+          type: vlan
+          description: vlan interface for metallb on internal_api
+          state: up
+          vlan:
+            base-iface: br-osp
+            id: 20
+          ipv4:
+            address:
+            - ip: 172.17.0.1
+              prefix-length: 24
+            enabled: true
+          ipv6:
+            enabled: false
+        - name: br-osp
+          type: linux-bridge
+          description: Linux bridge with enp6s0 as a port
+          bridge:
             options:
               stp:
                 enabled: false
             port:
-            - name: enp7s0
-          description: Linux bridge with enp7s0 as a port
+            - name: enp6s0
+          ipv4:
+            enabled: false
+          ipv6:
+            enabled: false
           mtu: 1500
-          name: br-osp
           state: up
-          type: linux-bridge
+        - name: enp6s0
+          type: ethernet
+          description: Configuring enp6s0 on workers
+          ipv4:
+            enabled: false
+          ipv6:
+            enabled: false
+          mtu: 1500
+          state: up
       nodeSelector:
         node-role.kubernetes.io/worker: ""
