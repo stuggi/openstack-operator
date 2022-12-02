@@ -24,10 +24,11 @@ import (
 
 // OpenStackNetworkAttachment -
 type OpenStackNetworkAttachment struct {
-	osNetAttName string
-	osNetAttSpec *netv1.NodeConfigurationPolicy
-	osNetAtt     *netv1.OpenStackNetAttachment
-	labels       map[string]string
-	annotations  map[string]string
-	timeout      time.Duration
+	osNetAttName      string
+	osNetAttNamespace string
+	osNetAttSpec      *netv1.NodeConfigurationPolicy
+	osNetAtt          *netv1.OpenStackNetAttachment
+	labels            map[string]string
+	annotations       map[string]string
+	timeout           time.Duration
 }

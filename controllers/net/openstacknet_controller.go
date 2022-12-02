@@ -18,9 +18,9 @@ package net
 
 import (
 	"context"
-	"fmt"
-	"strconv"
-	"strings"
+	//	"fmt"
+	//	"strconv"
+	//	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -29,14 +29,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
+	//	networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	condition "github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	helper "github.com/openstack-k8s-operators/lib-common/modules/common/helper"
-	labels "github.com/openstack-k8s-operators/lib-common/modules/common/labels"
+
+	//	labels "github.com/openstack-k8s-operators/lib-common/modules/common/labels"
 	util "github.com/openstack-k8s-operators/lib-common/modules/common/util"
 	netv1 "github.com/openstack-k8s-operators/openstack-operator/apis/net/v1beta1"
 
-	osnet "github.com/openstack-k8s-operators/openstack-operator/pkg/net"
+	//	osnet "github.com/openstack-k8s-operators/openstack-operator/pkg/net"
 
 	"github.com/go-logr/logr"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
@@ -189,47 +190,50 @@ func (r *OpenStackNetReconciler) reconcileNormal(
 	helper *helper.Helper,
 ) (ctrl.Result, error) {
 
-	//
-	// Create/update NetworkAttachmentDefinition
-	//
-	if err := r.createOrUpdateNetworkAttachmentDefinition(ctx, instance, helper, false); err != nil {
-		return ctrl.Result{}, err
-	}
+	/*
+		//
+		// Create/update NetworkAttachmentDefinition
+		//
+		if err := r.createOrUpdateNetworkAttachmentDefinition(ctx, instance, helper, false); err != nil {
+			return ctrl.Result{}, err
+		}
 
-	//
-	// Create/update static NetworkAttachmentDefinition used for openstackclient
-	//
-	if err := r.createOrUpdateNetworkAttachmentDefinition(ctx, instance, helper, true); err != nil {
-		return ctrl.Result{}, err
-	}
+		//
+		// Create/update static NetworkAttachmentDefinition used for openstackclient
+		//
+		if err := r.createOrUpdateNetworkAttachmentDefinition(ctx, instance, helper, true); err != nil {
+			return ctrl.Result{}, err
+		}
 
-	//
-	// Update status with reservation count and flattened reservations
-	//
-	reservedIPCount := 0
-	reservations := map[string]netv1.NodeIPReservation{}
-	for _, roleReservation := range instance.Spec.RoleReservations {
-		for _, reservation := range roleReservation.Reservations {
-			reservedIPCount++
-			reservations[reservation.Hostname] = netv1.NodeIPReservation{
-				IP:      reservation.IP,
-				Deleted: reservation.Deleted,
+		//
+		// Update status with reservation count and flattened reservations
+		//
+		reservedIPCount := 0
+		reservations := map[string]netv1.NodeIPReservation{}
+		for _, roleReservation := range instance.Spec.RoleReservations {
+			for _, reservation := range roleReservation.Reservations {
+				reservedIPCount++
+				reservations[reservation.Hostname] = netv1.NodeIPReservation{
+					IP:      reservation.IP,
+					Deleted: reservation.Deleted,
+				}
 			}
 		}
-	}
 
-	instance.Status.ReservedIPCount = reservedIPCount
-	instance.Status.Reservations = reservations
+		instance.Status.ReservedIPCount = reservedIPCount
+		instance.Status.Reservations = reservations
 
-	// If we get this far, we assume the NAD been successfully created (NAD does not
-	// have a status block we can examine)
-	util.LogForObject(helper, fmt.Sprintf("OpenStackNet %s has been successfully configured on targeted node(s)", instance.Name), instance)
+		// If we get this far, we assume the NAD been successfully created (NAD does not
+		// have a status block we can examine)
+		util.LogForObject(helper, fmt.Sprintf("OpenStackNet %s has been successfully configured on targeted node(s)", instance.Name), instance)
 
-	//cond.Type = shared.NetConfigured
+		//cond.Type = shared.NetConfigured
+	*/
 
 	return ctrl.Result{}, nil
 }
 
+/*
 //
 // createOrUpdateNetworkAttachmentDefinition - create or update NetworkAttachmentDefinition
 //
@@ -354,6 +358,7 @@ func (r *OpenStackNetReconciler) createOrUpdateNetworkAttachmentDefinition(
 
 	return nil
 }
+*/
 
 /*
 func (r *OpenStackNetReconciler) cleanupNetworkAttachmentDefinition(

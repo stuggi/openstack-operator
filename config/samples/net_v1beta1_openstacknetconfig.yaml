@@ -35,3 +35,24 @@ spec:
             state: up
         nodeSelector:
           node-role.kubernetes.io/worker: ""
+    br-osp-ip-crc-nv4w7-master-0:
+      nodeNetworkConfigurationPolicy:
+        desiredState:
+          interfaces:
+          - name: br-osp.20
+            type: vlan
+            description: vlan interface for metallb on internal_api
+            state: up
+            vlan:
+              base-iface: br-osp
+              id: 20
+            ipv4:
+              address:
+              - ip: 172.17.0.1
+                prefix-length: 24
+              enabled: true
+            ipv6:
+              enabled: false
+        nodeSelector:
+          node-role.kubernetes.io/worker: ""
+          kubernetes.io/hostname: crc-nv4w7-master-0

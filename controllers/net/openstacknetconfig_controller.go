@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sort"
+	"strings"
 
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -89,7 +91,7 @@ func (r *OpenStackNetConfigReconciler) Reconcile(ctx context.Context, req ctrl.R
 		var cl condition.Conditions
 
 		cl = condition.CreateList(
-			condition.UnknownCondition(netv1.NNCPReadyCondition, condition.InitReason, netv1.NNCPReadyInitMessage),
+			condition.UnknownCondition(netv1.OpenStackNetAttachmentReadyCondition, condition.InitReason, netv1.OpenStackNetAttachmentReadyInitMessage),
 		)
 
 		instance.Status.Conditions.Init(&cl)
@@ -147,7 +149,7 @@ func (r *OpenStackNetConfigReconciler) SetupWithManager(mgr ctrl.Manager) error 
 }
 
 func (r *OpenStackNetConfigReconciler) reconcileDelete(ctx context.Context, instance *netv1.OpenStackNetConfig, helper *helper.Helper) (ctrl.Result, error) {
-	r.Log.Info("Reconciling Service delete")
+	r.Log.Info("Reconciling OpenStackNetConfig delete")
 
 	//
 	// 1. check if finalizer is there
@@ -157,13 +159,42 @@ func (r *OpenStackNetConfigReconciler) reconcileDelete(ctx context.Context, inst
 		return ctrl.Result{}, nil
 	}
 
-	// TODO
+	//
+	// 2. remove finalizers on all OpenStackNetworkAttachments
+	//
+
+	// TODO we need to reverse remove the nncps in case they depend on each other
+	// like when creatubng the bridge on all of the workers and then create a vlan interface on top with an ip for metallb
+	netAttNames := make([]string, 0, len(instance.Spec.AttachConfigurations))
+	for k := range instance.Spec.AttachConfigurations {
+		keys = append(netAttNames, k)
+	}
+	sort.Strings(netAttNames)
+
+	for idx, osAttName := range netAttNames {
+
+	}
+
+	fmt.Println(strings.HasPrefix("my string", "prefix")) // false
+	fmt.Println(strings.HasPrefix("my string", "my"))     // true
+
+	for netAttName := range instance.Spec.AttachConfigurations {
+
+		osNetAttObj, err := osnetatt.GetOpenStackNetworkAttachmentByName(ctx, helper, netAttName, instance.Namespace)
+		if err != nil && !k8s_errors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+
+		if err := osNetAttObj.DeleteFinalizer(ctx, helper); err != nil && !k8s_errors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	}
 
 	//
 	// 3. as last step remove the finalizer on the operator CR to finish delete
 	//
 	controllerutil.RemoveFinalizer(instance, helper.GetFinalizer())
-	r.Log.Info("Reconciled Service delete successfully")
+	r.Log.Info("Reconciled OpenStackNetConfig delete successfully")
 	if err := r.Update(ctx, instance); err != nil && !k8s_errors.IsNotFound(err) {
 		return ctrl.Result{}, err
 	}
@@ -173,7 +204,7 @@ func (r *OpenStackNetConfigReconciler) reconcileDelete(ctx context.Context, inst
 }
 
 func (r *OpenStackNetConfigReconciler) reconcileNormal(ctx context.Context, instance *netv1.OpenStackNetConfig, helper *helper.Helper) (ctrl.Result, error) {
-	r.Log.Info("Reconciling Service")
+	r.Log.Info("Reconciling OpenStackNetConfig")
 
 	if !controllerutil.ContainsFinalizer(instance, helper.GetFinalizer()) {
 		// If the service object doesn't have our finalizer, add it.
@@ -195,7 +226,7 @@ func (r *OpenStackNetConfigReconciler) reconcileNormal(ctx context.Context, inst
 	// OpenStackNetworkAttachment end
 	//
 
-	r.Log.Info("Reconciled Service successfully")
+	r.Log.Info("Reconciled OpenStackNetConfig successfully")
 	return ctrl.Result{}, nil
 }
 
@@ -211,6 +242,7 @@ func (r *OpenStackNetConfigReconciler) reconcileOpenStackNetAttachment(ctx conte
 
 		osNetAttObj := osnetatt.NewOpenStackNetworkAttachment(
 			netAttName,
+			instance.Namespace,
 			&netAttSpec,
 			netAttLabels,
 			map[string]string{},

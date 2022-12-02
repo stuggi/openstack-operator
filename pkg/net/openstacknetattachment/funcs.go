@@ -37,18 +37,20 @@ import (
 //
 func NewOpenStackNetworkAttachment(
 	name string,
+	namespace string,
 	spec *netv1.NodeConfigurationPolicy,
 	labels map[string]string,
 	annotations map[string]string,
 	timeout time.Duration,
 ) *OpenStackNetworkAttachment {
 	return &OpenStackNetworkAttachment{
-		osNetAttName: name,
-		osNetAttSpec: spec,
-		osNetAtt:     &netv1.OpenStackNetAttachment{},
-		labels:       labels,
-		annotations:  annotations,
-		timeout:      time.Duration(timeout) * time.Second, // timeout to set in s to reconcile
+		osNetAttName:      name,
+		osNetAttNamespace: namespace,
+		osNetAttSpec:      spec,
+		osNetAtt:          &netv1.OpenStackNetAttachment{},
+		labels:            labels,
+		annotations:       annotations,
+		timeout:           time.Duration(timeout) * time.Second, // timeout to set in s to reconcile
 	}
 }
 
@@ -60,7 +62,7 @@ func (n *OpenStackNetworkAttachment) CreateOrPatch(
 	h *helper.Helper,
 ) (ctrl.Result, error) {
 	n.osNetAtt.ObjectMeta.Name = n.osNetAttName
-	n.osNetAtt.ObjectMeta.Namespace = h.GetBeforeObject().GetNamespace()
+	n.osNetAtt.ObjectMeta.Namespace = n.osNetAttNamespace
 
 	op, err := controllerutil.CreateOrPatch(ctx, h.GetClient(), n.osNetAtt, func() error {
 		// NNCP NodeSelector is immutable so we set this value only if
@@ -107,7 +109,7 @@ func (n *OpenStackNetworkAttachment) getOpenStackNetAttachmentWithName(
 	ctx context.Context,
 	h *helper.Helper,
 ) error {
-	err := h.GetClient().Get(ctx, types.NamespacedName{Name: n.osNetAttName}, n.osNetAtt)
+	err := h.GetClient().Get(ctx, types.NamespacedName{Name: n.osNetAttName, Namespace: n.osNetAttNamespace}, n.osNetAtt)
 	if err != nil {
 		if k8s_errors.IsNotFound(err) {
 			return util.WrapErrorForObject(
@@ -148,11 +150,13 @@ func GetOpenStackNetworkAttachmentByName(
 	ctx context.Context,
 	h *helper.Helper,
 	name string,
+	namespace string,
 ) (*OpenStackNetworkAttachment, error) {
 	// create a OpenStackNetworkAttachment by suppplying a resource name
 	osNetAttObj := &OpenStackNetworkAttachment{
-		osNetAttName: name,
-		osNetAtt:     &netv1.OpenStackNetAttachment{},
+		osNetAttName:      name,
+		osNetAttNamespace: namespace,
+		osNetAtt:          &netv1.OpenStackNetAttachment{},
 	}
 
 	if err := osNetAttObj.getOpenStackNetAttachmentWithName(ctx, h); err != nil {
