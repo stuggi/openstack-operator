@@ -1,0 +1,37 @@
+apiVersion: net.openstack.org/v1beta1
+kind: OpenStackNetConfig
+metadata:
+  name: openstacknetconfig-sample
+  namespace: openstack
+spec:
+  attachConfigurations:
+    br-osp:
+      nodeNetworkConfigurationPolicy:
+        desiredState:
+          interfaces:
+          - name: br-osp
+            type: linux-bridge
+            description: Linux bridge with enp6s0 as a port
+            bridge:
+              options:
+                stp:
+                  enabled: false
+              port:
+              - name: enp6s0
+            ipv4:
+              enabled: false
+            ipv6:
+              enabled: false
+            mtu: 1500
+            state: up
+          - name: enp6s0
+            type: ethernet
+            description: Configuring enp6s0 on workers
+            ipv4:
+              enabled: false
+            ipv6:
+              enabled: false
+            mtu: 1500
+            state: up
+        nodeSelector:
+          node-role.kubernetes.io/worker: ""

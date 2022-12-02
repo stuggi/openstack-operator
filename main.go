@@ -46,6 +46,7 @@ import (
 	// TODO fix corev1beta1 -> corev1
 	networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	nmstatev1 "github.com/nmstate/kubernetes-nmstate/api/v1"
+
 	corev1beta1 "github.com/openstack-k8s-operators/openstack-operator/apis/core/v1beta1"
 	netv1 "github.com/openstack-k8s-operators/openstack-operator/apis/net/v1beta1"
 
@@ -179,6 +180,15 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenStackNetAttachment")
 		os.Exit(1)
 	}
+	if err = (&netcontrollers.OpenStackNetConfigReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Kclient: kclient,
+		Log:     ctrl.Log.WithName("controllers").WithName("OpenStackNetConfig"),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "OpenStackNetConfig")
+		os.Exit(1)
+	}
 
 	if strings.ToLower(os.Getenv("ENABLE_WEBHOOKS")) != "false" {
 		enableWebhooks = true
@@ -200,6 +210,10 @@ func main() {
 		}
 		if err = (&netv1.OpenStackNetAttachment{}).SetupWebhookWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create webhook", "webhook", "OpenStackNetAttachment")
+			os.Exit(1)
+		}
+		if err = (&netv1.OpenStackNetConfig{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "OpenStackNetConfig")
 			os.Exit(1)
 		}
 	}

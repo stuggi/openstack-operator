@@ -24,6 +24,9 @@ import (
 //
 const (
 
+	// OpenStackNetAttachmentReadyCondition Status=True condition when OpenStackNetAttachment created/patched ok
+	OpenStackNetAttachmentReadyCondition condition.Type = "OpenStackNetAttachmentReady"
+
 	// NNCPReadyCondition Status=True condition when nncp created/patched ok
 	NNCPReadyCondition condition.Type = "NNCPReady"
 
@@ -40,6 +43,22 @@ const ()
 // Common Messages used by API objects.
 //
 const (
+	//
+	// OpenStackNetAttachmentReady condition messages
+	//
+
+	// OpenStackNetAttachmentReadyInitMessage string
+	OpenStackNetAttachmentReadyInitMessage = "OpenStackNetAttachment not started"
+
+	// OpenStackNetAttachmentReadyMessage string
+	OpenStackNetAttachmentReadyMessage = "OpenStackNetAttachment completed"
+
+	// OpenStackNetAttachmentReadyRunningMessage string
+	OpenStackNetAttachmentReadyRunningMessage = "OpenStackNetAttachment in progress"
+
+	// OpenStackNetAttachmentReadyErrorMessage error string
+	OpenStackNetAttachmentReadyErrorMessage = "OpenStackNetAttachment error occured %s"
+
 	//
 	// NNCPReady condition messages
 	//

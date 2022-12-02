@@ -132,6 +132,32 @@ rules:
 - apiGroups:
   - net.openstack.org
   resources:
+  - openstacknetconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - net.openstack.org
+  resources:
+  - openstacknetconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - net.openstack.org
+  resources:
+  - openstacknetconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - net.openstack.org
+  resources:
   - openstacknets
   verbs:
   - create
