@@ -35,7 +35,8 @@ spec:
             state: up
         nodeSelector:
           node-role.kubernetes.io/worker: ""
-    br-osp-ip-crc-nv4w7-master-0:
+    br-osp-ip-master-0:
+      attachConfigurationDependency: br-osp
       nodeNetworkConfigurationPolicy:
         desiredState:
           interfaces:

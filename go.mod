@@ -29,6 +29,7 @@ require (
 require (
 	github.com/nmstate/kubernetes-nmstate/api v0.0.0-20220503140604-a72ffb762dd0
 	github.com/tidwall/gjson v1.14.4
+	golang.org/x/exp v0.0.0-20221204150635-6dcec336b2bb
 	sigs.k8s.io/yaml v1.3.0
 )
 

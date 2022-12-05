@@ -187,6 +187,8 @@ func (n *NNCP) Delete(
 		if condition != nil {
 			nncpStateChangeTime := condition.LastTransitionTime.Time
 
+			h.GetLogger().Info(fmt.Sprintf("DELETE NNCP %s", n.nncpName))
+
 			//
 			// 3) Remove finalizer if nncp update finished
 			//
@@ -194,9 +196,11 @@ func (n *NNCP) Delete(
 				condition.Type == "Available" &&
 				condition.Reason == "SuccessfullyConfigured" {
 
-				controllerutil.RemoveFinalizer(n.nncp, h.GetFinalizer())
+				h.GetLogger().Info(fmt.Sprintf("DELETE NNCP remove finalizer %s", n.nncpName))
 
-				return ctrl.Result{}, h.GetClient().Update(ctx, n.nncp)
+				if controllerutil.RemoveFinalizer(n.nncp, h.GetFinalizer()) {
+					return ctrl.Result{}, h.GetClient().Update(ctx, n.nncp)
+				}
 			}
 		}
 	}
@@ -244,10 +248,13 @@ func (n *NNCP) DeleteFinalizer(
 	ctx context.Context,
 	h *helper.Helper,
 ) error {
-	controllerutil.RemoveFinalizer(n.nncp, h.GetFinalizer())
-	if err := h.GetClient().Update(ctx, n.nncp); err != nil && !k8s_errors.IsNotFound(err) {
-		return err
+
+	if controllerutil.RemoveFinalizer(n.nncp, h.GetFinalizer()) {
+		if err := h.GetClient().Update(ctx, n.nncp); err != nil && !k8s_errors.IsNotFound(err) {
+			return err
+		}
 	}
+
 	return nil
 }
 

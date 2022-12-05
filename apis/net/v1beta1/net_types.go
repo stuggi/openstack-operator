@@ -68,6 +68,10 @@ const (
 // NodeConfigurationPolicy - policy definition to create NodeNetworkConfigurationPolicy or NodeSriovConfigurationPolicy
 type NodeConfigurationPolicy struct {
 	// +kubebuilder:validation:Optional
+	// AttachConfigurationDependency, which attachConfiguration this depends on
+	AttachConfigurationDependency string `json:"attachConfigurationDependency"`
+
+	// +kubebuilder:validation:Optional
 	// +kubebuilder:default={}
 	NodeNetworkConfigurationPolicy nmstateshared.NodeNetworkConfigurationPolicySpec `json:"nodeNetworkConfigurationPolicy,omitempty"`
 

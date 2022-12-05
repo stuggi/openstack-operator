@@ -20,8 +20,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"sort"
-	"strings"
 
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -162,33 +160,98 @@ func (r *OpenStackNetConfigReconciler) reconcileDelete(ctx context.Context, inst
 	//
 	// 2. remove finalizers on all OpenStackNetworkAttachments
 	//
-
-	// TODO we need to reverse remove the nncps in case they depend on each other
-	// like when creatubng the bridge on all of the workers and then create a vlan interface on top with an ip for metallb
-	netAttNames := make([]string, 0, len(instance.Spec.AttachConfigurations))
-	for k := range instance.Spec.AttachConfigurations {
-		keys = append(netAttNames, k)
-	}
-	sort.Strings(netAttNames)
-
-	for idx, osAttName := range netAttNames {
-
-	}
-
-	fmt.Println(strings.HasPrefix("my string", "prefix")) // false
-	fmt.Println(strings.HasPrefix("my string", "my"))     // true
-
 	for netAttName := range instance.Spec.AttachConfigurations {
-
 		osNetAttObj, err := osnetatt.GetOpenStackNetworkAttachmentByName(ctx, helper, netAttName, instance.Namespace)
 		if err != nil && !k8s_errors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 
-		if err := osNetAttObj.DeleteFinalizer(ctx, helper); err != nil && !k8s_errors.IsNotFound(err) {
+		if err := osNetAttObj.DeleteFinalizer(ctx, helper, helper.GetFinalizer()); err != nil && !k8s_errors.IsNotFound(err) {
 			return ctrl.Result{}, err
 		}
 	}
+
+	/*
+		for netAttName, netAttSpec := range instance.Spec.AttachConfigurations {
+
+			// if this netAttSpec depends on another one, add the netAttName as finalizer
+			if netAttSpec.AttachConfiguration != "" {
+				osNetAttObj, err := osnetatt.GetOpenStackNetworkAttachmentByName(ctx, helper, netAttSpec.AttachConfiguration, instance.Namespace)
+				if err != nil {
+					// if the osnetatt which this one depends on is not created,
+					// proceed with next one
+					if k8s_errors.IsNotFound(err) {
+						continue
+					}
+
+					return ctrl.Result{}, err
+				}
+
+				if err := osNetAttObj.AddFinalizer(ctx, helper, netAttName); err != nil && !k8s_errors.IsNotFound(err) {
+					return ctrl.Result{}, err
+				}
+
+			}
+
+
+
+			osNetAttObj, err := osnetatt.GetOpenStackNetworkAttachmentByName(ctx, helper, netAttName, instance.Namespace)
+			if err != nil && !k8s_errors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+
+			if err := osNetAttObj.DeleteFinalizer(ctx, helper, helper.GetFinalizer()); err != nil && !k8s_errors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+		}
+	*/
+
+	/*
+		// TODO we need to reverse remove the nncps in case they depend on each other
+		// like when creatubng the bridge on all of the workers and then create a vlan interface on top with an ip for metallb
+
+		// a) get list of names sorted alphabet
+		netAttNames := maps.Keys(instance.Spec.AttachConfigurations)
+		sort.Strings(netAttNames)
+
+		// b) check for all other osAttNames which start with the first entry, excluding itself
+		for _, osAttName := range netAttNames {
+			curOsNetAtt := osAttName
+			find := netAttNames[1:]
+			deletedOsNetAtt := []string{}
+			for _, nextAttName := range find {
+				osNetAttToDelete := curOsNetAtt
+				if strings.HasPrefix(nextAttName, curOsNetAtt) {
+					osNetAttToDelete = nextAttName
+				}
+
+				osNetAttObj, err := osnetatt.GetOpenStackNetworkAttachmentByName(ctx, helper, osNetAttToDelete, instance.Namespace)
+				if err != nil && !k8s_errors.IsNotFound(err) {
+					return ctrl.Result{}, err
+				}
+
+				if err := osNetAttObj.DeleteFinalizer(ctx, helper); err != nil && !k8s_errors.IsNotFound(err) {
+					return ctrl.Result{}, err
+				}
+
+				deletedOsNetAtt = append(deletedOsNetAtt, osNetAttToDelete)
+			}
+
+			// remove
+		}
+
+		for netAttName := range instance.Spec.AttachConfigurations {
+
+			osNetAttObj, err := osnetatt.GetOpenStackNetworkAttachmentByName(ctx, helper, netAttName, instance.Namespace)
+			if err != nil && !k8s_errors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+
+			if err := osNetAttObj.DeleteFinalizer(ctx, helper, helper.GetFinalizer()); err != nil && !k8s_errors.IsNotFound(err) {
+				return ctrl.Result{}, err
+			}
+		}
+	*/
 
 	//
 	// 3. as last step remove the finalizer on the operator CR to finish delete
@@ -233,10 +296,33 @@ func (r *OpenStackNetConfigReconciler) reconcileNormal(ctx context.Context, inst
 func (r *OpenStackNetConfigReconciler) reconcileOpenStackNetAttachment(ctx context.Context, instance *netv1.OpenStackNetConfig, helper *helper.Helper) (ctrl.Result, error) {
 	r.Log.Info("Reconciling OpenStackNetAttachment")
 
+	// TODO - cleanup removed osnetcfgs from instance.Spec.AttachConfigurations
+
 	var cond *condition.Condition
 	var ctrlResult reconcile.Result
 	var err error
 	for netAttName, netAttSpec := range instance.Spec.AttachConfigurations {
+
+		/*
+			// if this netAttSpec depends on another one, add the netAttName as finalizer
+			if netAttSpec.AttachConfiguration != "" {
+				osNetAttObj, err := osnetatt.GetOpenStackNetworkAttachmentByName(ctx, helper, netAttSpec.AttachConfiguration, instance.Namespace)
+				if err != nil {
+					// if the osnetatt which this one depends on is not created,
+					// proceed with next one
+					if k8s_errors.IsNotFound(err) {
+						continue
+					}
+
+					return ctrl.Result{}, err
+				}
+
+				if err := osNetAttObj.AddFinalizer(ctx, helper, netAttName); err != nil && !k8s_errors.IsNotFound(err) {
+					return ctrl.Result{}, err
+				}
+
+			}
+		*/
 
 		netAttLabels := labels.GetLabels(instance, labels.GetGroupLabel(osnetcfg.OwnerLabel), map[string]string{})
 

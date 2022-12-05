@@ -79,6 +79,10 @@ spec:
                   description: NodeConfigurationPolicy - policy definition to create
                     NodeNetworkConfigurationPolicy or NodeSriovConfigurationPolicy
                   properties:
+                    attachConfigurationDependency:
+                      description: AttachConfigurationDependency, which attachConfiguration
+                        this depends on
+                      type: string
                     nodeNetworkConfigurationPolicy:
                       description: NodeNetworkConfigurationPolicySpec defines the
                         desired state of NodeNetworkConfigurationPolicy

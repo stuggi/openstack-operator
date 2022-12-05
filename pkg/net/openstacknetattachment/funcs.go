@@ -130,15 +130,35 @@ func (n *OpenStackNetworkAttachment) getOpenStackNetAttachmentWithName(
 }
 
 //
+// AddFinalizer - adds a finalizer by its object
+//
+func (n *OpenStackNetworkAttachment) AddFinalizer(
+	ctx context.Context,
+	h *helper.Helper,
+	finalizer string,
+) error {
+	// add finaizer
+	if controllerutil.AddFinalizer(n.osNetAtt, finalizer) {
+		if err := h.GetClient().Update(ctx, n.osNetAtt); err != nil && !k8s_errors.IsNotFound(err) {
+			return err
+		}
+	}
+
+	return nil
+}
+
+//
 // DeleteFinalizer deletes a finalizer by its object
 //
 func (n *OpenStackNetworkAttachment) DeleteFinalizer(
 	ctx context.Context,
 	h *helper.Helper,
+	finalizer string,
 ) error {
-	controllerutil.RemoveFinalizer(n.osNetAtt, h.GetFinalizer())
-	if err := h.GetClient().Update(ctx, n.osNetAtt); err != nil && !k8s_errors.IsNotFound(err) {
-		return err
+	if controllerutil.RemoveFinalizer(n.osNetAtt, finalizer) {
+		if err := h.GetClient().Update(ctx, n.osNetAtt); err != nil && !k8s_errors.IsNotFound(err) {
+			return err
+		}
 	}
 	return nil
 }

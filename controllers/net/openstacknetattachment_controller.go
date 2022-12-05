@@ -42,6 +42,7 @@ import (
 	nmstate "github.com/openstack-k8s-operators/openstack-operator/pkg/net/nmstate"
 	nncp "github.com/openstack-k8s-operators/openstack-operator/pkg/net/nncp"
 	"github.com/openstack-k8s-operators/openstack-operator/pkg/net/openstacknetattachment"
+	osnetatt "github.com/openstack-k8s-operators/openstack-operator/pkg/net/openstacknetattachment"
 	osnetattach "github.com/openstack-k8s-operators/openstack-operator/pkg/net/openstacknetattachment"
 
 	nmstateshared "github.com/nmstate/kubernetes-nmstate/api/shared"
@@ -204,15 +205,18 @@ func (r *OpenStackNetAttachmentReconciler) reconcileDelete(ctx context.Context, 
 	}
 
 	//
-	// 2. Clean up resources used by the operator
-	///
-	// NNCP resources
-	nncpObj, err := nncp.GetNNCPByName(ctx, helper, fmt.Sprintf("%s-%s", instance.Namespace, instance.Name))
-	if err != nil && !k8s_errors.IsNotFound(err) {
-		return ctrl.Result{}, err
+	// 2. check if there are other finalizers
+	//
+	if len(instance.GetFinalizers()) > 1 {
+		msg := fmt.Sprintf("NodeNetworkConfigurationPolicy has multiple finalizers, waiting for those to be removed %s", instance.GetFinalizers())
+		util.LogForObject(helper, msg, instance)
 	}
 
-	ctrlResult, err := nncpObj.Delete(ctx, helper)
+	//
+	// 3. Clean up resources used by the operator
+	///
+	// NNCP resources
+	ctrlResult, err := r.nncpCleanup(ctx, instance, helper)
 	if err != nil && !k8s_errors.IsNotFound(err) {
 		return ctrl.Result{}, err
 	} else if !reflect.DeepEqual(ctrlResult, ctrl.Result{}) {
@@ -228,7 +232,7 @@ func (r *OpenStackNetAttachmentReconciler) reconcileDelete(ctx context.Context, 
 	*/
 
 	//
-	// 3. as last step remove the finalizer on the operator CR to finish delete
+	// 4. as last step remove the finalizer on the operator CR to finish delete
 	//
 	controllerutil.RemoveFinalizer(instance, helper.GetFinalizer())
 	r.Log.Info("Reconciled Service delete successfully")
@@ -292,6 +296,26 @@ func (r *OpenStackNetAttachmentReconciler) reconcileNormal(ctx context.Context, 
 func (r *OpenStackNetAttachmentReconciler) reconcileNodeNetworkConfigurationPolicy(ctx context.Context, instance *netv1.OpenStackNetAttachment, helper *helper.Helper) (ctrl.Result, error) {
 	r.Log.Info("Reconciling NodeNetworkConfigurationPolicy")
 
+	// if this netAttSpec depends on another one, add the netAttName as finalizer
+	ctrlResult, err := r.nncpDependency(ctx, instance, helper)
+	if err != nil {
+		// TODO conditions Messages
+		instance.Status.Conditions.Set(condition.FalseCondition(
+			netv1.NNCPReadyCondition,
+			condition.ErrorReason,
+			condition.SeverityWarning,
+			netv1.NNCPReadyErrorMessage,
+			err.Error()))
+		return ctrlResult, err
+	} else if (ctrlResult != ctrl.Result{}) {
+		instance.Status.Conditions.Set(condition.FalseCondition(
+			netv1.NNCPReadyCondition,
+			condition.RequestedReason,
+			condition.SeverityInfo,
+			netv1.NNCPReadyRunningMessage))
+		return ctrlResult, nil
+	}
+
 	nncpLabels := labels.GetLabels(instance, labels.GetGroupLabel(openstacknetattachment.OwnerLabel), map[string]string{})
 
 	//TODO do we need those?
@@ -310,7 +334,7 @@ func (r *OpenStackNetAttachmentReconciler) reconcileNodeNetworkConfigurationPoli
 		5,
 	)
 
-	ctrlResult, err := nncpObj.CreateOrPatch(ctx, helper)
+	ctrlResult, err = nncpObj.CreateOrPatch(ctx, helper)
 	if err != nil {
 		instance.Status.Conditions.Set(condition.FalseCondition(
 			netv1.NNCPReadyCondition,
@@ -354,6 +378,66 @@ func (r *OpenStackNetAttachmentReconciler) reconcileNodeNetworkConfigurationPoli
 	// create NNCP - end
 
 	r.Log.Info("Reconciled NodeNetworkConfigurationPolicy successfully")
+	return ctrl.Result{}, nil
+}
+
+func (r *OpenStackNetAttachmentReconciler) nncpDependency(ctx context.Context, instance *netv1.OpenStackNetAttachment, helper *helper.Helper) (ctrl.Result, error) {
+
+	// if this netAttSpec depends on another one, add the netAttName as finalizer
+	if instance.Spec.AttachConfiguration.AttachConfigurationDependency != "" {
+		osNetAttObj, err := osnetatt.GetOpenStackNetworkAttachmentByName(ctx, helper, instance.Spec.AttachConfiguration.AttachConfigurationDependency, instance.Namespace)
+		if err != nil {
+			// if the osnetatt which this one depends does not exist,
+			// wait for it
+			if k8s_errors.IsNotFound(err) {
+				msg := fmt.Sprintf("NodeNetworkConfigurationPolicy %s does not exist", instance.Spec.AttachConfiguration.AttachConfigurationDependency)
+				util.LogForObject(helper, msg, instance)
+
+				return ctrl.Result{}, nil
+			}
+
+			return ctrl.Result{}, err
+		}
+
+		if err := osNetAttObj.AddFinalizer(ctx, helper, instance.Name); err != nil && !k8s_errors.IsNotFound(err) {
+			return ctrl.Result{}, err
+		}
+	}
+
+	return ctrl.Result{}, nil
+}
+
+func (r *OpenStackNetAttachmentReconciler) nncpCleanup(ctx context.Context, instance *netv1.OpenStackNetAttachment, helper *helper.Helper) (ctrl.Result, error) {
+
+	nncpObj, err := nncp.GetNNCPByName(ctx, helper, fmt.Sprintf("%s-%s", instance.Namespace, instance.Name))
+	if err != nil && !k8s_errors.IsNotFound(err) {
+		return ctrl.Result{}, err
+	}
+
+	ctrlResult, err := nncpObj.Delete(ctx, helper)
+	if err != nil {
+		if k8s_errors.IsNotFound(err) {
+
+			// if this netAttSpec depends on another one, add the netAttName as finalizer
+			if instance.Spec.AttachConfiguration.AttachConfigurationDependency != "" {
+
+				r.Log.Info(fmt.Sprintf("nncp not found, removing finalizer on upper dependency %s", instance.Spec.AttachConfiguration.AttachConfigurationDependency))
+
+				osNetAttObj, err := osnetatt.GetOpenStackNetworkAttachmentByName(ctx, helper, instance.Spec.AttachConfiguration.AttachConfigurationDependency, instance.Namespace)
+				if err != nil && !k8s_errors.IsNotFound(err) {
+					return ctrl.Result{}, err
+				}
+
+				if err := osNetAttObj.DeleteFinalizer(ctx, helper, instance.Name); err != nil && !k8s_errors.IsNotFound(err) {
+					return ctrl.Result{}, err
+				}
+			}
+		}
+		return ctrl.Result{}, err
+	} else if !reflect.DeepEqual(ctrlResult, ctrl.Result{}) {
+		return ctrlResult, nil
+	}
+
 	return ctrl.Result{}, nil
 }
 
