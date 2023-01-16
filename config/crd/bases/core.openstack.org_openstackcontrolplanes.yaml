@@ -2386,6 +2386,13 @@ spec:
                               - extraVol
                               type: object
                             type: array
+                          networkAttachmentDefinitions:
+                            description: NetworkAttachmentDefinitions list of network
+                              attachment definitions the service pod gets attached
+                              to
+                            items:
+                              type: string
+                            type: array
                           nodeSelector:
                             additionalProperties:
                               type: string
@@ -4807,6 +4814,13 @@ spec:
                               - extraVol
                               type: object
                             type: array
+                          networkAttachmentDefinitions:
+                            description: NetworkAttachmentDefinitions list of network
+                              attachment definitions the service pod gets attached
+                              to
+                            items:
+                              type: string
+                            type: array
                           nodeSelector:
                             additionalProperties:
                               type: string
@@ -7225,6 +7239,13 @@ spec:
                               required:
                               - extraVol
                               type: object
+                            type: array
+                          networkAttachmentDefinitions:
+                            description: NetworkAttachmentDefinitions list of network
+                              attachment definitions the service pod gets attached
+                              to
+                            items:
+                              type: string
                             type: array
                           nodeSelector:
                             additionalProperties:
@@ -9745,6 +9766,13 @@ spec:
                                 - extraVol
                                 type: object
                               type: array
+                            networkAttachmentDefinitions:
+                              description: NetworkAttachmentDefinitions list of network
+                                attachment definitions the service pod gets attached
+                                to
+                              items:
+                                type: string
+                              type: array
                             nodeSelector:
                               additionalProperties:
                                 type: string
@@ -11980,6 +12008,13 @@ spec:
                           required:
                           - extraVol
                           type: object
+                        type: array
+                      networkAttachmentDefinitions:
+                        description: NetworkAttachmentDefinitions list of network
+                          attachment definitions the service pod gets attached to
+                          TODO its probably ok to take the list from cinder-api
+                        items:
+                          type: string
                         type: array
                       nodeSelector:
                         additionalProperties:
@@ -18369,6 +18404,13 @@ spec:
                               - extraVol
                               type: object
                             type: array
+                          networkAttachmentDefinitions:
+                            description: NetworkAttachmentDefinitions list of network
+                              attachment definitions the service pod gets attached
+                              to
+                            items:
+                              type: string
+                            type: array
                           nodeSelector:
                             additionalProperties:
                               type: string
@@ -20791,6 +20833,13 @@ spec:
                               - extraVol
                               type: object
                             type: array
+                          networkAttachmentDefinitions:
+                            description: NetworkAttachmentDefinitions list of network
+                              attachment definitions the service pod gets attached
+                              to
+                            items:
+                              type: string
+                            type: array
                           nodeSelector:
                             additionalProperties:
                               type: string
@@ -21142,6 +21191,12 @@ spec:
                       containerImage:
                         default: quay.io/tripleozedcentos9/openstack-mariadb:current-tripleo
                         type: string
+                      networkAttachmentDefinitions:
+                        description: NetworkAttachmentDefinitions list of network
+                          attachment definitions the service pod gets attached to
+                        items:
+                          type: string
+                        type: array
                       secret:
                         description: Secret containing a RootPassword
                         type: string
@@ -22068,6 +22123,13 @@ spec:
                               description: LogLevel - Set log level info, dbg, emer
                                 etc
                               type: string
+                            networkAttachmentDefinitions:
+                              description: NetworkAttachmentDefinitions list of network
+                                attachment definitions the service pod gets attached
+                                to
+                              items:
+                                type: string
+                              type: array
                             nodeSelector:
                               additionalProperties:
                                 type: string
@@ -22163,6 +22225,13 @@ spec:
                             description: LogLevel - Set log level info, dbg, emer
                               etc
                             type: string
+                          networkAttachmentDefinitions:
+                            description: NetworkAttachmentDefinitions list of network
+                              attachment definitions the service pod gets attached
+                              to
+                            items:
+                              type: string
+                            type: array
                           nodeSelector:
                             additionalProperties:
                               type: string
@@ -22390,6 +22459,12 @@ spec:
                           can also be used to add additional files. Those get added
                           to the service config dir in /etc/<service> . TODO: -> implement'
                         type: object
+                      networkAttachmentDefinitions:
+                        description: NetworkAttachmentDefinitions list of network
+                          attachment definitions the service pod gets attached to
+                        items:
+                          type: string
+                        type: array
                       nodeSelector:
                         additionalProperties:
                           type: string
