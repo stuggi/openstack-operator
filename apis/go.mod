@@ -6,7 +6,7 @@ require (
 	github.com/openstack-k8s-operators/cinder-operator/api v0.0.0-20230123114130-9f1a61c289c8
 	github.com/openstack-k8s-operators/glance-operator/api v0.0.0-20230125102307-ce93715e9a3d
 	github.com/openstack-k8s-operators/keystone-operator/api v0.0.0-20230127072022-efdd85d844e1
-	github.com/openstack-k8s-operators/lib-common/modules/common v0.0.0-20230130113944-08eaed348cec
+	github.com/openstack-k8s-operators/lib-common/modules/common v0.0.0-20230131105859-675e99666dbc
 	github.com/openstack-k8s-operators/mariadb-operator/api v0.0.0-20230118093207-9764a3d19c85
 	github.com/openstack-k8s-operators/neutron-operator/api v0.0.0-20230118114256-7a31f3b0f8f2
 	github.com/openstack-k8s-operators/nova-operator/api v0.0.0-20230127170258-ba3b9bd6497e
@@ -45,7 +45,7 @@ require (
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/openshift/api v3.9.0+incompatible // indirect
-	github.com/openstack-k8s-operators/lib-common/modules/openstack v0.0.0-20230130113944-08eaed348cec // indirect; indirect // indirect // indirect
+	github.com/openstack-k8s-operators/lib-common/modules/openstack v0.0.0-20230131105859-675e99666dbc // indirect; indirect // indirect // indirect
 	github.com/openstack-k8s-operators/lib-common/modules/storage v0.0.0-20230130113944-08eaed348cec
 	github.com/openstack-k8s-operators/ovs-operator/api v0.0.0-20230127155947-cba27b6ba519
 	github.com/pkg/errors v0.9.1 // indirect
@@ -71,9 +71,27 @@ require (
 	k8s.io/client-go v0.26.1 // indirect; indirect // indirect
 	k8s.io/component-base v0.26.1 // indirect; indirect // indirect
 	k8s.io/klog/v2 v2.80.1 // indirect
-	k8s.io/kube-openapi v0.0.0-20230127205639-68031ae9242a // indirect; indirect // indirect // indirect
+	k8s.io/kube-openapi v0.0.0-20230131200451-5e46c6e584a1 // indirect; indirect // indirect // indirect
 	k8s.io/utils v0.0.0-20230115233650-391b47cb4029 // indirect; indirect // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect; indirect // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
+
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20230202081825-98ebfb59c1d4
+
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20230202093718-f9b2d839a38f
+
+replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20230202095803-53178a2bc2d9
+
+replace github.com/openstack-k8s-operators/placement-operator/api => github.com/stuggi/placement-operator/api v0.0.0-20230202093501-6a285d34cafa
+
+replace github.com/openstack-k8s-operators/nova-operator/api => github.com/stuggi/nova-operator/api v0.0.0-20230202105334-115ad4a304ea
+
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20230201125726-9ae3213ded0d
+
+replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/stuggi/neutron-operator/api v0.0.0-20230202154702-1e9581803c2c
+
+replace github.com/openstack-k8s-operators/ovn-operator/api => github.com/stuggi/ovn-operator/api v0.0.0-20230202162129-8c1bec9acd24
+
+//replace github.com/openstack-k8s-operators/lib-common/modules/common => /home/mschuppe/src/github.com/openstack-k8s-operators/lib-common/modules/common

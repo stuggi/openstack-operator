@@ -110,6 +110,36 @@ spec:
                               to the service config dir in /etc/<service> . TODO:
                               -> implement'
                             type: object
+                          externalEndpoints:
+                            description: ExternalEndpoints, expose a VIP via MetalLB
+                              on the pre-created address pool
+                            items:
+                              description: MetalLBConfig to configure the MetalLB
+                                loadbalancer service
+                              properties:
+                                endpoint:
+                                  description: Endpoint, OpenStack endpoint this service
+                                    maps to
+                                  enum:
+                                  - internal
+                                  - public
+                                  type: string
+                                ip:
+                                  description: IP, request given IP if available
+                                  type: string
+                                ipAddressPool:
+                                  description: IPAddressPool if set, expose VIP via
+                                    MetalLB on the address pool
+                                  type: string
+                                sharedIP:
+                                  default: true
+                                  description: SharedIP if true, VIP is shared with
+                                    multiple services
+                                  type: boolean
+                              required:
+                              - ipAddressPool
+                              type: object
+                            type: array
                           extraMounts:
                             description: ExtraMounts containing conf files and credentials
                             items:
@@ -2385,6 +2415,12 @@ spec:
                               required:
                               - extraVol
                               type: object
+                            type: array
+                          networkAttachments:
+                            description: Networks list of NetworkAttachment to expose
+                              the services to
+                            items:
+                              type: string
                             type: array
                           nodeSelector:
                             additionalProperties:
@@ -4807,6 +4843,12 @@ spec:
                               - extraVol
                               type: object
                             type: array
+                          networkAttachments:
+                            description: Networks list of NetworkAttachment to expose
+                              the services to
+                            items:
+                              type: string
+                            type: array
                           nodeSelector:
                             additionalProperties:
                               type: string
@@ -7225,6 +7267,12 @@ spec:
                               required:
                               - extraVol
                               type: object
+                            type: array
+                          networkAttachments:
+                            description: Networks list of NetworkAttachment to expose
+                              the services to
+                            items:
+                              type: string
                             type: array
                           nodeSelector:
                             additionalProperties:
@@ -9744,6 +9792,12 @@ spec:
                                 required:
                                 - extraVol
                                 type: object
+                              type: array
+                            networkAttachments:
+                              description: Networks list of NetworkAttachment to expose
+                                the services to
+                              items:
+                                type: string
                               type: array
                             nodeSelector:
                               additionalProperties:
@@ -16093,6 +16147,36 @@ spec:
                               get added to the service config dir in /etc/<service>
                               . TODO: -> implement'
                             type: object
+                          externalEndpoints:
+                            description: ExternalEndpoints, expose a VIP via MetalLB
+                              on the pre-created address pool
+                            items:
+                              description: MetalLBConfig to configure the MetalLB
+                                loadbalancer service
+                              properties:
+                                endpoint:
+                                  description: Endpoint, OpenStack endpoint this service
+                                    maps to
+                                  enum:
+                                  - internal
+                                  - public
+                                  type: string
+                                ip:
+                                  description: IP, request given IP if available
+                                  type: string
+                                ipAddressPool:
+                                  description: IPAddressPool if set, expose VIP via
+                                    MetalLB on the address pool
+                                  type: string
+                                sharedIP:
+                                  default: true
+                                  description: SharedIP if true, VIP is shared with
+                                    multiple services
+                                  type: boolean
+                              required:
+                              - ipAddressPool
+                              type: object
+                            type: array
                           extraMounts:
                             description: ExtraMounts containing conf files and credentials
                             items:
@@ -18369,6 +18453,12 @@ spec:
                               - extraVol
                               type: object
                             type: array
+                          networkAttachments:
+                            description: NetworkAttachments list of network attachment
+                              definitions the service pod gets attached to
+                            items:
+                              type: string
+                            type: array
                           nodeSelector:
                             additionalProperties:
                               type: string
@@ -18515,6 +18605,36 @@ spec:
                               get added to the service config dir in /etc/<service>
                               . TODO: -> implement'
                             type: object
+                          externalEndpoints:
+                            description: ExternalEndpoints, expose a VIP via MetalLB
+                              on the pre-created address pool
+                            items:
+                              description: MetalLBConfig to configure the MetalLB
+                                loadbalancer service
+                              properties:
+                                endpoint:
+                                  description: Endpoint, OpenStack endpoint this service
+                                    maps to
+                                  enum:
+                                  - internal
+                                  - public
+                                  type: string
+                                ip:
+                                  description: IP, request given IP if available
+                                  type: string
+                                ipAddressPool:
+                                  description: IPAddressPool if set, expose VIP via
+                                    MetalLB on the address pool
+                                  type: string
+                                sharedIP:
+                                  default: true
+                                  description: SharedIP if true, VIP is shared with
+                                    multiple services
+                                  type: boolean
+                              required:
+                              - ipAddressPool
+                              type: object
+                            type: array
                           extraMounts:
                             description: ExtraMounts containing conf files and credentials
                             items:
@@ -20790,6 +20910,12 @@ spec:
                               required:
                               - extraVol
                               type: object
+                            type: array
+                          networkAttachments:
+                            description: NetworkAttachments list of network attachment
+                              definitions the service pod gets attached to
+                            items:
+                              type: string
                             type: array
                           nodeSelector:
                             additionalProperties:
@@ -21012,9 +21138,39 @@ spec:
                           can also be used to add additional files. Those get added
                           to the service config dir in /etc/<service> . TODO: -> implement'
                         type: object
-                      networkAttachmentDefinitions:
-                        description: NetworkAttachmentDefinitions list of network
-                          attachment definitions the service pod gets attached to
+                      externalEndpoints:
+                        description: ExternalEndpoints, expose a VIP via MetalLB on
+                          the pre-created address pool
+                        items:
+                          description: MetalLBConfig to configure the MetalLB loadbalancer
+                            service
+                          properties:
+                            endpoint:
+                              description: Endpoint, OpenStack endpoint this service
+                                maps to
+                              enum:
+                              - internal
+                              - public
+                              type: string
+                            ip:
+                              description: IP, request given IP if available
+                              type: string
+                            ipAddressPool:
+                              description: IPAddressPool if set, expose VIP via MetalLB
+                                on the address pool
+                              type: string
+                            sharedIP:
+                              default: true
+                              description: SharedIP if true, VIP is shared with multiple
+                                services
+                              type: boolean
+                          required:
+                          - ipAddressPool
+                          type: object
+                        type: array
+                      networkAttachments:
+                        description: Networks list of NetworkAttachment to expose
+                          the services to
                         items:
                           type: string
                         type: array
@@ -21393,6 +21549,42 @@ spec:
                               also be used to add additional files. Those get added
                               to the service config dir in /etc/<service> .
                             type: object
+                          externalEndpoints:
+                            description: ExternalEndpoints, expose a VIP via MetalLB
+                              on the pre-created address pool
+                            items:
+                              description: MetalLBConfig to configure the MetalLB
+                                loadbalancer service
+                              properties:
+                                endpoint:
+                                  description: Endpoint, OpenStack endpoint this service
+                                    maps to
+                                  enum:
+                                  - internal
+                                  - public
+                                  type: string
+                                ip:
+                                  description: IP, request given IP if available
+                                  type: string
+                                ipAddressPool:
+                                  description: IPAddressPool if set, expose VIP via
+                                    MetalLB on the address pool
+                                  type: string
+                                sharedIP:
+                                  default: true
+                                  description: SharedIP if true, VIP is shared with
+                                    multiple services
+                                  type: boolean
+                              required:
+                              - ipAddressPool
+                              type: object
+                            type: array
+                          networkAttachments:
+                            description: Networks list of NetworkAttachment to expose
+                              the services to
+                            items:
+                              type: string
+                            type: array
                           nodeSelector:
                             additionalProperties:
                               type: string
@@ -21509,6 +21701,12 @@ spec:
                                     get added to the service config dir in /etc/<service>
                                     .
                                   type: object
+                                networkAttachments:
+                                  description: Networks list of NetworkAttachment
+                                    to expose the services to
+                                  items:
+                                    type: string
+                                  type: array
                                 nodeSelector:
                                   additionalProperties:
                                     type: string
@@ -21606,6 +21804,12 @@ spec:
                                     get added to the service config dir in /etc/<service>
                                     .
                                   type: object
+                                networkAttachments:
+                                  description: Networks list of NetworkAttachment
+                                    to expose the services to
+                                  items:
+                                    type: string
+                                  type: array
                                 nodeSelector:
                                   additionalProperties:
                                     type: string
@@ -21699,6 +21903,12 @@ spec:
                                     get added to the service config dir in /etc/<service>
                                     .
                                   type: object
+                                networkAttachments:
+                                  description: Networks list of NetworkAttachment
+                                    to expose the services to
+                                  items:
+                                    type: string
+                                  type: array
                                 nodeSelector:
                                   additionalProperties:
                                     type: string
@@ -21841,6 +22051,12 @@ spec:
                               also be used to add additional files. Those get added
                               to the service config dir in /etc/<service> .
                             type: object
+                          networkAttachments:
+                            description: Networks list of NetworkAttachment to expose
+                              the services to
+                            items:
+                              type: string
+                            type: array
                           nodeSelector:
                             additionalProperties:
                               type: string
@@ -21953,6 +22169,12 @@ spec:
                               also be used to add additional files. Those get added
                               to the service config dir in /etc/<service> .
                             type: object
+                          networkAttachments:
+                            description: Networks list of NetworkAttachment to expose
+                              the services to
+                            items:
+                              type: string
+                            type: array
                           nodeSelector:
                             additionalProperties:
                               type: string
@@ -22391,6 +22613,42 @@ spec:
                           can also be used to add additional files. Those get added
                           to the service config dir in /etc/<service> . TODO: -> implement'
                         type: object
+                      externalEndpoints:
+                        description: ExternalEndpoints, expose a VIP via MetalLB on
+                          the pre-created address pool
+                        items:
+                          description: MetalLBConfig to configure the MetalLB loadbalancer
+                            service
+                          properties:
+                            endpoint:
+                              description: Endpoint, OpenStack endpoint this service
+                                maps to
+                              enum:
+                              - internal
+                              - public
+                              type: string
+                            ip:
+                              description: IP, request given IP if available
+                              type: string
+                            ipAddressPool:
+                              description: IPAddressPool if set, expose VIP via MetalLB
+                                on the address pool
+                              type: string
+                            sharedIP:
+                              default: true
+                              description: SharedIP if true, VIP is shared with multiple
+                                services
+                              type: boolean
+                          required:
+                          - ipAddressPool
+                          type: object
+                        type: array
+                      networkAttachments:
+                        description: Networks list of NetworkAttachment to expose
+                          the services to
+                        items:
+                          type: string
+                        type: array
                       nodeSelector:
                         additionalProperties:
                           type: string
@@ -22502,8 +22760,7 @@ spec:
                     type: boolean
                   templates:
                     additionalProperties:
-                      description: Spec is the desired state of the RabbitmqCluster
-                        Custom Resource.
+                      description: RabbitmqTemplate definition
                       properties:
                         affinity:
                           description: Affinity scheduling rules to be applied on
@@ -23431,6 +23688,25 @@ spec:
                                     type: object
                                   type: array
                               type: object
+                          type: object
+                        externalEndpoint:
+                          description: ExternalEndpoint, expose a VIP via MetalLB
+                            on the pre-created address pool
+                          properties:
+                            ip:
+                              description: IP, request given IP if available
+                              type: string
+                            ipAddressPool:
+                              description: IPAddressPool if set, expose VIP via MetalLB
+                                on the address pool
+                              type: string
+                            sharedIP:
+                              default: true
+                              description: SharedIP if true, VIP is shared with multiple
+                                services
+                              type: boolean
+                          required:
+                          - ipAddressPool
                           type: object
                         image:
                           description: Image is the name of the RabbitMQ docker image

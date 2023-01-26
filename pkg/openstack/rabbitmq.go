@@ -7,6 +7,7 @@ import (
 
 	condition "github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/service"
 	rabbitmqv1 "github.com/rabbitmq/cluster-operator/api/v1beta1"
 
 	// Cannot use the following import due to linting error:
@@ -44,7 +45,7 @@ func ReconcileRabbitMQs(
 	var inprogress []string = []string{}
 
 	for name, spec := range instance.Spec.Rabbitmq.Templates {
-		status, err := reconcileRabbitMQ(ctx, instance, helper, name, &spec)
+		status, err := reconcileRabbitMQ(ctx, instance, helper, name, spec)
 
 		switch status {
 		case mqFailed:
@@ -90,7 +91,7 @@ func reconcileRabbitMQ(
 	instance *corev1beta1.OpenStackControlPlane,
 	helper *helper.Helper,
 	name string,
-	spec *rabbitmqv1.RabbitmqClusterSpec,
+	spec corev1beta1.RabbitmqTemplate,
 ) (mqStatus, error) {
 	rabbitmq := &rabbitmqv1.RabbitmqCluster{
 		ObjectMeta: metav1.ObjectMeta{
@@ -104,6 +105,7 @@ func reconcileRabbitMQ(
 	defaultStatefulSet := rabbitmqv1.StatefulSet{
 		Spec: &rabbitmqv1.StatefulSetSpec{
 			Template: &rabbitmqv1.PodTemplateSpec{
+				EmbeddedObjectMeta: &rabbitmqv1.EmbeddedObjectMeta{},
 				Spec: &corev1.PodSpec{
 					SecurityContext: &corev1.PodSecurityContext{},
 					Containers: []corev1.Container{
@@ -143,9 +145,10 @@ func reconcileRabbitMQ(
 			},
 		},
 	}
+
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), rabbitmq, func() error {
 
-		spec.DeepCopyInto(&rabbitmq.Spec)
+		spec.RabbitmqClusterSpec.DeepCopyInto(&rabbitmq.Spec)
 
 		//FIXME: We shouldn't have to set this here but not setting it causes the rabbitmq
 		// operator to continuously mutate the CR when setting it:
@@ -162,6 +165,30 @@ func reconcileRabbitMQ(
 		if rabbitmq.Spec.Override.StatefulSet == nil {
 			helper.GetLogger().Info("Setting StatefulSet")
 			rabbitmq.Spec.Override.StatefulSet = &defaultStatefulSet
+		}
+
+		if rabbitmq.Spec.Override.Service == nil && spec.ExternalEndpoint != nil {
+			helper.GetLogger().Info("Setting MetalLB Service")
+
+			metalLBSvcAnnotations := map[string]string{
+				service.MetalLBAddressPoolAnnotation: spec.ExternalEndpoint.IPAddressPool,
+			}
+			if spec.ExternalEndpoint.SharedIP {
+				metalLBSvcAnnotations[service.MetalLBAllowSharedIPAnnotation] = spec.ExternalEndpoint.IPAddressPool + "-vip"
+			}
+
+			//service.MetalLBService{}
+			metalLBSvc := rabbitmqv1.Service{
+				EmbeddedLabelsAnnotations: &rabbitmqv1.EmbeddedLabelsAnnotations{
+					Annotations: metalLBSvcAnnotations,
+				},
+				Spec: &corev1.ServiceSpec{
+					Type:           corev1.ServiceTypeLoadBalancer,
+					LoadBalancerIP: spec.ExternalEndpoint.IP,
+				},
+			}
+
+			rabbitmq.Spec.Override.Service = &metalLBSvc
 		}
 
 		if rabbitmq.Spec.Rabbitmq.AdditionalConfig == "" {
