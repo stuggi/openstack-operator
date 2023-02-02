@@ -25,6 +25,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o csv-merger csv-merger.g
 FROM quay.io/openstack-k8s-operators/keystone-operator-bundle:latest as keystone-bundle
 FROM quay.io/openstack-k8s-operators/mariadb-operator-bundle:latest as mariadb-bundle
 FROM quay.io/openstack-k8s-operators/rabbitmq-cluster-operator-bundle:latest as rabbitmq-bundle
+FROM quay.io/openstack-k8s-operators/infra-operator-bundle:latest as infra-bundle
 FROM quay.io/openstack-k8s-operators/placement-operator-bundle:latest as placement-bundle
 FROM quay.io/openstack-k8s-operators/glance-operator-bundle:latest as glance-bundle
 FROM quay.io/openstack-k8s-operators/cinder-operator-bundle:latest as cinder-bundle
@@ -45,6 +46,7 @@ COPY bundle/manifests /manifests/
 COPY --from=keystone-bundle /manifests/* /manifests/
 COPY --from=mariadb-bundle /manifests/* /manifests/
 COPY --from=rabbitmq-bundle /manifests/* /manifests/
+COPY --from=infra-bundle /manifests/* /manifests/
 COPY --from=placement-bundle /manifests/* /manifests/
 COPY --from=glance-bundle /manifests/* /manifests/
 COPY --from=cinder-bundle /manifests/* /manifests/
@@ -57,6 +59,7 @@ COPY --from=nova-bundle /manifests/* /manifests/
 RUN /workspace/csv-merger \
   --mariadb-csv=/manifests/mariadb-operator.clusterserviceversion.yaml \
   --rabbitmq-csv=/manifests/cluster-operator.clusterserviceversion.yaml \
+  --infra-csv=/manifests/infra-operator.clusterserviceversion.yaml \
   --keystone-csv=/manifests/keystone-operator.clusterserviceversion.yaml \
   --placement-csv=/manifests/placement-operator.clusterserviceversion.yaml \
   --glance-csv=/manifests/glance-operator.clusterserviceversion.yaml \

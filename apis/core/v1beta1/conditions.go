@@ -19,9 +19,7 @@ import (
 	condition "github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 )
 
-//
 // OpenStackControlPlane Condition Types used by API objects.
-//
 const (
 	// OpenStackControlPlaneRabbitMQReadyCondition Status=True condition which indicates if RabbitMQ is configured and operational
 	OpenStackControlPlaneRabbitMQReadyCondition condition.Type = "OpenStackControlPlaneRabbitMQReady"
@@ -49,18 +47,21 @@ const (
 
 	// OpenStackControlPlaneNeutronReadyCondition Status=True condition which indicates if Neutron is configured and operational
 	OpenStackControlPlaneNeutronReadyCondition condition.Type = "OpenStackControlPlaneNeutronReady"
+
 	// OpenStackControlPlaneNovaReadyCondition Status=True condition which indicates if Nova is configured and operational
 	OpenStackControlPlaneNovaReadyCondition condition.Type = "OpenStackControlPlaneNovaReady"
+
+	// OpenStackControlPlaneClientReadyCondition Status=True condition which indicates if OpenStackClient is configured and operational
+	OpenStackControlPlaneClientReadyCondition condition.Type = "OpenStackControlPlaneClientReady"
+
+	// OpenStackClientReadyCondition Status=True condition which indicates if OpenStackClient is configured and operational
+	OpenStackClientReadyCondition condition.Type = "OpenStackClientReady"
 )
 
-//
 // OpenStackControlPlane Reasons used by API objects.
-//
 const ()
 
-//
 // Common Messages used by API objects.
-//
 const (
 	//
 	// OpenStackControlPlaneReady condition messages
@@ -176,6 +177,7 @@ const (
 
 	// OpenStackControlPlaneNeutronReadyErrorMessage
 	OpenStackControlPlaneNeutronReadyErrorMessage = "OpenStackControlPlane Neutron error occured %s"
+
 	// OpenStackControlPlaneNovaReadyInitMessage
 	OpenStackControlPlaneNovaReadyInitMessage = "OpenStackControlPlane Nova not started"
 
@@ -187,4 +189,16 @@ const (
 
 	// OpenStackControlPlaneNovaReadyErrorMessage
 	OpenStackControlPlaneNovaReadyErrorMessage = "OpenStackControlPlane Nova error occured %s"
+
+	// OpenStackControlPlaneClientReadyInitMessage
+	OpenStackControlPlaneClientReadyInitMessage = "OpenStackControlPlane Client not started"
+
+	// OpenStackControlPlaneClientReadyMessage
+	OpenStackControlPlaneClientReadyMessage = "OpenStackControlPlane Client completed"
+
+	// OpenStackControlPlaneClientReadyRunningMessage
+	OpenStackControlPlaneClientReadyRunningMessage = "OpenStackControlPlane Client in progress"
+
+	// OpenStackControlPlaneClientReadyErrorMessage
+	OpenStackControlPlaneClientReadyErrorMessage = "OpenStackControlPlane Client error occured %s"
 )
