@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/logr v1.2.3
 	github.com/imdario/mergo v0.3.13
 	github.com/openstack-k8s-operators/cinder-operator/api v0.0.0-20230227105511-fcd97b88b8f0
-	github.com/openstack-k8s-operators/dataplane-operator/api v0.0.0-20230227162155-b06b463dc363
+	github.com/openstack-k8s-operators/dataplane-operator/api v0.0.0-20230228170218-f2571506c3c1
 	github.com/openstack-k8s-operators/glance-operator/api v0.0.0-20230223111352-6181d5d15406
 	github.com/openstack-k8s-operators/infra-operator/apis v0.0.0-20230221114633-d3cedda6974d
 	github.com/openstack-k8s-operators/ironic-operator/api v0.0.0-20230223000829-9b83b8b2e63b
@@ -16,10 +16,10 @@ require (
 	github.com/openstack-k8s-operators/mariadb-operator/api v0.0.0-20230227100533-e49b65b3e3df
 	github.com/openstack-k8s-operators/neutron-operator/api v0.0.0-20230227101439-040b51c0c7d9
 	github.com/openstack-k8s-operators/nova-operator/api v0.0.0-20230223144607-1b8be195d2b3
-	github.com/openstack-k8s-operators/openstack-ansibleee-operator/api v0.0.0-20230227162821-9b918c2f2da5
+	github.com/openstack-k8s-operators/openstack-ansibleee-operator/api v0.0.0-20230228130024-e65c63de4850
 	github.com/openstack-k8s-operators/openstack-operator/apis v0.0.0-20230227164455-9fd6272787f0
-	github.com/openstack-k8s-operators/ovn-operator/api v0.0.0-20230227100539-df868aca2a2c
-	github.com/openstack-k8s-operators/ovs-operator/api v0.0.0-20230227133955-bbc3db1484c2
+	github.com/openstack-k8s-operators/ovn-operator/api v0.0.0-20230302133719-f0aec2a30a89
+	github.com/openstack-k8s-operators/ovs-operator/api v0.0.0-20230302151542-6877dc4718ae
 	github.com/openstack-k8s-operators/placement-operator/api v0.0.0-20230223090011-71439754f993
 	github.com/operator-framework/api v0.17.3
 	github.com/rabbitmq/cluster-operator v1.14.0
@@ -92,3 +92,21 @@ require (
 )
 
 replace github.com/openstack-k8s-operators/openstack-operator/apis => ./apis
+
+//replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20230220093842-20ab299d925f
+
+//replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20230217115439-5c7a300e51c1
+
+//replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20230218094323-2331a92e888f
+
+//replace github.com/openstack-k8s-operators/nova-operator/api => github.com/stuggi/nova-operator/api v0.0.0-20230217132719-333c46b53eb3
+
+//replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/stuggi/neutron-operator/api v0.0.0-20230217133338-9ea12694ad8f
+
+// replace github.com/openstack-k8s-operators/ovn-operator/api => github.com/stuggi/ovn-operator/api v0.0.0-20230302131340-c96aa547b128
+
+//replace github.com/openstack-k8s-operators/ovs-operator/api => github.com/stuggi/ovs-operator/api v0.0.0-20230302134451-b4b975ab2c38
+
+//replace github.com/openstack-k8s-operators/dataplane-operator/api => github.com/stuggi/dataplane-operator/api v0.0.0-20230228093040-5ee250453b51
+
+//replace github.com/openstack-k8s-operators/openstack-ansibleee-operator/api => github.com/stuggi/openstack-ansibleee-operator/api v0.0.0-20230228091749-69b8aa7f5d94

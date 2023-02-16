@@ -242,10 +242,10 @@ github.com/openstack-k8s-operators/neutron-operator/api v0.0.0-20230227101439-04
 github.com/openstack-k8s-operators/neutron-operator/api v0.0.0-20230227101439-040b51c0c7d9/go.mod h1:cC1SHdljAdzfKGCcAtKTXmJEBnARunfRo1EQuAbYY8c=
 github.com/openstack-k8s-operators/nova-operator/api v0.0.0-20230223144607-1b8be195d2b3 h1:X7/HJrXw7gz2FS5Z+gQT95LsKQrRkcRlOGPwr1y1mgU=
 github.com/openstack-k8s-operators/nova-operator/api v0.0.0-20230223144607-1b8be195d2b3/go.mod h1:bVRKK2JJXSYcTXrKO6kWhygqn5LFRqh++evNYlXTEN8=
-github.com/openstack-k8s-operators/ovn-operator/api v0.0.0-20230227100539-df868aca2a2c h1:rT0TddqMJvp9jJTDo9DF7mAfJKVIsMArlOLkofG/utY=
-github.com/openstack-k8s-operators/ovn-operator/api v0.0.0-20230227100539-df868aca2a2c/go.mod h1:MTEaWGNtsUez+IAQyW/7twXVFL+eJhTAFApqtlwKjzY=
-github.com/openstack-k8s-operators/ovs-operator/api v0.0.0-20230227133955-bbc3db1484c2 h1:ktAS+Cj/xrHshaxkv3+LSeFTDlJ+IPYPRiYcf8HOuvw=
-github.com/openstack-k8s-operators/ovs-operator/api v0.0.0-20230227133955-bbc3db1484c2/go.mod h1:on/2SC9LuMYaJ40CHRRceEB1csAbiPVgs2OuQBHK9TY=
+github.com/openstack-k8s-operators/ovn-operator/api v0.0.0-20230302133719-f0aec2a30a89 h1:wUyWhqdHB7JAD9ANm76KbRnqdoNps218ogJL6GG6uFU=
+github.com/openstack-k8s-operators/ovn-operator/api v0.0.0-20230302133719-f0aec2a30a89/go.mod h1:vsHUVpBJYuphy753SLEKvNKX2FgtauSrxsxM3CeuDkM=
+github.com/openstack-k8s-operators/ovs-operator/api v0.0.0-20230302151542-6877dc4718ae h1:YJPAqYDzXgN2YwEJOFpEhlHcpsdA1udf9snSdNEjkNU=
+github.com/openstack-k8s-operators/ovs-operator/api v0.0.0-20230302151542-6877dc4718ae/go.mod h1:gSOSb0RThpjlArSf0Ja7py2vHhodDXyITeZodj0DOMA=
 github.com/openstack-k8s-operators/placement-operator/api v0.0.0-20230223090011-71439754f993 h1:BkEWuwgFL9iuMk4vWpOFwFx16zwSHfN421BJ7jG9AGg=
 github.com/openstack-k8s-operators/placement-operator/api v0.0.0-20230223090011-71439754f993/go.mod h1:qvjL6Ty3JiGyNPUd2pa5vNSS+IZ2ll60JuF/Mw65nJE=
 github.com/pkg/errors v0.8.0/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=

@@ -23151,10 +23151,22 @@ spec:
                                 timer to use on db creation (in milliseconds)
                               format: int32
                               type: integer
+                            inactivityProbe:
+                              default: 60000
+                              description: Probe interval for the OVSDB session (in
+                                milliseconds)
+                              format: int32
+                              type: integer
                             logLevel:
                               default: info
                               description: LogLevel - Set log level info, dbg, emer
                                 etc
+                              type: string
+                            networkAttachment:
+                              description: NetworkAttachment is a NetworkAttachment
+                                resource name to expose the service to the given network.
+                                If specified the IP address of this network is used
+                                as the dbAddress connection.
                               type: string
                             nodeSelector:
                               additionalProperties:
@@ -23250,6 +23262,12 @@ spec:
                             default: info
                             description: LogLevel - Set log level info, dbg, emer
                               etc
+                            type: string
+                          networkAttachment:
+                            description: NetworkAttachment is a NetworkAttachment
+                              resource name to expose the service to the given network.
+                              If specified the IP address of this network is used
+                              as the dbAddress connection.
                             type: string
                           nodeSelector:
                             additionalProperties:
@@ -23351,6 +23369,11 @@ spec:
                         - ovn-bridge
                         - system-id
                         type: object
+                      networkAttachment:
+                        description: NetworkAttachment is a NetworkAttachment resource
+                          name to expose the service to the given network. If specified
+                          the IP address of this network is used as the OvnEncapIP.
+                        type: string
                       nicMappings:
                         additionalProperties:
                           type: string

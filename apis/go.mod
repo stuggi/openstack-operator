@@ -11,7 +11,8 @@ require (
 	github.com/openstack-k8s-operators/mariadb-operator/api v0.0.0-20230227100533-e49b65b3e3df
 	github.com/openstack-k8s-operators/neutron-operator/api v0.0.0-20230227101439-040b51c0c7d9
 	github.com/openstack-k8s-operators/nova-operator/api v0.0.0-20230223144607-1b8be195d2b3
-	github.com/openstack-k8s-operators/ovn-operator/api v0.0.0-20230227100539-df868aca2a2c
+	github.com/openstack-k8s-operators/ovn-operator/api v0.0.0-20230302133719-f0aec2a30a89
+	github.com/openstack-k8s-operators/ovs-operator/api v0.0.0-20230302151542-6877dc4718ae
 	github.com/openstack-k8s-operators/placement-operator/api v0.0.0-20230223090011-71439754f993
 	github.com/rabbitmq/cluster-operator v1.14.0
 	k8s.io/apimachinery v0.26.1
@@ -48,7 +49,6 @@ require (
 	github.com/openshift/api v3.9.0+incompatible // indirect
 	github.com/openstack-k8s-operators/lib-common/modules/openstack v0.0.0-20230227110324-8f0c518c552b // indirect; indirect // indirect // indirect // indirect // indirect // indirect // indirect
 	github.com/openstack-k8s-operators/lib-common/modules/storage v0.0.0-20230227110324-8f0c518c552b
-	github.com/openstack-k8s-operators/ovs-operator/api v0.0.0-20230227133955-bbc3db1484c2
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.14.0 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
@@ -79,3 +79,27 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
 )
+
+//replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20230220093842-20ab299d925f
+
+//replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20230217115439-5c7a300e51c1
+
+//replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20230218094323-2331a92e888f
+
+//replace github.com/openstack-k8s-operators/nova-operator/api => github.com/stuggi/nova-operator/api v0.0.0-20230217132719-333c46b53eb3
+
+//replace github.com/openstack-k8s-operators/ovn-operator/api => github.com/stuggi/ovn-operator/api v0.0.0-20230221073113-fe697939fadf
+
+//replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/stuggi/neutron-operator/api v0.0.0-20230217133338-9ea12694ad8f
+
+//replace github.com/openstack-k8s-operators/ovs-operator/api => github.com/stuggi/ovs-operator/api v0.0.0-20230221073210-0e0396244261
+
+//replace github.com/openstack-k8s-operators/openstack-ansibleee-operator/api => github.com/stuggi/openstack-ansibleee-operator/api v0.0.0-20230227104036-4e22a96609c9
+
+//replace github.com/openstack-k8s-operators/ovn-operator/api => github.com/stuggi/ovn-operator/api v0.0.0-20230302131340-c96aa547b128
+
+//replace github.com/openstack-k8s-operators/ovs-operator/api => github.com/stuggi/ovs-operator/api v0.0.0-20230302134451-b4b975ab2c38
+
+//replace github.com/openstack-k8s-operators/dataplane-operator/api => github.com/stuggi/dataplane-operator/api v0.0.0-20230228092551-af354beaeb97
+
+//replace github.com/openstack-k8s-operators/openstack-ansibleee-operator/api => github.com/stuggi/openstack-ansibleee-operator/api v0.0.0-20230228091749-69b8aa7f5d94
