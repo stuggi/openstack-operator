@@ -92,3 +92,5 @@ require (
 )
 
 replace github.com/openstack-k8s-operators/openstack-operator/apis => ./apis
+
+replace github.com/openstack-k8s-operators/infra-operator/apis => github.com/stuggi/infra-operator/apis v0.0.0-20230320131815-b7d54244b311
