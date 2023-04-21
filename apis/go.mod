@@ -21,6 +21,8 @@ require (
 	sigs.k8s.io/controller-runtime v0.14.6
 )
 
+require github.com/openstack-k8s-operators/dataplane-operator/api v0.0.0-20230421142251-d800e86a68bc // indirect
+
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
