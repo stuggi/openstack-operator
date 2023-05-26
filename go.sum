@@ -140,14 +140,12 @@ github.com/openstack-k8s-operators/glance-operator/api v0.0.0-20230523103335-9c8
 github.com/openstack-k8s-operators/glance-operator/api v0.0.0-20230523103335-9c8998bbc8e7/go.mod h1:/pWQSUtScucF3sdAxulYy/3ECZmBjUmzAa1MsjqjaQ0=
 github.com/openstack-k8s-operators/horizon-operator/api v0.0.0-20230526035634-a5aff25fe41e h1:pI4bMLA/hpo7r0/JHyI5mnQEIzf/CCbiWCLmhfXyZD4=
 github.com/openstack-k8s-operators/horizon-operator/api v0.0.0-20230526035634-a5aff25fe41e/go.mod h1:Ffc4aP8psePP7DyfulfcOrh11OJsnszDJprwlA9pJWU=
-github.com/openstack-k8s-operators/infra-operator/apis v0.0.0-20230525130454-a7f0f8afe772 h1:MqVwDuzLCnXJ1g+OCcLy/LsjuB8jRZaqR55Vi7ASkKU=
-github.com/openstack-k8s-operators/infra-operator/apis v0.0.0-20230525130454-a7f0f8afe772/go.mod h1:BuIOgl+UMgzRLUQFmfwvKFuLQIyOVAEJKyjUTnis7ZM=
 github.com/openstack-k8s-operators/ironic-operator/api v0.0.0-20230526001953-9711e79a12cb h1:71JYRl/WBC2LB61UJPFUGdJSYGsia82MEnLBGsUBMM8=
 github.com/openstack-k8s-operators/ironic-operator/api v0.0.0-20230526001953-9711e79a12cb/go.mod h1:V1zzAJ0DiQzAlAlYbqrpUDTfzc2w322/S8VcUwtwuWg=
 github.com/openstack-k8s-operators/keystone-operator/api v0.0.0-20230524090129-769ebc6d0776 h1:4kw3AE3fLK/9XppLShkE7rBbSuKJDVRU9i3ovALzwUA=
 github.com/openstack-k8s-operators/keystone-operator/api v0.0.0-20230524090129-769ebc6d0776/go.mod h1:LtZ8b3DYLvX0a89RKbmJgd1q8GcxcOVf7N+bH47a9HU=
-github.com/openstack-k8s-operators/lib-common/modules/common v0.0.0-20230523095909-db05945b0b1e h1:u0Z6kCU5JadL9DJw/Y+NsAp+gwKunoALhcVQn1MlZYk=
-github.com/openstack-k8s-operators/lib-common/modules/common v0.0.0-20230523095909-db05945b0b1e/go.mod h1:r8cMUoS+gnBTrGbmLLECafzhZBh6P9rMwgnrGVspbqE=
+github.com/openstack-k8s-operators/lib-common/modules/common v0.0.0-20230524134507-696d321a942e h1:jVpp4uqYhIPKwK6H1gSCgk7t0WGsM0Qcfd/SNvU0gQs=
+github.com/openstack-k8s-operators/lib-common/modules/common v0.0.0-20230524134507-696d321a942e/go.mod h1:r8cMUoS+gnBTrGbmLLECafzhZBh6P9rMwgnrGVspbqE=
 github.com/openstack-k8s-operators/lib-common/modules/openstack v0.0.0-20230523062001-d41eddbb4da6 h1:vX/kP9uCdA+l447O155yyQcaLHBp6DSO4Ba3ya2XdB0=
 github.com/openstack-k8s-operators/lib-common/modules/openstack v0.0.0-20230523062001-d41eddbb4da6/go.mod h1:1Ka9t16pCIdnb/tgjYtL6xeIcN8GFAUxyz6x5UzzDbU=
 github.com/openstack-k8s-operators/lib-common/modules/storage v0.0.0-20230523095909-db05945b0b1e h1:pj5tauGhfc9FaCsvO+53hi2d+glO++lIzWKmHz+Xbek=
@@ -210,6 +208,8 @@ github.com/stretchr/testify v1.7.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/
 github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=
 github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.8.2 h1:+h33VjcLVPDHtOdpUCuF+7gSuG3yGIftsP1YvFihtJ8=
+github.com/stuggi/infra-operator/apis v0.0.0-20230526122013-8a4dbe8fef86 h1:ugZdrmYPpaSWY8XHzTMzYqE1PN1la0qK4y3G5RMS2y8=
+github.com/stuggi/infra-operator/apis v0.0.0-20230526122013-8a4dbe8fef86/go.mod h1:ux3Udj3OxHbh9LF3rZzOGahlpo+OkzwAH1NM4o0Hft4=
 github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f/go.mod h1:N2zxlSyiKSe5eX1tZViRH5QA0qijqEDrYZiPEAiq3wU=
 github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415/go.mod h1:GwrjFmJcFw6At/Gs6z4yjiIwzuJ1/+UwLxMQDVQXShQ=
 github.com/xeipuuv/gojsonschema v1.2.0/go.mod h1:anYRn/JVcOK2ZgGU+IjEV4nwlhoK5sQluxsYJ78Id3Y=
