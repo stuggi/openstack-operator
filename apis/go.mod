@@ -100,3 +100,25 @@ require (
 // mschuppert: map to latest commit from release-4.13 tag
 // must consistent within modules and service operators
 replace github.com/openshift/api => github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 //allow-merging
+
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20230816121842-440502f06c8f
+
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20230816122109-152862232878
+
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20230809094131-22913c6b4f1c
+
+replace github.com/openstack-k8s-operators/placement-operator/api => github.com/stuggi/placement-operator/api v0.0.0-20230816134701-bfcdc098dab0
+
+replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20230816140403-a075c26418b4
+
+replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/stuggi/neutron-operator/api v0.0.0-20230816141747-80fc20a0cbc1
+
+replace github.com/openstack-k8s-operators/nova-operator/api => github.com/stuggi/nova-operator/api v0.0.0-20230816144222-8100bfd2a1b0
+
+replace github.com/openstack-k8s-operators/heat-operator/api => github.com/stuggi/heat-operator/api v0.0.0-20230816145353-b17691c6b5f0
+
+replace github.com/openstack-k8s-operators/horizon-operator/api => github.com/stuggi/horizon-operator/api v0.0.0-20230816150035-5dfe29c00383
+
+replace github.com/openstack-k8s-operators/manila-operator/api => github.com/stuggi/manila-operator/api v0.0.0-20230814062151-debc967a8338
+
+replace github.com/openstack-k8s-operators/swift-operator/api => github.com/stuggi/swift-operator/api v0.0.0-20230815095826-d0a3d74ce5d1

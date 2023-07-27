@@ -74,7 +74,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/openshift/api v3.9.0+incompatible // indirect
+	github.com/openshift/api v3.9.0+incompatible
 	github.com/openstack-k8s-operators/lib-common/modules/openstack v0.1.0 //indirect
 	github.com/openstack-k8s-operators/lib-common/modules/storage v0.1.1-0.20230811131408-7be84c6eae21 //indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -101,7 +101,7 @@ require (
 	k8s.io/component-base v0.26.7 //indirect
 	k8s.io/klog/v2 v2.100.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20230515203736-54b630e78af5 //indirect
-	k8s.io/utils v0.0.0-20230726121419-3b25d923346b //indirect
+	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd //indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
@@ -112,3 +112,25 @@ replace github.com/openstack-k8s-operators/openstack-operator/apis => ./apis
 // mschuppert: map to latest commit from release-4.13 tag
 // must consistent within modules and service operators
 replace github.com/openshift/api => github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 //allow-merging
+
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20230816121842-440502f06c8f
+
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20230816122109-152862232878
+
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20230809094131-22913c6b4f1c
+
+replace github.com/openstack-k8s-operators/placement-operator/api => github.com/stuggi/placement-operator/api v0.0.0-20230816134701-bfcdc098dab0
+
+replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20230816140403-a075c26418b4
+
+replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/stuggi/neutron-operator/api v0.0.0-20230816141747-80fc20a0cbc1
+
+replace github.com/openstack-k8s-operators/nova-operator/api => github.com/stuggi/nova-operator/api v0.0.0-20230816144222-8100bfd2a1b0
+
+replace github.com/openstack-k8s-operators/heat-operator/api => github.com/stuggi/heat-operator/api v0.0.0-20230816145353-b17691c6b5f0
+
+replace github.com/openstack-k8s-operators/horizon-operator/api => github.com/stuggi/horizon-operator/api v0.0.0-20230816150035-5dfe29c00383
+
+replace github.com/openstack-k8s-operators/manila-operator/api => github.com/stuggi/manila-operator/api v0.0.0-20230814062151-debc967a8338
+
+replace github.com/openstack-k8s-operators/swift-operator/api => github.com/stuggi/swift-operator/api v0.0.0-20230815095826-d0a3d74ce5d1
