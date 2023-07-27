@@ -101,3 +101,19 @@ require (
 // mschuppert: map to latest commit from release-4.13 tag
 // must consistent within modules and service operators
 replace github.com/openshift/api => github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 //allow-merging
+
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20230803101649-c6f59a45383b
+
+//replace github.com/openstack-k8s-operators/lib-common/modules/common => /home/mschuppe/src/github.com/openstack-k8s-operators/lib-common/modules/common
+
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20230804090010-7e1ea68930a3
+
+//replace github.com/openstack-k8s-operators/keystone-operator/api => /home/mschuppe/src/github.com/openstack-k8s-operators/keystone-operator/api
+
+//replace github.com/openstack-k8s-operators/glance-operator/api => /home/mschuppe/src/github.com/openstack-k8s-operators/glance-operator/api
+
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20230804090851-6c678fbabd86
+
+replace github.com/openstack-k8s-operators/placement-operator/api => github.com/stuggi/placement-operator/api v0.0.0-20230804142021-fd1eb91cad74
+
+replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20230804150218-c91c2b01c9de

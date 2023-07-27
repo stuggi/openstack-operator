@@ -2894,32 +2894,6 @@ spec:
                             additionalProperties:
                               type: string
                             type: object
-                          externalEndpoints:
-                            items:
-                              properties:
-                                endpoint:
-                                  enum:
-                                  - internal
-                                  - public
-                                  type: string
-                                ipAddressPool:
-                                  minLength: 1
-                                  type: string
-                                loadBalancerIPs:
-                                  items:
-                                    type: string
-                                  type: array
-                                sharedIP:
-                                  default: true
-                                  type: boolean
-                                sharedIPKey:
-                                  default: ""
-                                  type: string
-                              required:
-                              - endpoint
-                              - ipAddressPool
-                              type: object
-                            type: array
                           networkAttachments:
                             items:
                               type: string
@@ -2927,6 +2901,121 @@ spec:
                           nodeSelector:
                             additionalProperties:
                               type: string
+                            type: object
+                          override:
+                            properties:
+                              service:
+                                properties:
+                                  endpoint:
+                                    enum:
+                                    - internal
+                                    - public
+                                    type: string
+                                  endpointURL:
+                                    type: string
+                                  metadata:
+                                    properties:
+                                      annotations:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
+                                      labels:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
+                                    type: object
+                                  spec:
+                                    properties:
+                                      allocateLoadBalancerNodePorts:
+                                        type: boolean
+                                      clusterIP:
+                                        type: string
+                                      clusterIPs:
+                                        items:
+                                          type: string
+                                        type: array
+                                        x-kubernetes-list-type: atomic
+                                      externalIPs:
+                                        items:
+                                          type: string
+                                        type: array
+                                      externalName:
+                                        type: string
+                                      externalTrafficPolicy:
+                                        type: string
+                                      healthCheckNodePort:
+                                        format: int32
+                                        type: integer
+                                      internalTrafficPolicy:
+                                        type: string
+                                      ipFamilies:
+                                        items:
+                                          type: string
+                                        type: array
+                                        x-kubernetes-list-type: atomic
+                                      ipFamilyPolicy:
+                                        type: string
+                                      loadBalancerClass:
+                                        type: string
+                                      loadBalancerIP:
+                                        type: string
+                                      loadBalancerSourceRanges:
+                                        items:
+                                          type: string
+                                        type: array
+                                      ports:
+                                        items:
+                                          properties:
+                                            appProtocol:
+                                              type: string
+                                            name:
+                                              type: string
+                                            nodePort:
+                                              format: int32
+                                              type: integer
+                                            port:
+                                              format: int32
+                                              type: integer
+                                            protocol:
+                                              default: TCP
+                                              type: string
+                                            targetPort:
+                                              anyOf:
+                                              - type: integer
+                                              - type: string
+                                              x-kubernetes-int-or-string: true
+                                          required:
+                                          - port
+                                          type: object
+                                        type: array
+                                        x-kubernetes-list-map-keys:
+                                        - port
+                                        - protocol
+                                        x-kubernetes-list-type: map
+                                      publishNotReadyAddresses:
+                                        type: boolean
+                                      selector:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                      sessionAffinity:
+                                        type: string
+                                      sessionAffinityConfig:
+                                        properties:
+                                          clientIP:
+                                            properties:
+                                              timeoutSeconds:
+                                                format: int32
+                                                type: integer
+                                            type: object
+                                        type: object
+                                      type:
+                                        type: string
+                                    type: object
+                                required:
+                                - endpoint
+                                type: object
                             type: object
                           pvc:
                             type: string
@@ -2990,32 +3079,6 @@ spec:
                             additionalProperties:
                               type: string
                             type: object
-                          externalEndpoints:
-                            items:
-                              properties:
-                                endpoint:
-                                  enum:
-                                  - internal
-                                  - public
-                                  type: string
-                                ipAddressPool:
-                                  minLength: 1
-                                  type: string
-                                loadBalancerIPs:
-                                  items:
-                                    type: string
-                                  type: array
-                                sharedIP:
-                                  default: true
-                                  type: boolean
-                                sharedIPKey:
-                                  default: ""
-                                  type: string
-                              required:
-                              - endpoint
-                              - ipAddressPool
-                              type: object
-                            type: array
                           networkAttachments:
                             items:
                               type: string
@@ -3023,6 +3086,121 @@ spec:
                           nodeSelector:
                             additionalProperties:
                               type: string
+                            type: object
+                          override:
+                            properties:
+                              service:
+                                properties:
+                                  endpoint:
+                                    enum:
+                                    - internal
+                                    - public
+                                    type: string
+                                  endpointURL:
+                                    type: string
+                                  metadata:
+                                    properties:
+                                      annotations:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
+                                      labels:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
+                                    type: object
+                                  spec:
+                                    properties:
+                                      allocateLoadBalancerNodePorts:
+                                        type: boolean
+                                      clusterIP:
+                                        type: string
+                                      clusterIPs:
+                                        items:
+                                          type: string
+                                        type: array
+                                        x-kubernetes-list-type: atomic
+                                      externalIPs:
+                                        items:
+                                          type: string
+                                        type: array
+                                      externalName:
+                                        type: string
+                                      externalTrafficPolicy:
+                                        type: string
+                                      healthCheckNodePort:
+                                        format: int32
+                                        type: integer
+                                      internalTrafficPolicy:
+                                        type: string
+                                      ipFamilies:
+                                        items:
+                                          type: string
+                                        type: array
+                                        x-kubernetes-list-type: atomic
+                                      ipFamilyPolicy:
+                                        type: string
+                                      loadBalancerClass:
+                                        type: string
+                                      loadBalancerIP:
+                                        type: string
+                                      loadBalancerSourceRanges:
+                                        items:
+                                          type: string
+                                        type: array
+                                      ports:
+                                        items:
+                                          properties:
+                                            appProtocol:
+                                              type: string
+                                            name:
+                                              type: string
+                                            nodePort:
+                                              format: int32
+                                              type: integer
+                                            port:
+                                              format: int32
+                                              type: integer
+                                            protocol:
+                                              default: TCP
+                                              type: string
+                                            targetPort:
+                                              anyOf:
+                                              - type: integer
+                                              - type: string
+                                              x-kubernetes-int-or-string: true
+                                          required:
+                                          - port
+                                          type: object
+                                        type: array
+                                        x-kubernetes-list-map-keys:
+                                        - port
+                                        - protocol
+                                        x-kubernetes-list-type: map
+                                      publishNotReadyAddresses:
+                                        type: boolean
+                                      selector:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
+                                        x-kubernetes-map-type: atomic
+                                      sessionAffinity:
+                                        type: string
+                                      sessionAffinityConfig:
+                                        properties:
+                                          clientIP:
+                                            properties:
+                                              timeoutSeconds:
+                                                format: int32
+                                                type: integer
+                                            type: object
+                                        type: object
+                                      type:
+                                        type: string
+                                    type: object
+                                required:
+                                - endpoint
+                                type: object
                             type: object
                           pvc:
                             type: string
@@ -3929,6 +4107,133 @@ spec:
                   enabled:
                     default: true
                     type: boolean
+                  externalEndpoints:
+                    items:
+                      properties:
+                        endpoint:
+                          default: internal
+                          enum:
+                          - internal
+                          - public
+                          type: string
+                        ipAddressPool:
+                          minLength: 1
+                          type: string
+                        loadBalancerIPs:
+                          items:
+                            type: string
+                          type: array
+                        sharedIP:
+                          default: true
+                          type: boolean
+                        sharedIPKey:
+                          default: ""
+                          type: string
+                      required:
+                      - ipAddressPool
+                      type: object
+                    type: array
+                  override:
+                    properties:
+                      route:
+                        properties:
+                          metadata:
+                            properties:
+                              annotations:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                              labels:
+                                additionalProperties:
+                                  type: string
+                                type: object
+                            type: object
+                          spec:
+                            properties:
+                              alternateBackends:
+                                items:
+                                  properties:
+                                    kind:
+                                      enum:
+                                      - Service
+                                      - ""
+                                      type: string
+                                    name:
+                                      type: string
+                                    weight:
+                                      format: int32
+                                      maximum: 256
+                                      minimum: 0
+                                      type: integer
+                                  type: object
+                                maxItems: 3
+                                type: array
+                              host:
+                                maxLength: 253
+                                pattern: ^([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*$
+                                type: string
+                              path:
+                                pattern: ^/
+                                type: string
+                              port:
+                                properties:
+                                  targetPort:
+                                    anyOf:
+                                    - type: integer
+                                    - type: string
+                                    x-kubernetes-int-or-string: true
+                                required:
+                                - targetPort
+                                type: object
+                              subdomain:
+                                maxLength: 253
+                                pattern: ^([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])(\.([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]{0,61}[a-zA-Z0-9]))*$
+                                type: string
+                              tls:
+                                properties:
+                                  caCertificate:
+                                    type: string
+                                  certificate:
+                                    type: string
+                                  destinationCACertificate:
+                                    type: string
+                                  insecureEdgeTerminationPolicy:
+                                    type: string
+                                  key:
+                                    type: string
+                                  termination:
+                                    enum:
+                                    - edge
+                                    - reencrypt
+                                    - passthrough
+                                    type: string
+                                required:
+                                - termination
+                                type: object
+                              to:
+                                properties:
+                                  kind:
+                                    enum:
+                                    - Service
+                                    - ""
+                                    type: string
+                                  name:
+                                    type: string
+                                  weight:
+                                    format: int32
+                                    maximum: 256
+                                    minimum: 0
+                                    type: integer
+                                type: object
+                              wildcardPolicy:
+                                enum:
+                                - None
+                                - Subdomain
+                                - ""
+                                type: string
+                            type: object
+                        type: object
+                    type: object
                   template:
                     properties:
                       adminProject:
@@ -3962,32 +4267,6 @@ spec:
                         additionalProperties:
                           type: string
                         type: object
-                      externalEndpoints:
-                        items:
-                          properties:
-                            endpoint:
-                              enum:
-                              - internal
-                              - public
-                              type: string
-                            ipAddressPool:
-                              minLength: 1
-                              type: string
-                            loadBalancerIPs:
-                              items:
-                                type: string
-                              type: array
-                            sharedIP:
-                              default: true
-                              type: boolean
-                            sharedIPKey:
-                              default: ""
-                              type: string
-                          required:
-                          - endpoint
-                          - ipAddressPool
-                          type: object
-                        type: array
                       memcachedInstance:
                         default: memcached
                         type: string
@@ -3998,6 +4277,123 @@ spec:
                       nodeSelector:
                         additionalProperties:
                           type: string
+                        type: object
+                      override:
+                        properties:
+                          service:
+                            items:
+                              properties:
+                                endpoint:
+                                  enum:
+                                  - internal
+                                  - public
+                                  type: string
+                                endpointURL:
+                                  type: string
+                                metadata:
+                                  properties:
+                                    annotations:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                    labels:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                  type: object
+                                spec:
+                                  properties:
+                                    allocateLoadBalancerNodePorts:
+                                      type: boolean
+                                    clusterIP:
+                                      type: string
+                                    clusterIPs:
+                                      items:
+                                        type: string
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                    externalIPs:
+                                      items:
+                                        type: string
+                                      type: array
+                                    externalName:
+                                      type: string
+                                    externalTrafficPolicy:
+                                      type: string
+                                    healthCheckNodePort:
+                                      format: int32
+                                      type: integer
+                                    internalTrafficPolicy:
+                                      type: string
+                                    ipFamilies:
+                                      items:
+                                        type: string
+                                      type: array
+                                      x-kubernetes-list-type: atomic
+                                    ipFamilyPolicy:
+                                      type: string
+                                    loadBalancerClass:
+                                      type: string
+                                    loadBalancerIP:
+                                      type: string
+                                    loadBalancerSourceRanges:
+                                      items:
+                                        type: string
+                                      type: array
+                                    ports:
+                                      items:
+                                        properties:
+                                          appProtocol:
+                                            type: string
+                                          name:
+                                            type: string
+                                          nodePort:
+                                            format: int32
+                                            type: integer
+                                          port:
+                                            format: int32
+                                            type: integer
+                                          protocol:
+                                            default: TCP
+                                            type: string
+                                          targetPort:
+                                            anyOf:
+                                            - type: integer
+                                            - type: string
+                                            x-kubernetes-int-or-string: true
+                                        required:
+                                        - port
+                                        type: object
+                                      type: array
+                                      x-kubernetes-list-map-keys:
+                                      - port
+                                      - protocol
+                                      x-kubernetes-list-type: map
+                                    publishNotReadyAddresses:
+                                      type: boolean
+                                    selector:
+                                      additionalProperties:
+                                        type: string
+                                      type: object
+                                      x-kubernetes-map-type: atomic
+                                    sessionAffinity:
+                                      type: string
+                                    sessionAffinityConfig:
+                                      properties:
+                                        clientIP:
+                                          properties:
+                                            timeoutSeconds:
+                                              format: int32
+                                              type: integer
+                                          type: object
+                                      type: object
+                                    type:
+                                      type: string
+                                  type: object
+                              required:
+                              - endpoint
+                              type: object
+                            type: array
                         type: object
                       passwordSelectors:
                         default:
@@ -7495,6 +7891,12 @@ spec:
                           type: object
                         externalEndpoint:
                           properties:
+                            endpoint:
+                              default: internal
+                              enum:
+                              - internal
+                              - public
+                              type: string
                             ipAddressPool:
                               minLength: 1
                               type: string

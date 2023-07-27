@@ -74,7 +74,7 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/openshift/api v3.9.0+incompatible // indirect
+	github.com/openshift/api v3.9.0+incompatible
 	github.com/openstack-k8s-operators/lib-common/modules/openstack v0.1.0 //indirect
 	github.com/openstack-k8s-operators/lib-common/modules/storage v0.1.0 //indirect
 	github.com/pkg/errors v0.9.1 // indirect
@@ -102,7 +102,7 @@ require (
 	k8s.io/component-base v0.26.7 //indirect
 	k8s.io/klog/v2 v2.100.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20230515203736-54b630e78af5 //indirect
-	k8s.io/utils v0.0.0-20230711102312-30195339c3c7 //indirect
+	k8s.io/utils v0.0.0-20230711102312-30195339c3c7
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd //indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
@@ -113,3 +113,19 @@ replace github.com/openstack-k8s-operators/openstack-operator/apis => ./apis
 // mschuppert: map to latest commit from release-4.13 tag
 // must consistent within modules and service operators
 replace github.com/openshift/api => github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 //allow-merging
+
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20230803101649-c6f59a45383b
+
+//replace github.com/openstack-k8s-operators/lib-common/modules/common => /home/mschuppe/src/github.com/openstack-k8s-operators/lib-common/modules/common
+
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20230804090010-7e1ea68930a3
+
+//replace github.com/openstack-k8s-operators/keystone-operator/api => /home/mschuppe/src/github.com/openstack-k8s-operators/keystone-operator/api
+
+//replace github.com/openstack-k8s-operators/glance-operator/api => /home/mschuppe/src/github.com/openstack-k8s-operators/glance-operator/api
+
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20230804090851-6c678fbabd86
+
+replace github.com/openstack-k8s-operators/placement-operator/api => github.com/stuggi/placement-operator/api v0.0.0-20230804142021-fd1eb91cad74
+
+replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20230804150218-c91c2b01c9de
