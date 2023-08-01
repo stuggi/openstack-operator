@@ -234,6 +234,19 @@ type GlanceSection struct {
 	//+operator-sdk:csv:customresourcedefinitions:type=spec
 	// Template - Overrides to use when creating the Glance Service
 	Template glancev1.GlanceSpec `json:"template,omitempty"`
+
+	// ExternalEndpoints, expose a VIP using a pre-created IPAddressPool
+	ExternalEndpoints []MetalLBConfig `json:"externalEndpoints,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// Override, provides the ability to override the generated manifest of several child resources.
+	Override GlanceOverrideSpec `json:"override,omitempty"`
+}
+
+// GlanceOverrideSpec to override the generated manifest of several child resources.
+type GlanceOverrideSpec struct {
+	// +kubebuilder:validation:Optional
+	Route *route.OverrideSpec `json:"route,omitempty"`
 }
 
 // CinderSection defines the desired state of Cinder service
