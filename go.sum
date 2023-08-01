@@ -194,8 +194,8 @@ github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o
 github.com/stretchr/testify v1.8.2 h1:+h33VjcLVPDHtOdpUCuF+7gSuG3yGIftsP1YvFihtJ8=
 github.com/stuggi/cinder-operator/api v0.0.0-20230816140403-a075c26418b4 h1:AvmYgD3dsdc+gQ772Uvtnm1/iyRXH4o6DcJyFzJMy60=
 github.com/stuggi/cinder-operator/api v0.0.0-20230816140403-a075c26418b4/go.mod h1:3xQfQGmIzZeufZOpAuOe9i0pTSoxYvz0JsdAJjK2Kno=
-github.com/stuggi/glance-operator/api v0.0.0-20230809094131-22913c6b4f1c h1:u4wDtY6wQNDV1RxhMfOwd85/lG5SzVm61Jemm9dHf0w=
-github.com/stuggi/glance-operator/api v0.0.0-20230809094131-22913c6b4f1c/go.mod h1:2Dfm01p6uGeQF8rsMKz6qQRPxZCLNLKuT5Flju5jSB4=
+github.com/stuggi/glance-operator/api v0.0.0-20230816132821-d39a79afee8a h1:sttkHGsZRdsXfKgVJA4LOc5wJOboeZ3U7YpDROUFinM=
+github.com/stuggi/glance-operator/api v0.0.0-20230816132821-d39a79afee8a/go.mod h1:NXBA6L/qHCAxh5onMhv88fT1c/pZ3UXbr1eHr62CHQ8=
 github.com/stuggi/heat-operator/api v0.0.0-20230816145353-b17691c6b5f0 h1:NcsIDs5+Clt3DIFWlbhyBAAuslkY2ZF2Wpp6tT5vHa8=
 github.com/stuggi/heat-operator/api v0.0.0-20230816145353-b17691c6b5f0/go.mod h1:N3SRs4S/P1qqqjuje/6LupaqN5swXDDUlyRp9jSAJs8=
 github.com/stuggi/horizon-operator/api v0.0.0-20230816150035-5dfe29c00383 h1:FRPiUDdHOIKVT6xtv6gJucl/YlReAz0CiuhAGQa+PAQ=

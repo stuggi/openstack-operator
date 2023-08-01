@@ -105,7 +105,7 @@ replace github.com/openstack-k8s-operators/lib-common/modules/common => github.c
 
 replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20230816122109-152862232878
 
-replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20230809094131-22913c6b4f1c
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20230816132821-d39a79afee8a
 
 replace github.com/openstack-k8s-operators/placement-operator/api => github.com/stuggi/placement-operator/api v0.0.0-20230816134701-bfcdc098dab0
 
