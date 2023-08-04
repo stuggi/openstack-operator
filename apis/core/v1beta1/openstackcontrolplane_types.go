@@ -273,6 +273,19 @@ type CinderSection struct {
 	//+operator-sdk:csv:customresourcedefinitions:type=spec
 	// Template - Overrides to use when creating Cinder Resources
 	Template cinderv1.CinderSpec `json:"template,omitempty"`
+
+	// ExternalEndpoints, expose a VIP using a pre-created IPAddressPool
+	ExternalEndpoints []MetalLBConfig `json:"externalEndpoints,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// Override, provides the ability to override the generated manifest of several child resources.
+	Override CinderOverrideSpec `json:"override,omitempty"`
+}
+
+// CinderOverrideSpec to override the generated manifest of several child resources.
+type CinderOverrideSpec struct {
+	// +kubebuilder:validation:Optional
+	Route *route.OverrideSpec `json:"route,omitempty"`
 }
 
 // MariadbSection defines the desired state of MariaDB service
