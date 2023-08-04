@@ -158,14 +158,15 @@ spec:
           ovn-encap-type: "geneve"
         networkAttachment: tenant
   placement:
-    template:
-      databaseInstance: openstack
-      secret: osp-secret
+    apiOverride:
       externalEndpoints:
       - endpoint: internal
         ipAddressPool: internalapi
         loadBalancerIPs:
         - 172.17.0.80
+    template:
+      databaseInstance: openstack
+      secret: osp-secret
   rabbitmq:
     templates:
       rabbitmq:
