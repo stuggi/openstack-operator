@@ -88,14 +88,15 @@ spec:
       memcached:
         replicas: 1
   neutron:
-    template:
-      databaseInstance: openstack
-      secret: osp-secret
+    apiOverride:
       externalEndpoints:
       - endpoint: internal
         ipAddressPool: internalapi
         loadBalancerIPs:
         - 172.17.0.80
+    template:
+      databaseInstance: openstack
+      secret: osp-secret
       networkAttachments:
       - internalapi
   horizon:
