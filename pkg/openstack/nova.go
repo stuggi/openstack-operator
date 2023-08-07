@@ -21,7 +21,9 @@ import (
 	"fmt"
 
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/endpoint"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/service"
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
@@ -48,6 +50,128 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 		return ctrl.Result{}, nil
 	}
 
+	// Create service overrides to pass into the service CR
+	// and expose the public endpoint using a route per default.
+	// Any trailing path will be added on the service-operator level.
+	var endpoints = map[service.Endpoint]endpoint.Data{
+		service.EndpointPublic:   {},
+		service.EndpointInternal: {},
+	}
+
+	apiServiceOverrides := map[string]service.OverrideSpec{}
+	serviceDetails := []ServiceDetails{}
+
+	for endpointType := range endpoints {
+		sd := ServiceDetails{
+			ServiceName:         nova.Name,
+			Namespace:           instance.Namespace,
+			Endpoint:            endpointType,
+			ServiceOverrideSpec: instance.Spec.Nova.Template.APIServiceTemplate.Override.Service,
+			RouteOverrideSpec:   instance.Spec.Nova.APIOverride.Route,
+		}
+
+		svcOverride, ctrlResult, err := sd.CreateRouteAndServiceOverride(ctx, instance, helper)
+		if err != nil {
+			return ctrlResult, err
+		} else if (ctrlResult != ctrl.Result{}) {
+			return ctrlResult, nil
+		}
+
+		serviceDetails = append(
+			serviceDetails,
+			sd,
+		)
+		if svcOverride != nil {
+			apiServiceOverrides[string(endpointType)] = *svcOverride
+		}
+
+		instance.Status.Conditions.MarkTrue(corev1beta1.OpenStackControlPlaneServiceOverrideReadyCondition, corev1beta1.OpenStackControlPlaneServiceOverrideReadyMessage)
+	}
+
+	// Create service overrides to pass into the service CR
+	// and expose the public endpoint using a route per default.
+	// Any trailing path will be added on the service-operator level.
+	var metadataEndpoints = map[service.Endpoint]endpoint.Data{
+		service.EndpointInternal: {},
+	}
+	metadataServiceOverrides := map[string]map[string]service.OverrideSpec{}
+	novncproxyServiceOverrides := map[string]map[string]service.OverrideSpec{}
+
+	// cell service override
+	for cellName, template := range instance.Spec.Nova.Template.CellTemplates {
+		cellOverride := instance.Spec.Nova.CellOverride[cellName]
+
+		for endpointType := range metadataEndpoints {
+			metadataServiceName := nova.Name + "-metadata"
+			if cellName != novav1.Cell0Name {
+				metadataServiceName = metadataServiceName + "-" + cellName
+			}
+
+			metadataSD := ServiceDetails{
+				ServiceName:         metadataServiceName,
+				Namespace:           instance.Namespace,
+				Endpoint:            endpointType,
+				ServiceOverrideSpec: template.MetadataServiceTemplate.Override.Service,
+				RouteOverrideSpec:   nil,
+			}
+
+			metadataSVCOverride, ctrlResult, err := metadataSD.CreateRouteAndServiceOverride(ctx, instance, helper)
+			if err != nil {
+				return ctrlResult, err
+			} else if (ctrlResult != ctrl.Result{}) {
+				return ctrlResult, nil
+			}
+
+			serviceDetails = append(
+				serviceDetails,
+				metadataSD,
+			)
+
+			if metadataServiceOverrides[cellName] == nil {
+				metadataServiceOverrides[cellName] = map[string]service.OverrideSpec{}
+			}
+
+			if metadataSVCOverride != nil {
+				metadataServiceOverrides[cellName][string(endpointType)] = *metadataSVCOverride
+			}
+		}
+
+		for endpointType := range endpoints {
+			// no novncproxy for cell0
+			if cellName == novav1.Cell0Name {
+				break
+			}
+			novncProxySD := ServiceDetails{
+				ServiceName:         nova.Name + "-novncproxy" + "-" + cellName,
+				Namespace:           instance.Namespace,
+				Endpoint:            endpointType,
+				ServiceOverrideSpec: template.NoVNCProxyServiceTemplate.Override.Service,
+				RouteOverrideSpec:   cellOverride.NoVNCProxy.Route,
+			}
+
+			novncSVCOverride, ctrlResult, err := novncProxySD.CreateRouteAndServiceOverride(ctx, instance, helper)
+			if err != nil {
+				return ctrlResult, err
+			} else if (ctrlResult != ctrl.Result{}) {
+				return ctrlResult, nil
+			}
+
+			serviceDetails = append(
+				serviceDetails,
+				novncProxySD,
+			)
+
+			if novncproxyServiceOverrides[cellName] == nil {
+				novncproxyServiceOverrides[cellName] = map[string]service.OverrideSpec{}
+			}
+
+			if novncSVCOverride != nil {
+				novncproxyServiceOverrides[cellName][string(endpointType)] = *novncSVCOverride
+			}
+		}
+	}
+	instance.Status.Conditions.MarkTrue(corev1beta1.OpenStackControlPlaneServiceOverrideReadyCondition, corev1beta1.OpenStackControlPlaneServiceOverrideReadyMessage)
+
 	helper.GetLogger().Info("Reconciling Nova", "Nova.Namespace", instance.Namespace, "Nova.Name", nova.Name)
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), nova, func() error {
 		// 1)
@@ -67,6 +191,17 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 		// we need to support either rabbitmq vhosts or deploy a separate
 		// RabbitMQCluster per nova cell.
 		instance.Spec.Nova.Template.DeepCopyInto(&nova.Spec)
+		nova.Spec.APIServiceTemplate.Override.Service = apiServiceOverrides
+
+		for cellName, cellTemplate := range nova.Spec.CellTemplates {
+			if override, exist := metadataServiceOverrides[cellName]; exist {
+				cellTemplate.MetadataServiceTemplate.Override.Service = override
+			}
+			if override, exist := novncproxyServiceOverrides[cellName]; exist {
+				cellTemplate.NoVNCProxyServiceTemplate.Override.Service = override
+			}
+			nova.Spec.CellTemplates[cellName] = cellTemplate
+		}
 
 		err := controllerutil.SetControllerReference(helper.GetBeforeObject(), nova, helper.GetScheme())
 		if err != nil {
@@ -96,6 +231,18 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			condition.RequestedReason,
 			condition.SeverityInfo,
 			corev1beta1.OpenStackControlPlaneNovaReadyRunningMessage))
+	}
+
+	for _, sd := range serviceDetails {
+		// Add the service CR to the ownerRef list of the route to prevent the route being deleted
+		// before the service is deleted. Otherwise this can result cleanup issues which require
+		// the endpoint to be reachable.
+		// If ALL objects in the list have been deleted, this object will be garbage collected.
+		// https://github.com/kubernetes/apimachinery/blob/15d95c0b2af3f4fcf46dce24105e5fbb9379af5a/pkg/apis/meta/v1/types.go#L240-L247
+		err = sd.AddOwnerRef(ctx, helper, nova)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	return ctrl.Result{}, nil
