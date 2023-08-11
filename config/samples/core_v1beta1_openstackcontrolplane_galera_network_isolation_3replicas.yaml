@@ -184,6 +184,18 @@ spec:
           ipAddressPool: internalapi
           sharedIP: false
   heat:
+    apiOverride:
+      externalEndpoints:
+      - endpoint: internal
+        ipAddressPool: internalapi
+        loadBalancerIPs:
+        - 172.17.0.80
+    cnfAPIOverride:
+      externalEndpoints:
+      - endpoint: internal
+        ipAddressPool: internalapi
+        loadBalancerIPs:
+        - 172.17.0.80
     enabled: false
     template:
       databaseInstance: openstack
