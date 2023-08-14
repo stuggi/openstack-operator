@@ -121,14 +121,15 @@ spec:
     template:
       secret: osp-secret
   manila:
+    apiOverride:
+      externalEndpoints:
+      - endpoint: internal
+        ipAddressPool: internalapi
+        loadBalancerIPs:
+        - 172.17.0.80
     template:
       manilaAPI:
         replicas: 1
-        externalEndpoints:
-        - endpoint: internal
-          ipAddressPool: internalapi
-          loadBalancerIPs:
-          - 172.17.0.80
         networkAttachments:
         - internalapi
       manilaScheduler:
