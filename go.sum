@@ -138,16 +138,12 @@ github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 h1:rncLxJBpFGqBztyxC
 github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7/go.mod h1:ctXNyWanKEjGj8sss1KjjHQ3ENKFm33FFnS5BKaIPh4=
 github.com/openstack-k8s-operators/dataplane-operator/api v0.1.1-0.20230911201518-3476f213b1d0 h1:/7rrNLfAGQeLfWvsAS/I808Z2IVXHVL8kza/5apTrT4=
 github.com/openstack-k8s-operators/dataplane-operator/api v0.1.1-0.20230911201518-3476f213b1d0/go.mod h1:LnOxN8FwbHtDf6/9U5VYgZggkMXcKfKbywtuKHFvx9Q=
-github.com/openstack-k8s-operators/ironic-operator/api v0.1.1-0.20230905103647-804dc6fa8609 h1:OkT7jHKLFJzmpn5c6JLrOjuVu1M4aSTasPkvxJPSbRE=
-github.com/openstack-k8s-operators/ironic-operator/api v0.1.1-0.20230905103647-804dc6fa8609/go.mod h1:gqzI6uzYMAiN9tlCrMeQ4b9rTcv9iRSUVb30WzVnR3Y=
 github.com/openstack-k8s-operators/lib-common/modules/openstack v0.1.1-0.20230824094610-976b18ca2875 h1:aUlwELsLYWQ3FL+/nRG/1uGVNW86c3MhtLrHNVDd57k=
 github.com/openstack-k8s-operators/lib-common/modules/openstack v0.1.1-0.20230824094610-976b18ca2875/go.mod h1:Vng+vqdTJUuZ+AEzSAaU0I7bn3qwYMMFEUHHhiH0440=
 github.com/openstack-k8s-operators/lib-common/modules/storage v0.1.1-0.20230824094610-976b18ca2875 h1:lC8Nw4PF2Lcqc7BJAdlBvYPyLqyaKa9R1e15dM9b3BY=
 github.com/openstack-k8s-operators/lib-common/modules/storage v0.1.1-0.20230824094610-976b18ca2875/go.mod h1:lazDTPD8BYde2yyzZ3HbOfG51Sf87vSr4KXwpF57hDs=
 github.com/openstack-k8s-operators/mariadb-operator/api v0.1.1-0.20230905141738-de0804f52e09 h1:AzA5Pz+Qnco6U4v7hKSsbIIR3nPYARuEtOaZaKlYq54=
 github.com/openstack-k8s-operators/mariadb-operator/api v0.1.1-0.20230905141738-de0804f52e09/go.mod h1:m5XuZSa5Zt5uAw3WbJYOIkFAGXy01mybVekcKOq1qHI=
-github.com/openstack-k8s-operators/octavia-operator/api v0.0.0-20230911154103-78b1322efc54 h1:W3oAcEraBQD8rxw8qxbiATeOMG1MzyAProKdkdTEHHI=
-github.com/openstack-k8s-operators/octavia-operator/api v0.0.0-20230911154103-78b1322efc54/go.mod h1:sJ7VsKIMkPjUOLKPNSg0/ZBXOwHDIPUzEq1pb7oEyWM=
 github.com/openstack-k8s-operators/openstack-ansibleee-operator/api v0.1.1-0.20230904091032-d53c9286b6a4 h1:lzEcJf9tyzBtVdL889++2NqyqGI34RX87u/fsQWstHw=
 github.com/openstack-k8s-operators/openstack-ansibleee-operator/api v0.1.1-0.20230904091032-d53c9286b6a4/go.mod h1:gCsHjYsZWdF8DOd4MH++2RZ+tF/VOuhhaVXWB7HrLCg=
 github.com/openstack-k8s-operators/openstack-baremetal-operator/api v0.1.1-0.20230906134548-13271141ff78 h1:OV/lEz4m+Y18PXmj3TzOGPQzPsuI/qT2Jgp4xTs1Y30=
@@ -203,6 +199,8 @@ github.com/stuggi/horizon-operator/api v0.0.0-20230912064356-0cc7bfe37f46 h1:Lcr
 github.com/stuggi/horizon-operator/api v0.0.0-20230912064356-0cc7bfe37f46/go.mod h1:U/YEMhqBGsCibemyrEKMWVMY0g5vmUTu6qJMjqlYQAk=
 github.com/stuggi/infra-operator/apis v0.0.0-20230912054946-9552634a4ba0 h1:Os/WrLK19hepIAx61awEtM/LHJzCVIup+nRkq1Hj1Qs=
 github.com/stuggi/infra-operator/apis v0.0.0-20230912054946-9552634a4ba0/go.mod h1:jr5z9ymxnTTpm5FvsjzUoI1REhHIOb3cX6hLfe+6e8A=
+github.com/stuggi/ironic-operator/api v0.0.0-20230913062200-61e651fa3837 h1:8CHqqwkcBl9cdEsp6XsJki6xSznSRMcLhvZ78B3mPqc=
+github.com/stuggi/ironic-operator/api v0.0.0-20230913062200-61e651fa3837/go.mod h1:A1PVWGSnt0aeNV9awdjJCz7vrojvQ7kZqiP8Hr+S6Ac=
 github.com/stuggi/keystone-operator/api v0.0.0-20230912063902-82736148d8fc h1:LoBQyr2K6+VcGR+8cSFWZ/MAlfP3LOOnzdYpab6kkZE=
 github.com/stuggi/keystone-operator/api v0.0.0-20230912063902-82736148d8fc/go.mod h1:VJ9FF+3b7Cr2Fih5lqq8l8bKgDtWqnIO2g1C3vuqUug=
 github.com/stuggi/lib-common/modules/common v0.0.0-20230911170028-26ca518cd865 h1:6KbPTZCQRwZ/dUKLkyyIaKjT2HcMQDqjEcBQjEPXRv0=
@@ -213,6 +211,8 @@ github.com/stuggi/neutron-operator/api v0.0.0-20230912064213-9c65387e37d9 h1:O1q
 github.com/stuggi/neutron-operator/api v0.0.0-20230912064213-9c65387e37d9/go.mod h1:tIzmny+yjmkDWaxuF5+OdJrtSpvhsIS4JK49et9zNTA=
 github.com/stuggi/nova-operator/api v0.0.0-20230912101919-74488102e032 h1:RyrfSIKoVG7EeE1rJktxcab0SnJXKoDCv9mGhF/4a7s=
 github.com/stuggi/nova-operator/api v0.0.0-20230912101919-74488102e032/go.mod h1:TA5LYEchViKXHKLeeLzttEgUKb2lXTXNScOHztfNnWQ=
+github.com/stuggi/octavia-operator/api v0.0.0-20230913065641-5a23dd101f9b h1:XZka46JcnqbPrRSu/+JSx5waXa+9NaXFoPIyyatb400=
+github.com/stuggi/octavia-operator/api v0.0.0-20230913065641-5a23dd101f9b/go.mod h1:/jicy6yB1m6PSY1ALBmPsCo19qolNOuzAHUrDj2Mz/c=
 github.com/stuggi/placement-operator/api v0.0.0-20230912064112-375b8961dce7 h1:eBDSBuYWN7R6Jzb6MbF+pNaLvkwG2JSoSFpegik2oXM=
 github.com/stuggi/placement-operator/api v0.0.0-20230912064112-375b8961dce7/go.mod h1:f3mKPqK51G4PIyIPbFNQTHQVycUzK+juptR0ccNeTHc=
 github.com/stuggi/swift-operator/api v0.0.0-20230912064504-dd015b608f8a h1:ThC1WZhqifl9MZQTwMPD+uP+Aj/pOFQOIw4EycvjQk0=

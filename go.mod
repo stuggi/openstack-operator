@@ -136,3 +136,7 @@ replace github.com/openstack-k8s-operators/manila-operator/api => github.com/stu
 replace github.com/openstack-k8s-operators/swift-operator/api => github.com/stuggi/swift-operator/api v0.0.0-20230912064504-dd015b608f8a
 
 replace github.com/openstack-k8s-operators/infra-operator/apis => github.com/stuggi/infra-operator/apis v0.0.0-20230912054946-9552634a4ba0
+
+replace github.com/openstack-k8s-operators/ironic-operator/api => github.com/stuggi/ironic-operator/api v0.0.0-20230913062200-61e651fa3837
+
+replace github.com/openstack-k8s-operators/octavia-operator/api => github.com/stuggi/octavia-operator/api v0.0.0-20230913065641-5a23dd101f9b
