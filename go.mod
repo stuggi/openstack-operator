@@ -3,6 +3,7 @@ module github.com/openstack-k8s-operators/openstack-operator
 go 1.19
 
 require (
+	github.com/cert-manager/cert-manager v1.11.5
 	github.com/ghodss/yaml v1.0.0
 	github.com/go-logr/logr v1.2.4
 	github.com/imdario/mergo v0.3.16
@@ -16,6 +17,7 @@ require (
 	github.com/openstack-k8s-operators/infra-operator/apis v0.1.1-0.20231001103054-f74a88ed4971
 	github.com/openstack-k8s-operators/ironic-operator/api v0.3.1-0.20231006045519-4d73854cb09a
 	github.com/openstack-k8s-operators/keystone-operator/api v0.3.1-0.20231005132119-e75019792469
+	github.com/openstack-k8s-operators/lib-common/modules/certmanager v0.0.0-20231006072650-7fe7fe16bcd1
 	github.com/openstack-k8s-operators/lib-common/modules/common v0.3.1-0.20231011120827-7fd4e4c731e5
 	github.com/openstack-k8s-operators/manila-operator/api v0.3.1-0.20231009201721-085058b855a5
 	github.com/openstack-k8s-operators/mariadb-operator/api v0.3.0
@@ -46,6 +48,7 @@ require (
 	github.com/metal3-io/baremetal-operator/pkg/hardwareutils v0.2.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
 	golang.org/x/tools v0.14.0 // indirect
+	sigs.k8s.io/gateway-api v0.6.0 // indirect
 )
 
 require (
