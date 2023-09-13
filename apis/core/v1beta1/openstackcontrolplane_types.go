@@ -536,6 +536,11 @@ type OctaviaSection struct {
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
 	// Template - Overrides to use when creating Octavia Resources
 	Template octaviav1.OctaviaSpec `json:"template,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	// +operator-sdk:csv:customresourcedefinitions:type=spec
+	// APIOverride, provides the ability to override the generated manifest of several child resources.
+	APIOverride Override `json:"apiOverride,omitempty"`
 }
 
 // OpenStackControlPlaneStatus defines the observed state of OpenStackControlPlane

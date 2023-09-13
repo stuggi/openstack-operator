@@ -141,6 +141,9 @@ const (
 	// OpenStackControlPlaneOctaviaReadyCondition Status=True condition which indicates if Octavia is configured and operational
 	OpenStackControlPlaneOctaviaReadyCondition condition.Type = "OpenStackControlPlaneOctaviaReady"
 
+	// OpenStackControlPlaneExposeOctaviaReadyCondition Status=True condition which indicates if Octavia is exposed via a route
+	OpenStackControlPlaneExposeOctaviaReadyCondition condition.Type = "OpenStackControlPlaneExposeOctaviaReady"
+
 	// OpenStackControlPlaneOctaviaReadyInitMessage
 	OpenStackControlPlaneOctaviaReadyInitMessage = "OpenStackControlPlane Octavia not started"
 
