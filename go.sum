@@ -11,6 +11,8 @@ github.com/blang/semver/v4 v4.0.0 h1:1PFHFE6yCCTv8C1TeyNNarDzntLi7wMI5i/pzqYIsAM
 github.com/blang/semver/v4 v4.0.0/go.mod h1:IbckMUScFkM3pff0VJDNKRiT6TG/YpiHIM2yvyW5YoQ=
 github.com/buger/jsonparser v1.1.1/go.mod h1:6RYKKt7H4d4+iWqouImQ9R2FZql3VbhNgx27UK13J/0=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
+github.com/cert-manager/cert-manager v1.11.5 h1:K2LurvwIE4hIhODQZnkOW6ljYe3lVMAliS/to+gI05o=
+github.com/cert-manager/cert-manager v1.11.5/go.mod h1:zNOyoTEwdn9Rtj5Or2pjBY1Bqwtw4vBElP2fKSP8/g8=
 github.com/cespare/xxhash v1.1.0/go.mod h1:XrSqR1VqqWfGrhpAt58auRo0WTKS1nRRg3ghfAqPWnc=
 github.com/cespare/xxhash/v2 v2.2.0 h1:DC2CZ1Ep5Y4k3ZQ899DldepgrayRUGE6BBZ/cd9Cj44=
 github.com/cespare/xxhash/v2 v2.2.0/go.mod h1:VGX0DQ3Q6kWi7AoAeZDth3/j3BFtOZR5XLFGgcrjCOs=
@@ -95,8 +97,8 @@ github.com/google/pprof v0.0.0-20230510103437-eeec1cb781c3/go.mod h1:79YE0hCXdHa
 github.com/google/uuid v1.1.2/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
 github.com/google/uuid v1.3.1 h1:KjJaJ9iWZ3jOFZIf1Lqf4laDRCasjl0BCmnEGxkdLb4=
 github.com/google/uuid v1.3.1/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/gophercloud/gophercloud v1.5.0 h1:cDN6XFCLKiiqvYpjQLq9AiM7RDRbIC9450WpPH+yvXo=
-github.com/gophercloud/gophercloud v1.5.0/go.mod h1:aAVqcocTSXh2vYFZ1JTvx4EQmfgzxRcNupUfxZbBNDM=
+github.com/gophercloud/gophercloud v1.6.0 h1:JwJN1bauRnWPba5ueWs9IluONHteXPWjjK+MvfM4krY=
+github.com/gophercloud/gophercloud v1.6.0/go.mod h1:aAVqcocTSXh2vYFZ1JTvx4EQmfgzxRcNupUfxZbBNDM=
 github.com/grpc-ecosystem/grpc-gateway v1.16.0/go.mod h1:BDjrQk3hbvj6Nolgz8mAMFbcEtjT1g+wF4CSlocrBnw=
 github.com/imdario/mergo v0.3.16 h1:wwQJbIsHYGMUyLSPrEq1CT16AhnhNJQ51+4fdHUnCl4=
 github.com/imdario/mergo v0.3.16/go.mod h1:WBLT9ZmE3lPoWsEzCh9LPo3TiwVN+ZKEjmz+hD27ysY=
@@ -138,12 +140,14 @@ github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 h1:rncLxJBpFGqBztyxC
 github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7/go.mod h1:ctXNyWanKEjGj8sss1KjjHQ3ENKFm33FFnS5BKaIPh4=
 github.com/openstack-k8s-operators/dataplane-operator/api v0.1.1-0.20230911201518-3476f213b1d0 h1:/7rrNLfAGQeLfWvsAS/I808Z2IVXHVL8kza/5apTrT4=
 github.com/openstack-k8s-operators/dataplane-operator/api v0.1.1-0.20230911201518-3476f213b1d0/go.mod h1:LnOxN8FwbHtDf6/9U5VYgZggkMXcKfKbywtuKHFvx9Q=
-github.com/openstack-k8s-operators/lib-common/modules/openstack v0.1.1-0.20230824094610-976b18ca2875 h1:aUlwELsLYWQ3FL+/nRG/1uGVNW86c3MhtLrHNVDd57k=
-github.com/openstack-k8s-operators/lib-common/modules/openstack v0.1.1-0.20230824094610-976b18ca2875/go.mod h1:Vng+vqdTJUuZ+AEzSAaU0I7bn3qwYMMFEUHHhiH0440=
+github.com/openstack-k8s-operators/lib-common/modules/certmanager v0.0.0-20230913075424-2680ce4b6ad2 h1:G52bcdhUCUB52T/KQLs1NpyTpwFIzhLQveVXn73uNR0=
+github.com/openstack-k8s-operators/lib-common/modules/certmanager v0.0.0-20230913075424-2680ce4b6ad2/go.mod h1:aLUG/GJLICVz5O/xP5qAk7nqG55f3G7CNiLQxS6MUPs=
+github.com/openstack-k8s-operators/lib-common/modules/openstack v0.1.1-0.20230913072156-d5fa2f779dd1 h1:So+5FtizWvR6btWbLg36OIymUBVygYt2Vyb6iq7qGWo=
+github.com/openstack-k8s-operators/lib-common/modules/openstack v0.1.1-0.20230913072156-d5fa2f779dd1/go.mod h1:Oc2HbWJzr7Q6DRg7Xg4jakhkdil0YsIofZwgidVX3/U=
 github.com/openstack-k8s-operators/lib-common/modules/storage v0.1.1-0.20230824094610-976b18ca2875 h1:lC8Nw4PF2Lcqc7BJAdlBvYPyLqyaKa9R1e15dM9b3BY=
 github.com/openstack-k8s-operators/lib-common/modules/storage v0.1.1-0.20230824094610-976b18ca2875/go.mod h1:lazDTPD8BYde2yyzZ3HbOfG51Sf87vSr4KXwpF57hDs=
-github.com/openstack-k8s-operators/mariadb-operator/api v0.1.1-0.20230905141738-de0804f52e09 h1:AzA5Pz+Qnco6U4v7hKSsbIIR3nPYARuEtOaZaKlYq54=
-github.com/openstack-k8s-operators/mariadb-operator/api v0.1.1-0.20230905141738-de0804f52e09/go.mod h1:m5XuZSa5Zt5uAw3WbJYOIkFAGXy01mybVekcKOq1qHI=
+github.com/openstack-k8s-operators/mariadb-operator/api v0.1.1-0.20230912174650-9fb4c4a76e55 h1:iwa4MpjFHCl+qfiimlUwVm1BV+LGjbGYtXIwLe/QHwk=
+github.com/openstack-k8s-operators/mariadb-operator/api v0.1.1-0.20230912174650-9fb4c4a76e55/go.mod h1:rh0jKCJYeHXVWfJnXl22AuaTRkYfHwmKuK6O3IeTG4A=
 github.com/openstack-k8s-operators/openstack-ansibleee-operator/api v0.1.1-0.20230904091032-d53c9286b6a4 h1:lzEcJf9tyzBtVdL889++2NqyqGI34RX87u/fsQWstHw=
 github.com/openstack-k8s-operators/openstack-ansibleee-operator/api v0.1.1-0.20230904091032-d53c9286b6a4/go.mod h1:gCsHjYsZWdF8DOd4MH++2RZ+tF/VOuhhaVXWB7HrLCg=
 github.com/openstack-k8s-operators/openstack-baremetal-operator/api v0.1.1-0.20230906134548-13271141ff78 h1:OV/lEz4m+Y18PXmj3TzOGPQzPsuI/qT2Jgp4xTs1Y30=
@@ -384,6 +388,8 @@ k8s.io/utils v0.0.0-20230726121419-3b25d923346b h1:sgn3ZU783SCgtaSJjpcVVlRqd6GSn
 k8s.io/utils v0.0.0-20230726121419-3b25d923346b/go.mod h1:OLgZIPagt7ERELqWJFomSt595RzquPNLL48iOWgYOg0=
 sigs.k8s.io/controller-runtime v0.14.6 h1:oxstGVvXGNnMvY7TAESYk+lzr6S3V5VFxQ6d92KcwQA=
 sigs.k8s.io/controller-runtime v0.14.6/go.mod h1:WqIdsAY6JBsjfc/CqO0CORmNtoCtE4S6qbPc9s68h+0=
+sigs.k8s.io/gateway-api v0.6.0 h1:v2FqrN2ROWZLrSnI2o91taHR8Sj3s+Eh3QU7gLNWIqA=
+sigs.k8s.io/gateway-api v0.6.0/go.mod h1:EYJT+jlPWTeNskjV0JTki/03WX1cyAnBhwBJfYHpV/0=
 sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd h1:EDPBXCAspyGV4jQlpZSudPeMmr1bNJefnuqLsRAsHZo=
 sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd/go.mod h1:B8JuhiUyNFVKdsE8h686QcCxMaH6HrOAZj4vswFpcB0=
 sigs.k8s.io/structured-merge-diff/v4 v4.3.0 h1:UZbZAZfX0wV2zr7YZorDz6GXROfDFj6LvqCRm4VUVKk=

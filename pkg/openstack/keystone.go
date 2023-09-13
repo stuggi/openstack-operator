@@ -78,6 +78,7 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 			instance.Spec.Keystone.Template.Override.Service,
 			instance.Spec.Keystone.APIOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposeKeystoneAPIReadyCondition,
+			true,
 		)
 		if err != nil {
 			return ctrlResult, err

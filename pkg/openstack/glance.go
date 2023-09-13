@@ -81,6 +81,7 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 			serviceOverrides,
 			instance.Spec.Glance.APIOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposeGlanceReadyCondition,
+			false,
 		)
 		if err != nil {
 			return ctrlResult, err

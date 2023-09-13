@@ -78,6 +78,7 @@ func ReconcileHorizon(ctx context.Context, instance *corev1beta1.OpenStackContro
 			instance.Spec.Horizon.Template.Override.Service,
 			instance.Spec.Horizon.APIOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposeHorizonReadyCondition,
+			false,
 		)
 		if err != nil {
 			return ctrlResult, err

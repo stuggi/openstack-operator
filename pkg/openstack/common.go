@@ -3,19 +3,26 @@ package openstack
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	certmgrmetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	routev1 "github.com/openshift/api/route/v1"
+	"github.com/openstack-k8s-operators/lib-common/modules/certmanager"
 	"github.com/openstack-k8s-operators/lib-common/modules/common"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/route"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/secret"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/service"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/util"
 	corev1 "github.com/openstack-k8s-operators/openstack-operator/apis/core/v1beta1"
+
 	k8s_corev1 "k8s.io/api/core/v1"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -66,6 +73,7 @@ type RouteDetails struct {
 	endpointURL       string
 	hostname          *string
 	route             *routev1.Route
+	TLS               bool
 }
 
 // GetRoutesListWithLabel - Get all routes in namespace of the obj matching label selector
@@ -99,6 +107,7 @@ func EnsureRoute(
 	svcOverrides map[string]service.RoutedOverrideSpec,
 	overrideSpec *route.OverrideSpec,
 	condType condition.Type,
+	tls bool,
 ) (map[string]service.RoutedOverrideSpec, ctrl.Result, error) {
 
 	cleanCondition := map[bool]string{}
@@ -110,6 +119,7 @@ func EnsureRoute(
 			Endpoint:          svc.Annotations[service.AnnotationEndpointKey],
 			RouteOverrideSpec: overrideSpec,
 			ServiceSpec:       &svc,
+			TLS:               tls,
 		}
 		svcOverride := svcOverrides[rd.Endpoint]
 
@@ -219,8 +229,7 @@ func (rd *RouteDetails) CreateRoute(
 	helper *helper.Helper,
 	owner metav1.Object,
 ) (ctrl.Result, error) {
-	// TODO TLS
-	route, err := route.NewRoute(
+	enptRoute, err := route.NewRoute(
 		route.GenericRoute(&route.GenericRouteDetails{
 			Name:           rd.RouteName,
 			Namespace:      rd.Namespace,
@@ -234,18 +243,120 @@ func (rd *RouteDetails) CreateRoute(
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-	route.OwnerReferences = append(route.OwnerReferences, owner)
+	enptRoute.OwnerReferences = append(enptRoute.OwnerReferences, owner)
 
-	ctrlResult, err := route.CreateOrPatch(ctx, helper)
+	ctrlResult, err := enptRoute.CreateOrPatch(ctx, helper)
 	if err != nil {
 		return ctrlResult, err
 	} else if (ctrlResult != ctrl.Result{}) {
 		return ctrlResult, nil
 	}
 
-	rd.hostname = ptr.To(route.GetHostname())
-	rd.endpointURL = "http://" + *rd.hostname
-	rd.route = route.GetRoute()
+	hostname := enptRoute.GetHostname()
+	rd.hostname = ptr.To(hostname)
+
+	// TODO TLS
+	if rd.TLS {
+		// get issuer
+		issuer := &certmgrv1.Issuer{}
+
+		err := helper.GetClient().Get(ctx, types.NamespacedName{Name: "rootca-" + rd.Endpoint, Namespace: rd.Namespace}, issuer)
+		if err != nil {
+			err = fmt.Errorf("Error getting issuer %s/%s - %w", "rootca-"+rd.Endpoint, rd.Namespace, err)
+
+			return ctrl.Result{}, err
+		}
+
+		// create certificate for the service
+		certSecretName := "cert-" + rd.RouteName + "-" + rd.Endpoint
+		certReq := certmanager.Cert(
+			rd.RouteName,
+			rd.Namespace,
+			rd.ServiceLabel,
+			certmgrv1.CertificateSpec{
+				CommonName: hostname,
+				DNSNames:   getDNSNames(hostname),
+				Duration: &metav1.Duration{
+					// valid for one year (default is 90days)
+					Duration: time.Hour * 24 * 365,
+				},
+				IssuerRef: certmgrmetav1.ObjectReference{
+					Name:  issuer.Name,
+					Kind:  issuer.Kind,
+					Group: issuer.GroupVersionKind().Group,
+				},
+				SecretName: certSecretName,
+			},
+		)
+
+		cert := certmanager.NewCertificate(certReq, 5)
+		ctrlResult, err := cert.CreateOrPatch(ctx, helper)
+		if err != nil {
+			return ctrlResult, err
+		} else if (ctrlResult != ctrl.Result{}) {
+			return ctrlResult, nil
+		}
+
+		// get data from cert secret
+		certSecret, _, err := secret.GetSecret(ctx, helper, certSecretName, rd.Namespace)
+		if err != nil {
+			return ctrl.Result{}, err
+		} else if (ctrlResult != ctrl.Result{}) {
+			return ctrl.Result{}, nil
+		}
+
+		// create default TLS route override
+		tlsConfig := &routev1.TLSConfig{
+			// TODO for TLSE use routev1.TLSTerminationReencrypt
+			Termination:                   routev1.TLSTerminationEdge,
+			Certificate:                   string(certSecret.Data["tls.crt"]),
+			Key:                           string(certSecret.Data["tls.key"]),
+			CACertificate:                 string(certSecret.Data["ca.crt"]),
+			InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
+		}
+
+		enptRoute, err = route.NewRoute(
+			enptRoute.GetRoute(),
+			time.Duration(5)*time.Second,
+			&route.OverrideSpec{
+				Spec: &route.Spec{
+					TLS: tlsConfig,
+				},
+			},
+		)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+
+		ctrlResult, err = enptRoute.CreateOrPatch(ctx, helper)
+		if err != nil {
+			return ctrlResult, err
+		} else if (ctrlResult != ctrl.Result{}) {
+			return ctrlResult, nil
+		}
+
+		rd.endpointURL = "https://" + *rd.hostname
+
+	} else {
+		rd.endpointURL = "http://" + *rd.hostname
+	}
+
+	rd.route = enptRoute.GetRoute()
 
 	return ctrl.Result{}, nil
+}
+
+func getDNSNames(hostname string) []string {
+	dnsNames := []string{}
+	parts := strings.Split(hostname, ".")
+
+	for i := 0; i < len(parts); i++ {
+		if i == 0 {
+			dnsNames = append(dnsNames, parts[i])
+		} else {
+			dnsNames = append(dnsNames, dnsNames[i-1]+"."+parts[i])
+		}
+	}
+
+	return dnsNames
 }

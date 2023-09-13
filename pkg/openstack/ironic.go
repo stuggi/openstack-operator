@@ -87,6 +87,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Ironic.Template.IronicAPI.Override.Service,
 			instance.Spec.Ironic.APIOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposeIronicReadyCondition,
+			false,
 		)
 		if err != nil {
 			return ctrlResult, err
@@ -117,6 +118,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Ironic.Template.IronicInspector.Override.Service,
 			instance.Spec.Ironic.InspectorOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposeIronicReadyCondition,
+			false,
 		)
 		if err != nil {
 			return ctrlResult, err

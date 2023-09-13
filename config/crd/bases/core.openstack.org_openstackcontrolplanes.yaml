@@ -13360,6 +13360,15 @@ spec:
                     - swiftStorage
                     type: object
                 type: object
+              tls:
+                properties:
+                  internalEndpoints:
+                    default: true
+                    type: boolean
+                  publicEndpoints:
+                    default: true
+                    type: boolean
+                type: object
             required:
             - secret
             - storageClass

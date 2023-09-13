@@ -78,6 +78,7 @@ func ReconcileSwift(ctx context.Context, instance *corev1beta1.OpenStackControlP
 			instance.Spec.Swift.Template.SwiftProxy.Override.Service,
 			instance.Spec.Swift.ProxyOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposeSwiftReadyCondition,
+			false,
 		)
 		if err != nil {
 			return ctrlResult, err

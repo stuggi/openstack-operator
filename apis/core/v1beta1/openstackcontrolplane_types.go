@@ -70,6 +70,11 @@ type OpenStackControlPlaneSpec struct {
 
 	// +kubebuilder:validation:Optional
 	//+operator-sdk:csv:customresourcedefinitions:type=spec
+	// TLS - Parameters related to the TLS
+	TLS TLSSection `json:"tls,omitempty"`
+
+	// +kubebuilder:validation:Optional
+	//+operator-sdk:csv:customresourcedefinitions:type=spec
 	// DNS - Parameters related to the DNSMasq service
 	DNS DNSMasqSection `json:"dns,omitempty"`
 
@@ -162,6 +167,22 @@ type OpenStackControlPlaneSpec struct {
 	// template Section, the globally defined ExtraMounts are ignored and
 	// overridden for the operator which has this section already.
 	ExtraMounts []OpenStackExtraVolMounts `json:"extraMounts,omitempty"`
+}
+
+// TLSSection defines the desired state of TLS configuration
+type TLSSection struct {
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=true
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors={"urn:alm:descriptor:com.tectonic.ui:booleanSwitch"}
+	// PublicEndpoints - Whether TLS should be enabled for public endpoints (routes)
+	// TODO:
+	PublicEndpoints bool `json:"publicEndpoints"`
+
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=true
+	// +operator-sdk:csv:customresourcedefinitions:type=spec,xDescriptors={"urn:alm:descriptor:com.tectonic.ui:booleanSwitch"}
+	// InternalEndpoints - Whether DNSMasq service should be deployed and managed
+	InternalEndpoints bool `json:"internalEndpoints"`
 }
 
 // DNSMasqSection defines the desired state of DNSMasq service
@@ -623,6 +644,7 @@ func (instance *OpenStackControlPlane) InitConditions() {
 		condition.UnknownCondition(OpenStackControlPlaneHeatReadyCondition, condition.InitReason, OpenStackControlPlaneHeatReadyInitMessage),
 		condition.UnknownCondition(OpenStackControlPlaneSwiftReadyCondition, condition.InitReason, OpenStackControlPlaneSwiftReadyInitMessage),
 		condition.UnknownCondition(OpenStackControlPlaneOctaviaReadyCondition, condition.InitReason, OpenStackControlPlaneOctaviaReadyInitMessage),
+		condition.UnknownCondition(OpenStackControlPlaneCAReadyCondition, condition.InitReason, OpenStackControlPlaneCAReadyInitMessage),
 
 		// Also add the overall status condition as Unknown
 		condition.UnknownCondition(condition.ReadyCondition, condition.InitReason, condition.ReadyInitMessage),

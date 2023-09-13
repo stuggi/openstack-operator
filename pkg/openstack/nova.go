@@ -109,6 +109,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			instance.Spec.Nova.Template.APIServiceTemplate.Override.Service,
 			instance.Spec.Nova.APIOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposeNovaReadyCondition,
+			false,
 		)
 		if err != nil {
 			return ctrlResult, err
@@ -143,6 +144,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 				cellTemplate.NoVNCProxyServiceTemplate.Override.Service,
 				instance.Spec.Nova.CellOverride[cellName].NoVNCProxy.Route,
 				corev1beta1.OpenStackControlPlaneExposeNovaReadyCondition,
+				false,
 			)
 			if err != nil {
 				return ctrlResult, err

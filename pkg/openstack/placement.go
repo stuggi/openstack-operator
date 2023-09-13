@@ -77,6 +77,7 @@ func ReconcilePlacementAPI(ctx context.Context, instance *corev1beta1.OpenStackC
 			instance.Spec.Placement.Template.Override.Service,
 			instance.Spec.Placement.APIOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposePlacementAPIReadyCondition,
+			false,
 		)
 		if err != nil {
 			return ctrlResult, err

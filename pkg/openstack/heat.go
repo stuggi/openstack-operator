@@ -87,6 +87,7 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			instance.Spec.Heat.Template.HeatAPI.Override.Service,
 			instance.Spec.Heat.APIOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposeHeatReadyCondition,
+			false,
 		)
 		if err != nil {
 			return ctrlResult, err
@@ -117,6 +118,7 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			instance.Spec.Heat.Template.HeatCfnAPI.Override.Service,
 			instance.Spec.Heat.CnfAPIOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposeHeatReadyCondition,
+			false,
 		)
 		if err != nil {
 			return ctrlResult, err

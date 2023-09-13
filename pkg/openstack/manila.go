@@ -70,6 +70,7 @@ func ReconcileManila(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Manila.Template.ManilaAPI.Override.Service,
 			instance.Spec.Manila.APIOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposeManilaReadyCondition,
+			false,
 		)
 		if err != nil {
 			return ctrlResult, err

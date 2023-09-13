@@ -78,6 +78,7 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 			instance.Spec.Neutron.Template.Override.Service,
 			instance.Spec.Neutron.APIOverride.Route,
 			corev1beta1.OpenStackControlPlaneExposeNeutronReadyCondition,
+			false,
 		)
 		if err != nil {
 			return ctrlResult, err
