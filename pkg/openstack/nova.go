@@ -33,6 +33,7 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -66,8 +67,11 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 				nova.Name+"-api")
 
 		// cell NoVNCProxy service override
-		for cellName := range instance.Spec.Nova.Template.CellTemplates {
-			cellTemplate := instance.Spec.Nova.Template.CellTemplates[cellName]
+		for cellName, cellTemplate := range instance.Spec.Nova.Template.CellTemplates {
+			// skip adding override for all the cells where novncproxy is disabled
+			if cellTemplate.NoVNCProxyServiceTemplate.Enabled == ptr.To(false) {
+				continue
+			}
 			if cellTemplate.NoVNCProxyServiceTemplate.Override.Service == nil {
 				cellTemplate.NoVNCProxyServiceTemplate.Override.Service = map[string]service.RoutedOverrideSpec{}
 			}
@@ -118,9 +122,8 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 
 	if nova.Status.Conditions.IsTrue(novav1.NovaAllCellsDBReadyCondition) {
 		// cell NoVNCProxy
-		for cellName := range instance.Spec.Nova.Template.CellTemplates {
+		for cellName, cellTemplate := range instance.Spec.Nova.Template.CellTemplates {
 			labelValue := getNoVNCProxyServiceLabel(nova.Name, cellName)
-			cellTemplate := instance.Spec.Nova.Template.CellTemplates[cellName]
 
 			svcs, err := service.GetServicesListWithLabel(
 				ctx,
