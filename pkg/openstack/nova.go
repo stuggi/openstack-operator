@@ -59,11 +59,11 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 	for _, endpointType := range []service.Endpoint{service.EndpointPublic, service.EndpointInternal} {
 		// NovaAPI
 		if instance.Spec.Nova.Template.APIServiceTemplate.Override.Service == nil {
-			instance.Spec.Nova.Template.APIServiceTemplate.Override.Service = map[string]service.RoutedOverrideSpec{}
+			instance.Spec.Nova.Template.APIServiceTemplate.Override.Service = map[service.Endpoint]service.RoutedOverrideSpec{}
 		}
-		instance.Spec.Nova.Template.APIServiceTemplate.Override.Service[string(endpointType)] =
+		instance.Spec.Nova.Template.APIServiceTemplate.Override.Service[endpointType] =
 			AddServiceComponentLabel(
-				instance.Spec.Nova.Template.APIServiceTemplate.Override.Service[string(endpointType)],
+				instance.Spec.Nova.Template.APIServiceTemplate.Override.Service[endpointType],
 				nova.Name+"-api")
 
 		// cell NoVNCProxy service override
@@ -73,11 +73,11 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 				continue
 			}
 			if cellTemplate.NoVNCProxyServiceTemplate.Override.Service == nil {
-				cellTemplate.NoVNCProxyServiceTemplate.Override.Service = map[string]service.RoutedOverrideSpec{}
+				cellTemplate.NoVNCProxyServiceTemplate.Override.Service = &service.RoutedOverrideSpec{}
 			}
-			cellTemplate.NoVNCProxyServiceTemplate.Override.Service[string(endpointType)] =
+			cellTemplate.NoVNCProxyServiceTemplate.Override.Service =
 				AddServiceComponentLabel(
-					cellTemplate.NoVNCProxyServiceTemplate.Override.Service[string(endpointType)],
+					cellTemplate.NoVNCProxyServiceTemplate.Override.Service,
 					getNoVNCProxyServiceLabel(nova.Name, cellName))
 			instance.Spec.Nova.Template.CellTemplates[cellName] = cellTemplate
 		}
@@ -120,7 +120,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 		}
 	}
 
-	if nova.Status.Conditions.IsTrue(novav1.NovaAllCellsDBReadyCondition) {
+	if nova.Status.Conditions.IsTrue(novav1.NovaAllCellsReadyCondition) {
 		// cell NoVNCProxy
 		for cellName, cellTemplate := range instance.Spec.Nova.Template.CellTemplates {
 			labelValue := getNoVNCProxyServiceLabel(nova.Name, cellName)
