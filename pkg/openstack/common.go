@@ -42,17 +42,14 @@ func EnsureDeleted(ctx context.Context, helper *helper.Helper, obj client.Object
 
 // AddServiceComponentLabel - adds component label to the service override to be able to query
 // the service labels to check for any route creation
-func AddServiceComponentLabel(svcOverride *service.RoutedOverrideSpec, value string) service.RoutedOverrideSpec {
-	if svcOverride == nil {
-		svcOverride = &service.RoutedOverrideSpec{}
-	}
+func AddServiceComponentLabel(svcOverride service.RoutedOverrideSpec, value string) service.RoutedOverrideSpec {
 	if svcOverride.EmbeddedLabelsAnnotations == nil {
 		svcOverride.EmbeddedLabelsAnnotations = &service.EmbeddedLabelsAnnotations{}
 	}
 	svcOverride.EmbeddedLabelsAnnotations.Labels = util.MergeStringMaps(
 		svcOverride.EmbeddedLabelsAnnotations.Labels, map[string]string{common.AppSelector: value})
 
-	return *svcOverride
+	return svcOverride
 }
 
 // RouteDetails - route details
@@ -101,7 +98,7 @@ func EnsureRoute(
 	condType condition.Type,
 ) (map[string]service.RoutedOverrideSpec, ctrl.Result, error) {
 
-	cleanCondition := map[bool]string{}
+	cleanCondition := false
 
 	for _, svc := range svcs.Items {
 		rd := RouteDetails{
@@ -193,7 +190,7 @@ func EnsureRoute(
 				return svcOverrides, ctrlResult, nil
 			}
 
-			cleanCondition[true] = rd.Endpoint
+			cleanCondition = true
 
 			// update override for the service with the route endpoint url
 			if rd.endpointURL != "" {
@@ -206,7 +203,7 @@ func EnsureRoute(
 		svcOverrides[rd.Endpoint] = svcOverride
 	}
 
-	if _, ok := cleanCondition[true]; !ok {
+	if cleanCondition {
 		instance.Status.Conditions.Remove(condType)
 	}
 
