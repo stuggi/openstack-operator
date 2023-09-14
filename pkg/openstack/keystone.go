@@ -41,11 +41,11 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 	// add selector to service overrides
 	for _, endpointType := range []service.Endpoint{service.EndpointPublic, service.EndpointInternal} {
 		if instance.Spec.Keystone.Template.Override.Service == nil {
-			instance.Spec.Keystone.Template.Override.Service = map[string]service.RoutedOverrideSpec{}
+			instance.Spec.Keystone.Template.Override.Service = map[service.Endpoint]service.RoutedOverrideSpec{}
 		}
-		instance.Spec.Keystone.Template.Override.Service[string(endpointType)] =
+		instance.Spec.Keystone.Template.Override.Service[endpointType] =
 			AddServiceComponentLabel(
-				instance.Spec.Keystone.Template.Override.Service[string(endpointType)],
+				instance.Spec.Keystone.Template.Override.Service[endpointType],
 				keystoneAPI.Name)
 	}
 
