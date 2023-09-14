@@ -17,7 +17,6 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -45,7 +44,7 @@ func ReconcilePlacementAPI(ctx context.Context, instance *corev1beta1.OpenStackC
 			instance.Spec.Placement.Template.Override.Service = map[string]service.RoutedOverrideSpec{}
 		}
 		instance.Spec.Placement.Template.Override.Service[string(endpointType)] = AddServiceComponentLabel(
-			ptr.To(instance.Spec.Placement.Template.Override.Service[string(endpointType)]),
+			instance.Spec.Placement.Template.Override.Service[string(endpointType)],
 			placementAPI.Name)
 	}
 

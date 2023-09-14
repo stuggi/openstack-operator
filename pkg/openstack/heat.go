@@ -17,7 +17,6 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -46,7 +45,7 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 		}
 		instance.Spec.Heat.Template.HeatAPI.Override.Service[string(endpointType)] =
 			AddServiceComponentLabel(
-				ptr.To(instance.Spec.Heat.Template.HeatAPI.Override.Service[string(endpointType)]),
+				instance.Spec.Heat.Template.HeatAPI.Override.Service[string(endpointType)],
 				heat.Name+"-api")
 
 		if instance.Spec.Heat.Template.HeatCfnAPI.Override.Service == nil {
@@ -54,7 +53,7 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 		}
 		instance.Spec.Heat.Template.HeatCfnAPI.Override.Service[string(endpointType)] =
 			AddServiceComponentLabel(
-				ptr.To(instance.Spec.Heat.Template.HeatCfnAPI.Override.Service[string(endpointType)]),
+				instance.Spec.Heat.Template.HeatCfnAPI.Override.Service[string(endpointType)],
 				heat.Name+"-cfn")
 	}
 

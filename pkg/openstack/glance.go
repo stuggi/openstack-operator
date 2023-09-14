@@ -49,7 +49,7 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 
 	// add selector to service overrides
 	for _, endpointType := range []service.Endpoint{service.EndpointPublic, service.EndpointInternal} {
-		svcOverride := ptr.To(serviceOverrides[string(endpointType)])
+		svcOverride := serviceOverrides[string(endpointType)]
 		serviceOverrides[string(endpointType)] = AddServiceComponentLabel(svcOverride, glance.Name)
 	}
 

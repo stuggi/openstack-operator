@@ -15,7 +15,6 @@ import (
 	manilav1 "github.com/openstack-k8s-operators/manila-operator/api/v1beta1"
 	corev1beta1 "github.com/openstack-k8s-operators/openstack-operator/apis/core/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -44,7 +43,7 @@ func ReconcileManila(ctx context.Context, instance *corev1beta1.OpenStackControl
 		}
 		instance.Spec.Manila.Template.ManilaAPI.Override.Service[string(endpointType)] =
 			AddServiceComponentLabel(
-				ptr.To(instance.Spec.Manila.Template.ManilaAPI.Override.Service[string(endpointType)]),
+				instance.Spec.Manila.Template.ManilaAPI.Override.Service[string(endpointType)],
 				manila.Name)
 	}
 

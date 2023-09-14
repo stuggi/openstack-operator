@@ -33,7 +33,6 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -63,7 +62,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 		}
 		instance.Spec.Nova.Template.APIServiceTemplate.Override.Service[string(endpointType)] =
 			AddServiceComponentLabel(
-				ptr.To(instance.Spec.Nova.Template.APIServiceTemplate.Override.Service[string(endpointType)]),
+				instance.Spec.Nova.Template.APIServiceTemplate.Override.Service[string(endpointType)],
 				nova.Name+"-api")
 
 		// cell NoVNCProxy service override
@@ -74,7 +73,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			}
 			cellTemplate.NoVNCProxyServiceTemplate.Override.Service[string(endpointType)] =
 				AddServiceComponentLabel(
-					ptr.To(cellTemplate.NoVNCProxyServiceTemplate.Override.Service[string(endpointType)]),
+					cellTemplate.NoVNCProxyServiceTemplate.Override.Service[string(endpointType)],
 					getNoVNCProxyServiceLabel(nova.Name, cellName))
 			instance.Spec.Nova.Template.CellTemplates[cellName] = cellTemplate
 		}
