@@ -113,3 +113,5 @@ replace github.com/openshift/api => github.com/openshift/api v0.0.0-202304141430
 
 // Bump golang.org/x/net to avoid Rapid Reset CVE
 replace golang.org/x/net => golang.org/x/net v0.18.0 //allow-merging
+
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/Deydra71/lib-common/modules/common v0.0.0-20231204140814-3719cbd23dc5
