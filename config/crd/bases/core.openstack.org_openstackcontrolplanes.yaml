@@ -6005,6 +6005,22 @@ spec:
                         type: object
                       secret:
                         type: string
+                      tls:
+                        properties:
+                          caBundleSecretName:
+                            type: string
+                          disabled:
+                            type: boolean
+                          endpoint:
+                            additionalProperties:
+                              properties:
+                                issuerName:
+                                  type: string
+                                secretName:
+                                  type: string
+                              type: object
+                            type: object
+                        type: object
                       trustFlushArgs:
                         default: ""
                         type: string
@@ -9872,7 +9888,7 @@ spec:
                 properties:
                   template:
                     properties:
-                      caSecretName:
+                      caBundleSecretName:
                         type: string
                       containerImage:
                         type: string
@@ -14719,7 +14735,7 @@ spec:
                     public:
                       enabled: true
                 properties:
-                  caSecretName:
+                  caBundleSecretName:
                     type: string
                   endpoint:
                     additionalProperties:

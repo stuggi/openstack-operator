@@ -17,6 +17,7 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -56,6 +57,7 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 		}
 	}
 
+	var serviceEndpointDetails map[service.Endpoint]EndpointDetails
 	if glance.Status.Conditions.IsTrue(glancev1.GlanceAPIReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -68,7 +70,7 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 		}
 
 		var ctrlResult reconcile.Result
-		instance.Spec.Glance.Template.GlanceAPI.Override.Service, ctrlResult, err = EnsureEndpointConfig(
+		serviceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -77,12 +79,15 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Glance.Template.GlanceAPI.Override.Service,
 			instance.Spec.Glance.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeGlanceReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err
 		} else if (ctrlResult != ctrl.Result{}) {
 			return ctrlResult, nil
 		}
+
+		instance.Spec.Glance.Template.GlanceAPI.Override.Service = GetEndpointServiceOverrides(serviceEndpointDetails)
 	}
 
 	helper.GetLogger().Info("Reconciling Glance", "Glance.Namespace", instance.Namespace, "Glance.Name", "glance")

@@ -112,3 +112,7 @@ replace github.com/openshift/api => github.com/openshift/api v0.0.0-202304141430
 
 // Bump golang.org/x/net to avoid Rapid Reset CVE
 replace golang.org/x/net => golang.org/x/net v0.18.0 //allow-merging
+
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20231121092932-96f894d90ffc
+
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20231121093033-0f9ba3fae69b

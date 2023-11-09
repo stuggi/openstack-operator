@@ -8,6 +8,7 @@ import (
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/service"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/tls"
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -56,6 +57,7 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 		}
 	}
 
+	var serviceEndpointDetails map[service.Endpoint]EndpointDetails
 	if keystoneAPI.Status.Conditions.IsTrue(condition.ExposeServiceReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -68,7 +70,7 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 		}
 
 		var ctrlResult reconcile.Result
-		instance.Spec.Keystone.Template.Override.Service, ctrlResult, err = EnsureEndpointConfig(
+		serviceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -77,12 +79,15 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 			instance.Spec.Keystone.Template.Override.Service,
 			instance.Spec.Keystone.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeKeystoneAPIReadyCondition,
+			instance.Spec.Keystone.Template.TLS.Disabled,
 		)
 		if err != nil {
 			return ctrlResult, err
 		} else if (ctrlResult != ctrl.Result{}) {
 			return ctrlResult, nil
 		}
+
+		instance.Spec.Keystone.Template.Override.Service = GetEndpointServiceOverrides(serviceEndpointDetails)
 	}
 
 	helper.GetLogger().Info("Reconciling KeystoneAPI", "KeystoneAPI.Namespace", instance.Namespace, "KeystoneAPI.Name", "keystone")
@@ -99,6 +104,27 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 			//keystoneAPI.Spec.DatabaseInstance = instance.Name // name of MariaDB we create here
 			keystoneAPI.Spec.DatabaseInstance = "openstack" //FIXME: see above
 		}
+
+		// update TLS settings with Issuer,secret provided if public endpoint and CABundle
+		if keystoneAPI.Spec.TLS.Endpoint == nil {
+			keystoneAPI.Spec.TLS.Endpoint = map[service.Endpoint]tls.APIService{}
+		}
+		for endpt, endptCfg := range serviceEndpointDetails {
+			if endptCfg.Service.TLS.Enabled {
+				endptTLSService := tls.APIService{}
+				switch endpt {
+				case service.EndpointPublic:
+					endptTLSService.SecretName = endptCfg.Service.TLS.SecretName
+					endptTLSService.IssuerName = endptCfg.Service.TLS.IssuerName
+				case service.EndpointInternal:
+					endptTLSService.IssuerName = endptCfg.Service.TLS.IssuerName
+				}
+
+				keystoneAPI.Spec.TLS.Endpoint[endpt] = endptTLSService
+			}
+			keystoneAPI.Spec.TLS.CaBundleSecretName = endptCfg.Service.TLS.CaBundleSecretName
+		}
+
 		err := controllerutil.SetControllerReference(helper.GetBeforeObject(), keystoneAPI, helper.GetScheme())
 		if err != nil {
 			return err
