@@ -76,7 +76,7 @@ type TLSDetails struct {
 	Enabled    bool
 	Issuer     string
 	CertSecret *string
-	InternalCA string
+	CABundle   string
 
 	//PublicEndpoint   bool
 	//InternalEndpoint bool
@@ -125,6 +125,7 @@ func EnsureEndpointConfig(
 	svcOverrides map[service.Endpoint]service.RoutedOverrideSpec,
 	publicOverride corev1.Override,
 	condType condition.Type,
+	serviceTLSDisabled *bool,
 ) (map[service.Endpoint]service.RoutedOverrideSpec, ctrl.Result, error) {
 	for _, svc := range svcs.Items {
 		ed := EndpointDetails{
@@ -142,17 +143,6 @@ func EnsureEndpointConfig(
 		if tlsEndpointConfig := instance.Spec.TLS.Endpoint[ed.Type]; tlsEndpointConfig.Enabled {
 			ed.TLS.Enabled = true
 			ed.TLS.Issuer = DefaultCAPrefix + string(ed.Type)
-
-			// TODO: (mschuppert) for TLSE create TLS cert for service
-			//if ed.Type == service.EndpointInternal {
-			//	TODO: for TLSE create TLS cert for service
-			//}
-		}
-
-		if instance.Spec.TLS.Endpoint[service.EndpointInternal].Enabled {
-			// TODO: (mschuppert) get the CA cert for internal CA to add it to the route
-			// to be able to connect to the TLS internal endpoint
-			ed.TLS.InternalCA = ""
 		}
 
 		ed.Service.OverrideSpec = svcOverrides[ed.Type]
@@ -164,6 +154,33 @@ func EnsureEndpointConfig(
 				// for the endpoint.
 				if publicOverride.TLS != nil && publicOverride.TLS.SecretName != "" {
 					ed.TLS.CertSecret = ptr.To(publicOverride.TLS.SecretName)
+				}
+			}
+
+			// For re-encryption the route required the internal CA bundle to validate
+			// internal certificate from route -> service -> pod. Get the internal CA bundle when
+			// * TLS is enabled for internal endpoint
+			// * the particular service has not TLS.Disabled set to true
+			if instance.Spec.TLS.Endpoint[service.EndpointInternal].Enabled &&
+				(serviceTLSDisabled == nil || (serviceTLSDisabled != nil && !*serviceTLSDisabled)) {
+				// get the CA certs for our CAs to add it to the route
+				// to be able to validate public/internal service endpoints
+				certSecret, _, err := secret.GetSecret(ctx, helper, CombinedCASecret, ed.Namespace)
+				if err != nil {
+					if k8s_errors.IsNotFound(err) {
+						return svcOverrides, ctrl.Result{}, fmt.Errorf("certificate secret %s not found: %w", CombinedCASecret, err)
+					}
+
+					return svcOverrides, ctrl.Result{}, err
+				}
+
+				// check if secret has the expected TLSInternalCABundleFile entry
+				if certSecret != nil {
+					if caBytes, exist := certSecret.Data[TLSInternalCABundleFile]; exist {
+						ed.TLS.CABundle = string(caBytes)
+					} else {
+						return svcOverrides, ctrl.Result{}, fmt.Errorf("certificate secret %s does not provide ca.crt", certSecret.Name)
+					}
 				}
 			}
 
@@ -360,7 +377,7 @@ func (ed *EndpointDetails) CreateRoute(
 		} else {
 			certRequest := certmanager.CertificateRequest{
 				IssuerName:  ed.TLS.Issuer,
-				CertName:    ed.Name,
+				CertName:    fmt.Sprintf("%s-route", ed.Name),
 				Duration:    nil,
 				Hostnames:   []string{*ed.Hostname},
 				Ips:         nil,
@@ -390,9 +407,9 @@ func (ed *EndpointDetails) CreateRoute(
 		}
 
 		// for internal TLS (TLSE) use routev1.TLSTerminationReencrypt
-		if ed.TLS.InternalCA != "" {
+		if ed.TLS.CABundle != "" {
 			tlsConfig.Termination = routev1.TLSTerminationReencrypt
-			tlsConfig.DestinationCACertificate = ed.TLS.InternalCA
+			tlsConfig.DestinationCACertificate = ed.TLS.CABundle
 		}
 
 		enptRoute, err = route.NewRoute(

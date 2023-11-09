@@ -17,6 +17,7 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -78,6 +79,7 @@ func ReconcileManila(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Manila.Template.ManilaAPI.Override.Service,
 			instance.Spec.Manila.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeManilaReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err

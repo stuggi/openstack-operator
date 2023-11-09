@@ -47,7 +47,8 @@ import (
 	"github.com/openstack-k8s-operators/lib-common/modules/common/configmap"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/env"
 	helper "github.com/openstack-k8s-operators/lib-common/modules/common/helper"
-	object "github.com/openstack-k8s-operators/lib-common/modules/common/object"
+
+	//object "github.com/openstack-k8s-operators/lib-common/modules/common/object"
 	common_rbac "github.com/openstack-k8s-operators/lib-common/modules/common/rbac"
 
 	"github.com/openstack-k8s-operators/lib-common/modules/common/secret"
@@ -234,7 +235,7 @@ func (r *OpenStackClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	configVars[*instance.Spec.OpenStackConfigSecret] = env.SetValue(secretHash)
 
 	if instance.Spec.CaSecretName != "" {
-		caSecret, secretHash, err := secret.GetSecret(ctx, helper, instance.Spec.CaSecretName, instance.Namespace)
+		_, secretHash, err := secret.GetSecret(ctx, helper, instance.Spec.CaSecretName, instance.Namespace)
 		if err != nil {
 			if k8s_errors.IsNotFound(err) {
 				instance.Status.Conditions.Set(condition.FalseCondition(
@@ -254,10 +255,10 @@ func (r *OpenStackClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		}
 		configVars[instance.Spec.CaSecretName] = env.SetValue(secretHash)
 
-		err = object.EnsureOwnerRef(ctx, helper, instance, caSecret)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
+		//err = object.EnsureOwnerRef(ctx, helper, instance, caSecret)
+		//if err != nil {
+		//	return ctrl.Result{}, err
+		//}
 	}
 
 	configVarsHash, err := util.HashOfInputHashes(configVars)

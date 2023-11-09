@@ -6004,6 +6004,24 @@ spec:
                         type: object
                       secret:
                         type: string
+                      tls:
+                        properties:
+                          caSecretName:
+                            type: string
+                          disable:
+                            type: boolean
+                          endpoint:
+                            additionalProperties:
+                              properties:
+                                disableNonTLSListeners:
+                                  type: boolean
+                                issuerName:
+                                  type: string
+                                secretName:
+                                  type: string
+                              type: object
+                            type: object
+                        type: object
                       trustFlushArgs:
                         default: ""
                         type: string

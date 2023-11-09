@@ -88,6 +88,7 @@ func ReconcileHorizon(ctx context.Context, instance *corev1beta1.OpenStackContro
 			serviceOverrides,
 			instance.Spec.Horizon.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeHorizonReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err

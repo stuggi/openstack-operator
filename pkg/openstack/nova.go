@@ -114,6 +114,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			instance.Spec.Nova.Template.APIServiceTemplate.Override.Service,
 			instance.Spec.Nova.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeNovaReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err
@@ -158,6 +159,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 				},
 				instance.Spec.Nova.CellOverride[cellName].NoVNCProxy,
 				corev1beta1.OpenStackControlPlaneExposeNovaReadyCondition,
+				ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 			)
 			if err != nil {
 				return ctrlResult, err

@@ -17,6 +17,7 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -77,6 +78,7 @@ func ReconcileSwift(ctx context.Context, instance *corev1beta1.OpenStackControlP
 			instance.Spec.Swift.Template.SwiftProxy.Override.Service,
 			instance.Spec.Swift.ProxyOverride,
 			corev1beta1.OpenStackControlPlaneExposeSwiftReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err

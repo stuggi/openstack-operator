@@ -81,6 +81,7 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 			serviceOverrides,
 			instance.Spec.Glance.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeGlanceReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err

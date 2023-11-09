@@ -17,6 +17,7 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -77,6 +78,7 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 			instance.Spec.Neutron.Template.Override.Service,
 			instance.Spec.Neutron.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeNeutronReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err

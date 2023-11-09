@@ -33,6 +33,7 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -93,6 +94,7 @@ func ReconcileOctavia(ctx context.Context, instance *corev1beta1.OpenStackContro
 			instance.Spec.Octavia.Template.OctaviaAPI.Override.Service,
 			instance.Spec.Octavia.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeOctaviaReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err

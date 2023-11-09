@@ -3,8 +3,8 @@ module github.com/openstack-k8s-operators/openstack-operator/apis
 go 1.19
 
 require (
-	github.com/onsi/ginkgo/v2 v2.13.0
-	github.com/onsi/gomega v1.29.0
+	github.com/onsi/ginkgo/v2 v2.13.1
+	github.com/onsi/gomega v1.30.0
 	github.com/openstack-k8s-operators/cinder-operator/api v0.3.1-0.20231020183900-9e910befd6b1
 	github.com/openstack-k8s-operators/designate-operator/api v0.0.0-20231005181456-cbf92d9662db
 	github.com/openstack-k8s-operators/glance-operator/api v0.3.1-0.20231029084849-1626f1b5fd75
@@ -34,8 +34,8 @@ require (
 	github.com/google/pprof v0.0.0-20230510103437-eeec1cb781c3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
-	golang.org/x/exp v0.0.0-20231006140011-7918f672742d // indirect
-	golang.org/x/tools v0.14.0 // indirect
+	golang.org/x/exp v0.0.0-20231108232855-2478ac86f678 // indirect
+	golang.org/x/tools v0.15.0 // indirect
 )
 
 require (
@@ -74,7 +74,7 @@ require (
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.11.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
-	golang.org/x/net v0.17.0 // indirect
+	golang.org/x/net v0.18.0 // indirect
 	golang.org/x/oauth2 v0.10.0 // indirect
 	golang.org/x/sys v0.14.0 // indirect
 	golang.org/x/term v0.14.0 // indirect
@@ -112,3 +112,7 @@ replace github.com/openshift/api => github.com/openshift/api v0.0.0-202304141430
 
 // Bump golang.org/x/net to avoid Rapid Reset CVE
 replace golang.org/x/net => golang.org/x/net v0.18.0 //allow-merging
+
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20231114132921-e9167283ecd6
+
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20231114132709-2ea5bf12fc86

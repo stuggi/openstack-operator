@@ -17,6 +17,7 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -86,6 +87,7 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			instance.Spec.Heat.Template.HeatAPI.Override.Service,
 			instance.Spec.Heat.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeHeatReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err
@@ -116,6 +118,7 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			instance.Spec.Heat.Template.HeatCfnAPI.Override.Service,
 			instance.Spec.Heat.CnfAPIOverride,
 			corev1beta1.OpenStackControlPlaneExposeHeatReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err
