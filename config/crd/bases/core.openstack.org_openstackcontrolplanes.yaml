@@ -6494,6 +6494,35 @@ spec:
                         type: object
                       secret:
                         type: string
+                      tls:
+                        properties:
+                          api:
+                            properties:
+                              disabled:
+                                type: boolean
+                              endpoint:
+                                additionalProperties:
+                                  properties:
+                                    issuerName:
+                                      type: string
+                                    secretName:
+                                      type: string
+                                  type: object
+                                type: object
+                            type: object
+                          caBundleSecretName:
+                            type: string
+                          db:
+                            properties:
+                              disabled:
+                                type: boolean
+                            type: object
+                          messaging:
+                            properties:
+                              disabled:
+                                type: boolean
+                            type: object
+                        type: object
                       trustFlushArgs:
                         default: ""
                         type: string
@@ -10361,7 +10390,7 @@ spec:
                 properties:
                   template:
                     properties:
-                      caSecretName:
+                      caBundleSecretName:
                         type: string
                       containerImage:
                         type: string
@@ -15208,7 +15237,7 @@ spec:
                     public:
                       enabled: true
                 properties:
-                  caSecretName:
+                  caBundleSecretName:
                     type: string
                   endpoint:
                     additionalProperties:

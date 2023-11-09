@@ -67,6 +67,7 @@ func ReconcileHorizon(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 	}
 
+	var serviceEndpointDetails map[service.Endpoint]EndpointDetails
 	if horizon.Status.Conditions.IsTrue(condition.ExposeServiceReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -79,7 +80,7 @@ func ReconcileHorizon(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 
 		var ctrlResult reconcile.Result
-		serviceOverrides, ctrlResult, err = EnsureEndpointConfig(
+		serviceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -88,12 +89,14 @@ func ReconcileHorizon(ctx context.Context, instance *corev1beta1.OpenStackContro
 			serviceOverrides,
 			instance.Spec.Horizon.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeHorizonReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err
 		} else if (ctrlResult != ctrl.Result{}) {
 			return ctrlResult, nil
 		}
+		serviceOverrides = GetEndpointServiceOverrides(serviceEndpointDetails)
 	}
 
 	helper.GetLogger().Info("Reconcile Horizon", "horizon.Namespace", instance.Namespace, "horizon.Name", "horizon")

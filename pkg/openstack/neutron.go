@@ -17,6 +17,7 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -56,6 +57,7 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 	}
 
+	var serviceEndpointDetails map[service.Endpoint]EndpointDetails
 	if neutronAPI.Status.Conditions.IsTrue(condition.ExposeServiceReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -68,7 +70,7 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 
 		var ctrlResult reconcile.Result
-		instance.Spec.Neutron.Template.Override.Service, ctrlResult, err = EnsureEndpointConfig(
+		serviceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -77,12 +79,15 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 			instance.Spec.Neutron.Template.Override.Service,
 			instance.Spec.Neutron.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeNeutronReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err
 		} else if (ctrlResult != ctrl.Result{}) {
 			return ctrlResult, nil
 		}
+
+		instance.Spec.Neutron.Template.Override.Service = GetEndpointServiceOverrides(serviceEndpointDetails)
 	}
 
 	helper.GetLogger().Info("Reconciling NeutronAPI", "NeutronAPI.Namespace", instance.Namespace, "NeutronAPI.Name", "neutron")

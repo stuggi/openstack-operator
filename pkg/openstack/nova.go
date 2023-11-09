@@ -93,6 +93,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 	}
 
 	// Nova API
+	var apiServiceEndpointDetails map[service.Endpoint]EndpointDetails
 	if nova.Status.Conditions.IsTrue(novav1.NovaAPIReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -105,7 +106,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 		}
 
 		var ctrlResult reconcile.Result
-		instance.Spec.Nova.Template.APIServiceTemplate.Override.Service, ctrlResult, err = EnsureEndpointConfig(
+		apiServiceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -114,12 +115,15 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			instance.Spec.Nova.Template.APIServiceTemplate.Override.Service,
 			instance.Spec.Nova.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeNovaReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err
 		} else if (ctrlResult != ctrl.Result{}) {
 			return ctrlResult, nil
 		}
+
+		instance.Spec.Nova.Template.APIServiceTemplate.Override.Service = GetEndpointServiceOverrides(apiServiceEndpointDetails)
 	}
 
 	if nova.Status.Conditions.IsTrue(novav1.NovaAllCellsReadyCondition) {
@@ -147,7 +151,8 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			}
 
 			var ctrlResult reconcile.Result
-			routedOverrideSpec, ctrlResult, err := EnsureEndpointConfig(
+			var cellServiceEndpointDetails map[service.Endpoint]EndpointDetails
+			cellServiceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
 				ctx,
 				instance,
 				helper,
@@ -158,6 +163,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 				},
 				instance.Spec.Nova.CellOverride[cellName].NoVNCProxy,
 				corev1beta1.OpenStackControlPlaneExposeNovaReadyCondition,
+				ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 			)
 			if err != nil {
 				return ctrlResult, err
@@ -165,6 +171,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 				return ctrlResult, nil
 			}
 
+			routedOverrideSpec := GetEndpointServiceOverrides(cellServiceEndpointDetails)
 			cellTemplate.NoVNCProxyServiceTemplate.Override.Service = ptr.To(routedOverrideSpec[service.EndpointPublic])
 
 			instance.Spec.Nova.Template.CellTemplates[cellName] = cellTemplate

@@ -25,13 +25,14 @@ require (
 	github.com/openstack-k8s-operators/swift-operator/api v0.3.1-0.20231120073247-9c3b7d1a20bf
 	github.com/openstack-k8s-operators/telemetry-operator/api v0.3.1-0.20231121162434-dd28e47361f7
 	github.com/rabbitmq/cluster-operator/v2 v2.5.0
-	k8s.io/apimachinery v0.27.4
-	sigs.k8s.io/controller-runtime v0.15.1
+	k8s.io/apimachinery v0.28.1
+	sigs.k8s.io/controller-runtime v0.16.1
 )
 
 require (
 	github.com/go-logr/zapr v1.2.4 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
+	github.com/google/gnostic-models v0.6.8 // indirect
 	github.com/google/pprof v0.0.0-20230510103437-eeec1cb781c3 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.26.0 // indirect
@@ -43,7 +44,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
-	github.com/emicklei/go-restful/v3 v3.10.2 // indirect
+	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/go-logr/logr v1.3.0 // indirect
@@ -76,24 +77,24 @@ require (
 	github.com/prometheus/procfs v0.11.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	golang.org/x/net v0.18.0 // indirect
-	golang.org/x/oauth2 v0.10.0 // indirect
+	golang.org/x/oauth2 v0.12.0 // indirect
 	golang.org/x/sys v0.14.0 // indirect
 	golang.org/x/term v0.14.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
-	gomodules.xyz/jsonpatch/v2 v2.3.0 // indirect
+	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.27.2
-	k8s.io/apiextensions-apiserver v0.27.2 //indirect
-	k8s.io/client-go v0.27.2
-	k8s.io/component-base v0.27.2 //indirect
+	k8s.io/api v0.28.1
+	k8s.io/apiextensions-apiserver v0.28.1 //indirect
+	k8s.io/client-go v0.28.1
+	k8s.io/component-base v0.28.1 //indirect
 	k8s.io/klog/v2 v2.100.1 // indirect
-	k8s.io/kube-openapi v0.0.0-20230525220651-2546d827e515 //indirect
-	k8s.io/utils v0.0.0-20231121161247-cf03d44ff3cf //indirect
+	k8s.io/kube-openapi v0.0.0-20230905202853-d090da108d2f //indirect
+	k8s.io/utils v0.0.0-20230726121419-3b25d923346b //indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd //indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.3.0 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
@@ -113,3 +114,9 @@ replace github.com/openshift/api => github.com/openshift/api v0.0.0-202304141430
 
 // Bump golang.org/x/net to avoid Rapid Reset CVE
 replace golang.org/x/net => golang.org/x/net v0.18.0 //allow-merging
+
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20231121162511-6268af447388
+
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20231121163006-f26b0a96f2dc
+
+//replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20231121165522-d1f4805f119b
