@@ -17,6 +17,7 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -65,6 +66,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 	}
 
 	// Ironic API
+	var apiServiceEndpointDetails map[service.Endpoint]EndpointDetails
 	if ironic.Status.Conditions.IsTrue(ironicv1.IronicAPIReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -77,7 +79,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 		}
 
 		var ctrlResult reconcile.Result
-		instance.Spec.Ironic.Template.IronicAPI.Override.Service, ctrlResult, err = EnsureEndpointConfig(
+		apiServiceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -86,15 +88,19 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Ironic.Template.IronicAPI.Override.Service,
 			instance.Spec.Ironic.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeIronicReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err
 		} else if (ctrlResult != ctrl.Result{}) {
 			return ctrlResult, nil
 		}
+
+		instance.Spec.Ironic.Template.IronicAPI.Override.Service = GetEndpointServiceOverrides(apiServiceEndpointDetails)
 	}
 
 	// Ironic Inspector
+	var inspectorServiceEndpointDetails map[service.Endpoint]EndpointDetails
 	if ironic.Status.Conditions.IsTrue(ironicv1.IronicInspectorReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -107,7 +113,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 		}
 
 		var ctrlResult reconcile.Result
-		instance.Spec.Ironic.Template.IronicInspector.Override.Service, ctrlResult, err = EnsureEndpointConfig(
+		inspectorServiceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -116,12 +122,15 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Ironic.Template.IronicInspector.Override.Service,
 			instance.Spec.Ironic.InspectorOverride,
 			corev1beta1.OpenStackControlPlaneExposeIronicReadyCondition,
+			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
 		)
 		if err != nil {
 			return ctrlResult, err
 		} else if (ctrlResult != ctrl.Result{}) {
 			return ctrlResult, nil
 		}
+
+		instance.Spec.Ironic.Template.IronicInspector.Override.Service = GetEndpointServiceOverrides(inspectorServiceEndpointDetails)
 	}
 
 	helper.GetLogger().Info("Reconciling Ironic", "Ironic.Namespace", instance.Namespace, "Ironic.Name", "ironic")

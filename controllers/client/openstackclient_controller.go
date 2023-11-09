@@ -47,7 +47,9 @@ import (
 	"github.com/openstack-k8s-operators/lib-common/modules/common/configmap"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/env"
 	helper "github.com/openstack-k8s-operators/lib-common/modules/common/helper"
-	object "github.com/openstack-k8s-operators/lib-common/modules/common/object"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/tls"
+
+	//object "github.com/openstack-k8s-operators/lib-common/modules/common/object"
 	common_rbac "github.com/openstack-k8s-operators/lib-common/modules/common/rbac"
 
 	"github.com/openstack-k8s-operators/lib-common/modules/common/secret"
@@ -233,8 +235,15 @@ func (r *OpenStackClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	}
 	configVars[*instance.Spec.OpenStackConfigSecret] = env.SetValue(secretHash)
 
-	if instance.Spec.CaSecretName != "" {
-		caSecret, secretHash, err := secret.GetSecret(ctx, helper, instance.Spec.CaSecretName, instance.Namespace)
+	if instance.Spec.CaBundleSecretName != "" {
+		secretHash, ctrlResult, err := tls.ValidateCACertSecret(
+			ctx,
+			helper.GetClient(),
+			types.NamespacedName{
+				Name:      instance.Spec.CaBundleSecretName,
+				Namespace: instance.Namespace,
+			},
+		)
 		if err != nil {
 			if k8s_errors.IsNotFound(err) {
 				instance.Status.Conditions.Set(condition.FalseCondition(
@@ -251,13 +260,21 @@ func (r *OpenStackClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				clientv1.OpenStackClientReadyErrorMessage,
 				err.Error()))
 			return ctrl.Result{}, err
+		} else if (ctrlResult != ctrl.Result{}) {
+			instance.Status.Conditions.Set(condition.FalseCondition(
+				clientv1.OpenStackClientReadyCondition,
+				condition.RequestedReason,
+				condition.SeverityInfo,
+				clientv1.OpenStackClientSecretWaitingMessage))
+			return ctrlResult, nil
 		}
-		configVars[instance.Spec.CaSecretName] = env.SetValue(secretHash)
 
-		err = object.EnsureOwnerRef(ctx, helper, instance, caSecret)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
+		configVars[instance.Spec.CaBundleSecretName] = env.SetValue(secretHash)
+
+		//err = object.EnsureOwnerRef(ctx, helper, instance, caSecret)
+		//if err != nil {
+		//	return ctrl.Result{}, err
+		//}
 	}
 
 	configVarsHash, err := util.HashOfInputHashes(configVars)
@@ -275,12 +292,7 @@ func (r *OpenStackClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	op, err := controllerutil.CreateOrPatch(ctx, r.Client, osclient, func() error {
 		isPodUpdate := !osclient.ObjectMeta.CreationTimestamp.IsZero()
 		if !isPodUpdate {
-			spec, err := openstackclient.ClientPodSpec(ctx, instance, helper, clientLabels, configVarsHash)
-			if err != nil {
-				return err
-			}
-
-			osclient.Spec = *spec
+			osclient.Spec = openstackclient.ClientPodSpec(ctx, instance, helper, clientLabels, configVarsHash)
 		} else {
 			hashupdate := false
 
@@ -395,10 +407,10 @@ func (r *OpenStackClientReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &clientv1.OpenStackClient{}, caSecretNameField, func(rawObj client.Object) []string {
 		// Extract the secret name from the spec, if one is provided
 		cr := rawObj.(*clientv1.OpenStackClient)
-		if cr.Spec.CaSecretName == "" {
+		if cr.Spec.CaBundleSecretName == "" {
 			return nil
 		}
-		return []string{cr.Spec.CaSecretName}
+		return []string{cr.Spec.CaBundleSecretName}
 	}); err != nil {
 		return err
 	}
