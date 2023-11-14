@@ -58,6 +58,7 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 		}
 	}
 
+	var endpointDetails = Endpoints{}
 	if keystoneAPI.Status.Conditions.IsTrue(condition.ExposeServiceReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -70,7 +71,7 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 		}
 
 		var ctrlResult reconcile.Result
-		instance.Spec.Keystone.Template.Override.Service, ctrlResult, err = EnsureEndpointConfig(
+		endpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -79,15 +80,32 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 			instance.Spec.Keystone.Template.Override.Service,
 			instance.Spec.Keystone.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeKeystoneAPIReadyCondition,
+			instance.Spec.Keystone.Template.TLS.API.Disabled,
 		)
 		if err != nil {
 			return ctrlResult, err
 		} else if (ctrlResult != ctrl.Result{}) {
 			return ctrlResult, nil
 		}
+
+		instance.Spec.Keystone.Template.Override.Service = endpointDetails.GetEndpointServiceOverrides()
 	}
 
-	helper.GetLogger().Info("Reconciling KeystoneAPI", "KeystoneAPI.Namespace", instance.Namespace, "KeystoneAPI.Name", "keystone")
+	// update TLS settings with cert secret and CABundle
+	tlsSpec := keystoneAPI.Spec.TLS
+	tlsSpec.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
+	for endpt, endptCfg := range endpointDetails.EndpointDetails {
+		if endptCfg.Service.TLS.Enabled {
+			switch endpt {
+			case service.EndpointPublic:
+				tlsSpec.API.Public.SecretName = endptCfg.Service.TLS.SecretName
+			case service.EndpointInternal:
+				tlsSpec.API.Internal.SecretName = endptCfg.Service.TLS.SecretName
+			}
+		}
+	}
+	instance.Spec.Keystone.Template.TLS = tlsSpec
+
 	Log.Info("Reconciling KeystoneAPI", "KeystoneAPI.Namespace", instance.Namespace, "KeystoneAPI.Name", "keystone")
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), keystoneAPI, func() error {
 		instance.Spec.Keystone.Template.DeepCopyInto(&keystoneAPI.Spec)
@@ -102,6 +120,7 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 			//keystoneAPI.Spec.DatabaseInstance = instance.Name // name of MariaDB we create here
 			keystoneAPI.Spec.DatabaseInstance = "openstack" //FIXME: see above
 		}
+
 		err := controllerutil.SetControllerReference(helper.GetBeforeObject(), keystoneAPI, helper.GetScheme())
 		if err != nil {
 			return err

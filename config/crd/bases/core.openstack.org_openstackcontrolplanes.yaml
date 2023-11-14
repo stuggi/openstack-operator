@@ -681,6 +681,26 @@ spec:
                                   x-kubernetes-int-or-string: true
                                 type: object
                             type: object
+                          tls:
+                            properties:
+                              api:
+                                properties:
+                                  disabled:
+                                    type: boolean
+                                  internal:
+                                    properties:
+                                      secretName:
+                                        type: string
+                                    type: object
+                                  public:
+                                    properties:
+                                      secretName:
+                                        type: string
+                                    type: object
+                                type: object
+                              caBundleSecretName:
+                                type: string
+                            type: object
                         required:
                         - containerImage
                         type: object
@@ -4562,6 +4582,26 @@ spec:
                             type: string
                           storageRequest:
                             type: string
+                          tls:
+                            properties:
+                              api:
+                                properties:
+                                  disabled:
+                                    type: boolean
+                                  internal:
+                                    properties:
+                                      secretName:
+                                        type: string
+                                    type: object
+                                  public:
+                                    properties:
+                                      secretName:
+                                        type: string
+                                    type: object
+                                type: object
+                              caBundleSecretName:
+                                type: string
+                            type: object
                           type:
                             default: split
                             enum:
@@ -6423,26 +6463,19 @@ spec:
                             properties:
                               disabled:
                                 type: boolean
-                              endpoint:
-                                additionalProperties:
-                                  properties:
-                                    secretName:
-                                      type: string
-                                  type: object
+                              internal:
+                                properties:
+                                  secretName:
+                                    type: string
+                                type: object
+                              public:
+                                properties:
+                                  secretName:
+                                    type: string
                                 type: object
                             type: object
                           caBundleSecretName:
                             type: string
-                          db:
-                            properties:
-                              disabled:
-                                type: boolean
-                            type: object
-                          messaging:
-                            properties:
-                              disabled:
-                                type: boolean
-                            type: object
                         type: object
                       trustFlushArgs:
                         default: ""
@@ -8704,6 +8737,26 @@ spec:
                       serviceUser:
                         default: neutron
                         type: string
+                      tls:
+                        properties:
+                          api:
+                            properties:
+                              disabled:
+                                type: boolean
+                              internal:
+                                properties:
+                                  secretName:
+                                    type: string
+                                type: object
+                              public:
+                                properties:
+                                  secretName:
+                                    type: string
+                                type: object
+                            type: object
+                          caBundleSecretName:
+                            type: string
+                        type: object
                     required:
                     - containerImage
                     - databaseInstance
@@ -15398,6 +15451,23 @@ spec:
                   - type
                   type: object
                 type: array
+              tls:
+                properties:
+                  caBundleSecretName:
+                    type: string
+                  endpoint:
+                    additionalProperties:
+                      properties:
+                        expires:
+                          type: string
+                        name:
+                          type: string
+                      required:
+                      - expires
+                      - name
+                      type: object
+                    type: object
+                type: object
             type: object
         type: object
     served: true

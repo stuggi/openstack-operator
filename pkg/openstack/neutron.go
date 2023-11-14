@@ -57,6 +57,7 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 	}
 
+	var endpointDetails = Endpoints{}
 	if neutronAPI.Status.Conditions.IsTrue(condition.ExposeServiceReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -69,7 +70,7 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 
 		var ctrlResult reconcile.Result
-		instance.Spec.Neutron.Template.Override.Service, ctrlResult, err = EnsureEndpointConfig(
+		endpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -78,13 +79,31 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 			instance.Spec.Neutron.Template.Override.Service,
 			instance.Spec.Neutron.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeNeutronReadyCondition,
+			instance.Spec.Neutron.Template.TLS.API.Disabled,
 		)
 		if err != nil {
 			return ctrlResult, err
 		} else if (ctrlResult != ctrl.Result{}) {
 			return ctrlResult, nil
 		}
+
+		instance.Spec.Neutron.Template.Override.Service = endpointDetails.GetEndpointServiceOverrides()
 	}
+
+	// update TLS settings with cert secret and CABundle
+	tlsSpec := neutronAPI.Spec.TLS
+	tlsSpec.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
+	for endpt, endptCfg := range endpointDetails.EndpointDetails {
+		if endptCfg.Service.TLS.Enabled {
+			switch endpt {
+			case service.EndpointPublic:
+				tlsSpec.API.Public.SecretName = endptCfg.Service.TLS.SecretName
+			case service.EndpointInternal:
+				tlsSpec.API.Internal.SecretName = endptCfg.Service.TLS.SecretName
+			}
+		}
+	}
+	instance.Spec.Neutron.Template.TLS = tlsSpec
 
 	Log.Info("Reconciling NeutronAPI", "NeutronAPI.Namespace", instance.Namespace, "NeutronAPI.Name", "neutron")
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), neutronAPI, func() error {
