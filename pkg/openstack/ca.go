@@ -32,6 +32,8 @@ const (
 	CombinedCASecret = "combined-ca-bundle"
 	// TLSCABundleFile -
 	TLSCABundleFile = "tls-ca-bundle.pem"
+	// TLSInternalCABundleFile -
+	TLSInternalCABundleFile = "internal-ca-bundle.pem"
 	// DefaultCAPrefix -
 	DefaultCAPrefix = "rootca-"
 	// DownstreamTLSCABundlePath -
@@ -86,6 +88,7 @@ func ReconcileCAs(ctx context.Context, instance *corev1.OpenStackControlPlane, h
 	}
 
 	bundle := newBundle()
+	caOnlyBundle := newBundle()
 
 	// load current CA bundle from secret if exist
 	currentCASecret, _, err := secret.GetSecret(ctx, helper, CombinedCASecret, instance.Namespace)
@@ -93,8 +96,17 @@ func ReconcileCAs(ctx context.Context, instance *corev1.OpenStackControlPlane, h
 		return ctrl.Result{}, err
 	}
 	if currentCASecret != nil {
+		// full CA Bundle file
 		if _, ok := currentCASecret.Data[TLSCABundleFile]; ok {
 			err = bundle.getCertsFromPEM(currentCASecret.Data[TLSCABundleFile])
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		// only issuer CA bundle
+		if _, ok := currentCASecret.Data[TLSInternalCABundleFile]; ok {
+			err = caOnlyBundle.getCertsFromPEM(currentCASecret.Data[TLSInternalCABundleFile])
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -127,6 +139,10 @@ func ReconcileCAs(ctx context.Context, instance *corev1.OpenStackControlPlane, h
 			}
 
 			err = bundle.getCertsFromPEM(caCert)
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			err = caOnlyBundle.getCertsFromPEM(caCert)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -191,7 +207,10 @@ func ReconcileCAs(ctx context.Context, instance *corev1.OpenStackControlPlane, h
 				tls.CABundleLabel: "",
 			},
 			ConfigOptions: nil,
-			CustomData:    map[string]string{TLSCABundleFile: bundle.getBundlePEM()},
+			CustomData: map[string]string{
+				TLSCABundleFile:         bundle.getBundlePEM(),
+				TLSInternalCABundleFile: caOnlyBundle.getBundlePEM(),
+			},
 		},
 	}
 
