@@ -90,6 +90,28 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 		instance.Spec.Keystone.Template.Override.Service = GetEndpointServiceOverrides(serviceEndpointDetails)
 	}
 
+	// update TLS settings with Issuer,secret provided if public endpoint and CABundle
+	tlsSpec := keystoneAPI.Spec.TLS
+	if tlsSpec.API.Endpoint == nil {
+		tlsSpec.API.Endpoint = map[service.Endpoint]tls.GenericService{}
+	}
+	for endpt, endptCfg := range serviceEndpointDetails {
+		if endptCfg.Service.TLS.Enabled {
+			endptTLSService := tls.GenericService{}
+			switch endpt {
+			case service.EndpointPublic:
+				endptTLSService.SecretName = endptCfg.Service.TLS.SecretName
+				endptTLSService.IssuerName = endptCfg.Service.TLS.IssuerName
+			case service.EndpointInternal:
+				endptTLSService.IssuerName = endptCfg.Service.TLS.IssuerName
+			}
+
+			tlsSpec.API.Endpoint[endpt] = endptTLSService
+		}
+		tlsSpec.CaBundleSecretName = endptCfg.Service.TLS.CaBundleSecretName
+	}
+	instance.Spec.Keystone.Template.TLS = tlsSpec
+
 	helper.GetLogger().Info("Reconciling KeystoneAPI", "KeystoneAPI.Namespace", instance.Namespace, "KeystoneAPI.Name", "keystone")
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), keystoneAPI, func() error {
 		instance.Spec.Keystone.Template.DeepCopyInto(&keystoneAPI.Spec)
@@ -103,26 +125,6 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 		if keystoneAPI.Spec.DatabaseInstance == "" {
 			//keystoneAPI.Spec.DatabaseInstance = instance.Name // name of MariaDB we create here
 			keystoneAPI.Spec.DatabaseInstance = "openstack" //FIXME: see above
-		}
-
-		// update TLS settings with Issuer,secret provided if public endpoint and CABundle
-		if keystoneAPI.Spec.TLS.API.Endpoint == nil {
-			keystoneAPI.Spec.TLS.API.Endpoint = map[service.Endpoint]tls.GenericService{}
-		}
-		for endpt, endptCfg := range serviceEndpointDetails {
-			if endptCfg.Service.TLS.Enabled {
-				endptTLSService := tls.GenericService{}
-				switch endpt {
-				case service.EndpointPublic:
-					endptTLSService.SecretName = endptCfg.Service.TLS.SecretName
-					endptTLSService.IssuerName = endptCfg.Service.TLS.IssuerName
-				case service.EndpointInternal:
-					endptTLSService.IssuerName = endptCfg.Service.TLS.IssuerName
-				}
-
-				keystoneAPI.Spec.TLS.API.Endpoint[endpt] = endptTLSService
-			}
-			keystoneAPI.Spec.TLS.CaBundleSecretName = endptCfg.Service.TLS.CaBundleSecretName
 		}
 
 		err := controllerutil.SetControllerReference(helper.GetBeforeObject(), keystoneAPI, helper.GetScheme())

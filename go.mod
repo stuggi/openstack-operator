@@ -47,7 +47,6 @@ require (
 require (
 	github.com/go-logr/zapr v1.2.4 // indirect
 	github.com/go-task/slim-sprig v0.0.0-20230315185526-52ccab3ef572 // indirect
-	github.com/google/gnostic-models v0.6.8 // indirect
 	github.com/google/pprof v0.0.0-20230510103437-eeec1cb781c3 // indirect
 	github.com/k8snetworkplumbingwg/network-attachment-definition-client v1.4.0 // indirect
 	github.com/metal3-io/baremetal-operator/apis v0.3.1 // indirect
@@ -117,11 +116,15 @@ require (
 )
 
 replace ( //allow-merging
+	github.com/cert-manager/cert-manager => github.com/cert-manager/cert-manager v1.11.5
+	github.com/google/gnostic => github.com/google/gnostic v0.6.9
 	// pin to k8s 0.26.x for now
-	k8s.io/api => k8s.io/api v0.26.9
-	k8s.io/apimachinery => k8s.io/apimachinery v0.26.9
-	k8s.io/client-go => k8s.io/client-go v0.26.9
-	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.14.6
+	k8s.io/api => k8s.io/api v0.26.11
+	k8s.io/apimachinery => k8s.io/apimachinery v0.26.11
+	k8s.io/client-go => k8s.io/client-go v0.26.11
+	k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20230327201221-f5883ff37f0c
+	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.14.7
+	sigs.k8s.io/gateway-api => sigs.k8s.io/gateway-api v0.6.0
 )
 
 // Bump golang.org/x/net to avoid Rapid Reset CVE
@@ -135,6 +138,6 @@ replace github.com/openshift/api => github.com/openshift/api v0.0.0-202304141430
 
 replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20231121162511-6268af447388
 
-replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20231121163006-f26b0a96f2dc
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20231122111005-25dd04e775e6
 
-//replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20231121165522-d1f4805f119b
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20231123082922-572dce034b6a

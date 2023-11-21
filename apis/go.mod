@@ -101,11 +101,12 @@ require (
 )
 
 replace ( //allow-merging
+	github.com/google/gnostic => github.com/google/gnostic v0.6.9
 	// pin to k8s 0.26.x for now
-	k8s.io/api => k8s.io/api v0.26.9
-	k8s.io/apimachinery => k8s.io/apimachinery v0.26.9
-	k8s.io/client-go => k8s.io/client-go v0.26.9
-	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.14.6
+	k8s.io/api => k8s.io/api v0.26.11
+	k8s.io/apimachinery => k8s.io/apimachinery v0.26.11
+	k8s.io/client-go => k8s.io/client-go v0.26.11
+	sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.14.7
 )
 
 // mschuppert: map to latest commit from release-4.13 tag
@@ -117,6 +118,6 @@ replace golang.org/x/net => golang.org/x/net v0.18.0 //allow-merging
 
 replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20231121162511-6268af447388
 
-replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20231121163006-f26b0a96f2dc
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20231122111005-25dd04e775e6
 
-//replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20231121165522-d1f4805f119b
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20231123082922-572dce034b6a

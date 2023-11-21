@@ -8,6 +8,7 @@ import (
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/service"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/tls"
 
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -17,7 +18,6 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -79,7 +79,7 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Glance.Template.GlanceAPI.Override.Service,
 			instance.Spec.Glance.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeGlanceReadyCondition,
-			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
+			instance.Spec.Glance.Template.TLS.API.Disabled,
 		)
 		if err != nil {
 			return ctrlResult, err
@@ -89,6 +89,28 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 
 		instance.Spec.Glance.Template.GlanceAPI.Override.Service = GetEndpointServiceOverrides(serviceEndpointDetails)
 	}
+
+	// update TLS settings with Issuer,secret provided if public endpoint and CABundle
+	tlsSpec := glance.Spec.TLS
+	if tlsSpec.API.Endpoint == nil {
+		tlsSpec.API.Endpoint = map[service.Endpoint]tls.GenericService{}
+	}
+	for endpt, endptCfg := range serviceEndpointDetails {
+		if endptCfg.Service.TLS.Enabled {
+			endptTLSService := tls.GenericService{}
+			switch endpt {
+			case service.EndpointPublic:
+				endptTLSService.SecretName = endptCfg.Service.TLS.SecretName
+				endptTLSService.IssuerName = endptCfg.Service.TLS.IssuerName
+			case service.EndpointInternal:
+				endptTLSService.IssuerName = endptCfg.Service.TLS.IssuerName
+			}
+
+			tlsSpec.API.Endpoint[endpt] = endptTLSService
+		}
+		tlsSpec.CaBundleSecretName = endptCfg.Service.TLS.CaBundleSecretName
+	}
+	instance.Spec.Glance.Template.TLS = tlsSpec
 
 	helper.GetLogger().Info("Reconciling Glance", "Glance.Namespace", instance.Namespace, "Glance.Name", "glance")
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), glance, func() error {
@@ -118,6 +140,7 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 			}
 			glance.Spec.ExtraMounts = glanceVolumes
 		}
+
 		err := controllerutil.SetControllerReference(helper.GetBeforeObject(), glance, helper.GetScheme())
 		if err != nil {
 			return err
