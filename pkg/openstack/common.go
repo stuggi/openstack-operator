@@ -153,8 +153,6 @@ func EnsureEndpointConfig(
 		// TLS on the pod level is enabled if
 		// * TLS is enabled for internal endpoint
 		// * the particular service has not TLS.Disabled set to true
-		helper.GetLogger().Info(fmt.Sprintf("BOOO %s instance.Spec.TLS.Endpoint %+v", owner.GetName(), instance.Spec.TLS.Endpoint))
-
 		if tlsEndpointConfig := instance.Spec.TLS.Endpoint[service.EndpointInternal]; tlsEndpointConfig.Enabled &&
 			(serviceTLSDisabled == nil || (serviceTLSDisabled != nil && !*serviceTLSDisabled)) {
 			ed.Service.TLS.Enabled = true
