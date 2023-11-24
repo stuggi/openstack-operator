@@ -232,10 +232,6 @@ spec:
                                 default: false
                                 type: boolean
                             type: object
-                          defaultConfigOverwrite:
-                            additionalProperties:
-                              type: string
-                            type: object
                           networkAttachments:
                             items:
                               type: string
@@ -350,10 +346,6 @@ spec:
                                 default: false
                                 type: boolean
                             type: object
-                          defaultConfigOverwrite:
-                            additionalProperties:
-                              type: string
-                            type: object
                           networkAttachments:
                             items:
                               type: string
@@ -416,10 +408,6 @@ spec:
                               service:
                                 default: false
                                 type: boolean
-                            type: object
-                          defaultConfigOverwrite:
-                            additionalProperties:
-                              type: string
                             type: object
                           networkAttachments:
                             items:
@@ -485,10 +473,6 @@ spec:
                                   default: false
                                   type: boolean
                               type: object
-                            defaultConfigOverwrite:
-                              additionalProperties:
-                                type: string
-                              type: object
                             networkAttachments:
                               items:
                                 type: string
@@ -550,10 +534,6 @@ spec:
                           dbSync:
                             default: false
                             type: boolean
-                        type: object
-                      defaultConfigOverwrite:
-                        additionalProperties:
-                          type: string
                         type: object
                       extraMounts:
                         items:
@@ -1341,6 +1321,35 @@ spec:
                       serviceUser:
                         default: cinder
                         type: string
+                      tls:
+                        properties:
+                          api:
+                            properties:
+                              disabled:
+                                type: boolean
+                              endpoint:
+                                additionalProperties:
+                                  properties:
+                                    issuerName:
+                                      type: string
+                                    secretName:
+                                      type: string
+                                  type: object
+                                type: object
+                            type: object
+                          caBundleSecretName:
+                            type: string
+                          db:
+                            properties:
+                              disabled:
+                                type: boolean
+                            type: object
+                          messaging:
+                            properties:
+                              disabled:
+                                type: boolean
+                            type: object
+                        type: object
                     required:
                     - cinderAPI
                     - cinderScheduler
@@ -8325,6 +8334,30 @@ spec:
                       serviceUser:
                         default: neutron
                         type: string
+                      tls:
+                        properties:
+                          api:
+                            properties:
+                              disabled:
+                                type: boolean
+                              endpoint:
+                                additionalProperties:
+                                  properties:
+                                    issuerName:
+                                      type: string
+                                    secretName:
+                                      type: string
+                                  type: object
+                                type: object
+                            type: object
+                          caBundleSecretName:
+                            type: string
+                          db:
+                            properties:
+                              disabled:
+                                type: boolean
+                            type: object
+                        type: object
                     required:
                     - containerImage
                     - databaseInstance
