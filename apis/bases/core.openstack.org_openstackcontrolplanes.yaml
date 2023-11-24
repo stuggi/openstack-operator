@@ -1746,8 +1746,6 @@ spec:
                               endpoint:
                                 additionalProperties:
                                   properties:
-                                    issuerName:
-                                      type: string
                                     secretName:
                                       type: string
                                   type: object
@@ -4718,8 +4716,6 @@ spec:
                               endpoint:
                                 additionalProperties:
                                   properties:
-                                    issuerName:
-                                      type: string
                                     secretName:
                                       type: string
                                   type: object
@@ -6536,8 +6532,6 @@ spec:
                               endpoint:
                                 additionalProperties:
                                   properties:
-                                    issuerName:
-                                      type: string
                                     secretName:
                                       type: string
                                   type: object
@@ -8832,8 +8826,6 @@ spec:
                               endpoint:
                                 additionalProperties:
                                   properties:
-                                    issuerName:
-                                      type: string
                                     secretName:
                                       type: string
                                   type: object

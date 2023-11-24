@@ -97,13 +97,8 @@ func ReconcileCinder(ctx context.Context, instance *corev1beta1.OpenStackControl
 	}
 	for endpt, endptCfg := range serviceEndpointDetails {
 		if endptCfg.Service.TLS.Enabled {
-			endptTLSService := tls.GenericService{}
-			switch endpt {
-			case service.EndpointPublic:
-				endptTLSService.SecretName = endptCfg.Service.TLS.SecretName
-				endptTLSService.IssuerName = endptCfg.Service.TLS.IssuerName
-			case service.EndpointInternal:
-				endptTLSService.IssuerName = endptCfg.Service.TLS.IssuerName
+			endptTLSService := tls.GenericService{
+				SecretName: endptCfg.Service.TLS.SecretName,
 			}
 
 			tlsSpec.API.Endpoint[endpt] = endptTLSService

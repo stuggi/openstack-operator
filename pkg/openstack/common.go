@@ -72,8 +72,8 @@ type EndpointDetails struct {
 	EndpointURL string
 }
 
-// TLSDetails - tls settings for the endpoint
-type TLSDetails struct {
+// ServiceTLSDetails - tls settings for the endpoint
+type ServiceTLSDetails struct {
 	Enabled bool
 	tls.GenericService
 	tls.Ca
@@ -83,7 +83,7 @@ type TLSDetails struct {
 type ServiceDetails struct {
 	Spec         *k8s_corev1.Service
 	OverrideSpec service.RoutedOverrideSpec
-	TLS          TLSDetails
+	TLS          ServiceTLSDetails
 }
 
 // RouteDetails - route details
@@ -91,7 +91,15 @@ type RouteDetails struct {
 	Create       bool
 	Route        *routev1.Route
 	OverrideSpec route.OverrideSpec
-	TLS          TLSDetails
+	TLS          RouteTLSDetails
+}
+
+// RouteTLSDetails - tls settings for the endpoint
+type RouteTLSDetails struct {
+	Enabled    bool
+	SecretName *string
+	IssuerName *string
+	tls.Ca
 }
 
 // GetRoutesListWithLabel - Get all routes in namespace of the obj matching label selector
@@ -181,6 +189,7 @@ func EnsureEndpointConfig(
 				if publicOverride.TLS != nil && publicOverride.TLS.SecretName != "" {
 					ed.Route.TLS.SecretName = ptr.To(publicOverride.TLS.SecretName)
 				} else {
+					// use public issuer to create cert for the route
 					ed.Route.TLS.IssuerName = ptr.To(DefaultCAPrefix + ed.Type.String())
 				}
 
@@ -190,11 +199,33 @@ func EnsureEndpointConfig(
 				// * the particular service has not TLS.Disabled set to true
 				if ed.Service.TLS.Enabled {
 					ed.Service.TLS.CaBundleSecretName = CombinedCASecret
+					// create certificate for public pod virthost
 					// TODO: (mschuppert) - if ed.Route.Create == false and custom cert secret provided
 					// for the public endpoint, use this and not the issuer. This is the case when
 					// env got deployed with LoadBalancer service instead of a route for the public
 					// endpoint.
-					ed.Service.TLS.IssuerName = ptr.To(DefaultCAPrefix + ed.Type.String())
+					// request certificate
+					certRequest := certmanager.CertificateRequest{
+						IssuerName:  DefaultCAPrefix + ed.Type.String(),
+						CertName:    fmt.Sprintf("%s-svc", ed.Name),
+						Duration:    nil,
+						Hostnames:   []string{fmt.Sprintf("%s.%s.svc", ed.Name, instance.Namespace)},
+						Ips:         nil,
+						Annotations: ed.Annotations,
+						Labels:      ed.Labels,
+						Usages:      nil,
+					}
+					certSecret, ctrlResult, err := certmanager.EnsureCert(
+						ctx,
+						helper,
+						certRequest)
+					if err != nil {
+						return serviceEndpointDetails, ctrlResult, err
+					} else if (ctrlResult != ctrl.Result{}) {
+						return serviceEndpointDetails, ctrlResult, nil
+					}
+
+					ed.Service.TLS.SecretName = &certSecret.Name
 				}
 			}
 
@@ -207,9 +238,30 @@ func EnsureEndpointConfig(
 
 		case service.EndpointInternal:
 			if ed.Service.TLS.Enabled {
-				helper.GetLogger().Info(fmt.Sprintf("BOOO %+v", CombinedCASecret))
 				ed.Service.TLS.CaBundleSecretName = CombinedCASecret
-				ed.Service.TLS.IssuerName = ptr.To(DefaultCAPrefix + ed.Type.String())
+				// create certificate for internal pod virthost
+				// request certificate
+				certRequest := certmanager.CertificateRequest{
+					IssuerName:  DefaultCAPrefix + ed.Type.String(),
+					CertName:    fmt.Sprintf("%s-svc", ed.Name),
+					Duration:    nil,
+					Hostnames:   []string{fmt.Sprintf("%s.%s.svc", ed.Name, instance.Namespace)},
+					Ips:         nil,
+					Annotations: ed.Annotations,
+					Labels:      ed.Labels,
+					Usages:      nil,
+				}
+				certSecret, ctrlResult, err := certmanager.EnsureCert(
+					ctx,
+					helper,
+					certRequest)
+				if err != nil {
+					return serviceEndpointDetails, ctrlResult, err
+				} else if (ctrlResult != ctrl.Result{}) {
+					return serviceEndpointDetails, ctrlResult, nil
+				}
+
+				ed.Service.TLS.SecretName = &certSecret.Name
 			}
 		}
 
