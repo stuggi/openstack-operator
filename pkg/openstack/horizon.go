@@ -67,7 +67,7 @@ func ReconcileHorizon(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 	}
 
-	var serviceEndpointDetails map[service.Endpoint]EndpointDetails
+	var endpointDetails = Endpoints{}
 	if horizon.Status.Conditions.IsTrue(condition.ExposeServiceReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -80,7 +80,7 @@ func ReconcileHorizon(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 
 		var ctrlResult reconcile.Result
-		serviceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
+		endpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -96,7 +96,7 @@ func ReconcileHorizon(ctx context.Context, instance *corev1beta1.OpenStackContro
 		} else if (ctrlResult != ctrl.Result{}) {
 			return ctrlResult, nil
 		}
-		serviceOverrides = GetEndpointServiceOverrides(serviceEndpointDetails)
+		serviceOverrides = endpointDetails.GetEndpointServiceOverrides()
 	}
 
 	helper.GetLogger().Info("Reconcile Horizon", "horizon.Namespace", instance.Namespace, "horizon.Name", "horizon")

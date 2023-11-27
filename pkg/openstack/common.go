@@ -58,8 +58,14 @@ func AddServiceComponentLabel(svcOverride service.RoutedOverrideSpec, value stri
 	return svcOverride
 }
 
-// EndpointDetails - endpoint details
-type EndpointDetails struct {
+// Endpoints
+type Endpoints struct {
+	EndpointDetails map[service.Endpoint]EndpointDetail
+	tls.Ca
+}
+
+// EndpointDetail - endpoint details
+type EndpointDetail struct {
 	Name        string
 	Namespace   string
 	Type        service.Endpoint
@@ -124,9 +130,9 @@ func GetRoutesListWithLabel(
 }
 
 // GetEndpointServiceOverrides -
-func GetEndpointServiceOverrides(serviceEndpointDetails map[service.Endpoint]EndpointDetails) map[service.Endpoint]service.RoutedOverrideSpec {
+func (e *Endpoints) GetEndpointServiceOverrides() map[service.Endpoint]service.RoutedOverrideSpec {
 	overrides := map[service.Endpoint]service.RoutedOverrideSpec{}
-	for endpt, endptCfg := range serviceEndpointDetails {
+	for endpt, endptCfg := range e.EndpointDetails {
 		overrides[endpt] = *endptCfg.Service.OverrideSpec.DeepCopy()
 	}
 
@@ -144,10 +150,13 @@ func EnsureEndpointConfig(
 	publicOverride corev1.Override,
 	condType condition.Type,
 	serviceTLSDisabled *bool,
-) (map[service.Endpoint]EndpointDetails, ctrl.Result, error) {
-	serviceEndpointDetails := map[service.Endpoint]EndpointDetails{}
+) (Endpoints, ctrl.Result, error) {
+	endpoints := Endpoints{
+		EndpointDetails: map[service.Endpoint]EndpointDetail{},
+	}
+
 	for _, svc := range svcs.Items {
-		ed := EndpointDetails{
+		ed := EndpointDetail{
 			Name:      svc.Name,
 			Namespace: svc.Namespace,
 			Type:      service.Endpoint(svc.Annotations[service.AnnotationEndpointKey]),
@@ -220,9 +229,9 @@ func EnsureEndpointConfig(
 						helper,
 						certRequest)
 					if err != nil {
-						return serviceEndpointDetails, ctrlResult, err
+						return endpoints, ctrlResult, err
 					} else if (ctrlResult != ctrl.Result{}) {
-						return serviceEndpointDetails, ctrlResult, nil
+						return endpoints, ctrlResult, nil
 					}
 
 					ed.Service.TLS.SecretName = &certSecret.Name
@@ -231,9 +240,9 @@ func EnsureEndpointConfig(
 
 			ctrlResult, err := ed.ensureRoute(ctx, instance, helper, &svc, owner, condType)
 			if err != nil {
-				return serviceEndpointDetails, ctrlResult, err
+				return endpoints, ctrlResult, err
 			} else if (ctrlResult != ctrl.Result{}) {
-				return serviceEndpointDetails, ctrlResult, nil
+				return endpoints, ctrlResult, nil
 			}
 
 		case service.EndpointInternal:
@@ -256,9 +265,9 @@ func EnsureEndpointConfig(
 					helper,
 					certRequest)
 				if err != nil {
-					return serviceEndpointDetails, ctrlResult, err
+					return endpoints, ctrlResult, err
 				} else if (ctrlResult != ctrl.Result{}) {
-					return serviceEndpointDetails, ctrlResult, nil
+					return endpoints, ctrlResult, nil
 				}
 
 				ed.Service.TLS.SecretName = &certSecret.Name
@@ -272,14 +281,13 @@ func EnsureEndpointConfig(
 			instance.Status.Conditions.MarkTrue(condType, corev1.OpenStackControlPlaneExposeServiceReadyMessage, owner.GetName())
 		}
 
-		//svcOverrides[ed.Type] = ed.Service.OverrideSpec
-		serviceEndpointDetails[ed.Type] = ed
+		endpoints.EndpointDetails[ed.Type] = ed
 	}
 
-	return serviceEndpointDetails, ctrl.Result{}, nil
+	return endpoints, ctrl.Result{}, nil
 }
 
-func (ed *EndpointDetails) ensureRoute(
+func (ed *EndpointDetail) ensureRoute(
 	ctx context.Context,
 	instance *corev1.OpenStackControlPlane,
 	helper *helper.Helper,
@@ -376,7 +384,7 @@ func (ed *EndpointDetails) ensureRoute(
 }
 
 // CreateRoute -
-func (ed *EndpointDetails) CreateRoute(
+func (ed *EndpointDetail) CreateRoute(
 	ctx context.Context,
 	helper *helper.Helper,
 	owner metav1.Object,

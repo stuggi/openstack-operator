@@ -56,7 +56,7 @@ func ReconcilePlacementAPI(ctx context.Context, instance *corev1beta1.OpenStackC
 		}
 	}
 
-	var serviceEndpointDetails map[service.Endpoint]EndpointDetails
+	var endpointDetails = Endpoints{}
 	if placementAPI.Status.Conditions.IsTrue(condition.ExposeServiceReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -69,7 +69,7 @@ func ReconcilePlacementAPI(ctx context.Context, instance *corev1beta1.OpenStackC
 		}
 
 		var ctrlResult reconcile.Result
-		serviceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
+		endpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -86,7 +86,7 @@ func ReconcilePlacementAPI(ctx context.Context, instance *corev1beta1.OpenStackC
 			return ctrlResult, nil
 		}
 
-		instance.Spec.Placement.Template.Override.Service = GetEndpointServiceOverrides(serviceEndpointDetails)
+		instance.Spec.Placement.Template.Override.Service = endpointDetails.GetEndpointServiceOverrides()
 	}
 
 	helper.GetLogger().Info("Reconciling PlacementAPI", "PlacementAPI.Namespace", instance.Namespace, "PlacementAPI.Name", "placement")

@@ -57,7 +57,7 @@ func ReconcileSwift(ctx context.Context, instance *corev1beta1.OpenStackControlP
 		}
 	}
 
-	var serviceEndpointDetails map[service.Endpoint]EndpointDetails
+	var endpointDetails = Endpoints{}
 	if swift.Status.Conditions.IsTrue(swiftv1.SwiftProxyReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -70,7 +70,7 @@ func ReconcileSwift(ctx context.Context, instance *corev1beta1.OpenStackControlP
 		}
 
 		var ctrlResult reconcile.Result
-		serviceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
+		endpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -87,7 +87,7 @@ func ReconcileSwift(ctx context.Context, instance *corev1beta1.OpenStackControlP
 			return ctrlResult, nil
 		}
 
-		instance.Spec.Swift.Template.SwiftProxy.Override.Service = GetEndpointServiceOverrides(serviceEndpointDetails)
+		instance.Spec.Swift.Template.SwiftProxy.Override.Service = endpointDetails.GetEndpointServiceOverrides()
 	}
 
 	helper.GetLogger().Info("Reconciling Swift", "Swift.Namespace", instance.Namespace, "Swift.Name", "swift")

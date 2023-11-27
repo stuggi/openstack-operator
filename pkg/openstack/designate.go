@@ -57,7 +57,7 @@ func ReconcileDesignate(ctx context.Context, instance *corev1beta1.OpenStackCont
 		}
 	}
 
-	var serviceEndpointDetails map[service.Endpoint]EndpointDetails
+	var endpointDetails = Endpoints{}
 	if designate.Status.Conditions.IsTrue(designatev1.DesignateAPIReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -70,7 +70,7 @@ func ReconcileDesignate(ctx context.Context, instance *corev1beta1.OpenStackCont
 		}
 
 		var ctrlResult reconcile.Result
-		serviceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
+		endpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -87,7 +87,7 @@ func ReconcileDesignate(ctx context.Context, instance *corev1beta1.OpenStackCont
 			return ctrlResult, nil
 		}
 
-		instance.Spec.Designate.Template.DesignateAPI.Override.Service = GetEndpointServiceOverrides(serviceEndpointDetails)
+		instance.Spec.Designate.Template.DesignateAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
 	}
 
 	helper.GetLogger().Info("Reconciling Designate", "Designate.Namespace", instance.Namespace, "Designate.Name", "designate")

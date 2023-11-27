@@ -66,7 +66,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 	}
 
 	// Ironic API
-	var apiServiceEndpointDetails map[service.Endpoint]EndpointDetails
+	var apiServiceEndpointDetails = Endpoints{}
 	if ironic.Status.Conditions.IsTrue(ironicv1.IronicAPIReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -96,11 +96,11 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 			return ctrlResult, nil
 		}
 
-		instance.Spec.Ironic.Template.IronicAPI.Override.Service = GetEndpointServiceOverrides(apiServiceEndpointDetails)
+		instance.Spec.Ironic.Template.IronicAPI.Override.Service = apiServiceEndpointDetails.GetEndpointServiceOverrides()
 	}
 
 	// Ironic Inspector
-	var inspectorServiceEndpointDetails map[service.Endpoint]EndpointDetails
+	var inspectorServiceEndpointDetails = Endpoints{}
 	if ironic.Status.Conditions.IsTrue(ironicv1.IronicInspectorReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -130,7 +130,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 			return ctrlResult, nil
 		}
 
-		instance.Spec.Ironic.Template.IronicInspector.Override.Service = GetEndpointServiceOverrides(inspectorServiceEndpointDetails)
+		instance.Spec.Ironic.Template.IronicInspector.Override.Service = inspectorServiceEndpointDetails.GetEndpointServiceOverrides()
 	}
 
 	helper.GetLogger().Info("Reconciling Ironic", "Ironic.Namespace", instance.Namespace, "Ironic.Name", "ironic")

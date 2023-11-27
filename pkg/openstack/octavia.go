@@ -73,7 +73,7 @@ func ReconcileOctavia(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 	}
 
-	var serviceEndpointDetails map[service.Endpoint]EndpointDetails
+	var endpointDetails = Endpoints{}
 	if octavia.Status.Conditions.IsTrue(condition.ReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -86,7 +86,7 @@ func ReconcileOctavia(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 
 		var ctrlResult reconcile.Result
-		serviceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
+		endpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -103,7 +103,7 @@ func ReconcileOctavia(ctx context.Context, instance *corev1beta1.OpenStackContro
 			return ctrlResult, nil
 		}
 
-		instance.Spec.Octavia.Template.OctaviaAPI.Override.Service = GetEndpointServiceOverrides(serviceEndpointDetails)
+		instance.Spec.Octavia.Template.OctaviaAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
 	}
 
 	helper.GetLogger().Info("Reconciling Octavia", "Octavia.Namespace", instance.Namespace, "Octavia.Name", octavia.Name)

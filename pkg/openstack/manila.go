@@ -58,7 +58,7 @@ func ReconcileManila(ctx context.Context, instance *corev1beta1.OpenStackControl
 	}
 
 	// When component services got created check if there is the need to create a route
-	var serviceEndpointDetails map[service.Endpoint]EndpointDetails
+	var endpointDetails = Endpoints{}
 	if manila.Status.Conditions.IsTrue(manilav1.ManilaAPIReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -71,7 +71,7 @@ func ReconcileManila(ctx context.Context, instance *corev1beta1.OpenStackControl
 		}
 
 		var ctrlResult reconcile.Result
-		serviceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
+		endpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
 			helper,
@@ -88,7 +88,7 @@ func ReconcileManila(ctx context.Context, instance *corev1beta1.OpenStackControl
 			return ctrlResult, nil
 		}
 
-		instance.Spec.Manila.Template.ManilaAPI.Override.Service = GetEndpointServiceOverrides(serviceEndpointDetails)
+		instance.Spec.Manila.Template.ManilaAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
 	}
 
 	helper.GetLogger().Info("Reconciling Manila", "Manila.Namespace", instance.Namespace, "Manila.Name", "manila")

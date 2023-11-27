@@ -66,7 +66,7 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 	}
 
 	// Heat API
-	var apiServiceEndpointDetails map[service.Endpoint]EndpointDetails
+	var apiServiceEndpointDetails = Endpoints{}
 	if heat.Status.Conditions.IsTrue(heatv1.HeatAPIReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -96,11 +96,11 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			return ctrlResult, nil
 		}
 
-		instance.Spec.Heat.Template.HeatAPI.Override.Service = GetEndpointServiceOverrides(apiServiceEndpointDetails)
+		instance.Spec.Heat.Template.HeatAPI.Override.Service = apiServiceEndpointDetails.GetEndpointServiceOverrides()
 	}
 
 	// Heat CFNAPI
-	var cfnAPIServiceEndpointDetails map[service.Endpoint]EndpointDetails
+	var cfnAPIServiceEndpointDetails = Endpoints{}
 	if heat.Status.Conditions.IsTrue(heatv1.HeatCfnAPIReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -130,7 +130,7 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			return ctrlResult, nil
 		}
 
-		instance.Spec.Heat.Template.HeatCfnAPI.Override.Service = GetEndpointServiceOverrides(cfnAPIServiceEndpointDetails)
+		instance.Spec.Heat.Template.HeatCfnAPI.Override.Service = cfnAPIServiceEndpointDetails.GetEndpointServiceOverrides()
 	}
 
 	helper.GetLogger().Info("Reconcile heat", "heat.Namespace", instance.Namespace, "heat.Name", "heat")

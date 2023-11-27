@@ -93,7 +93,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 	}
 
 	// Nova API
-	var apiServiceEndpointDetails map[service.Endpoint]EndpointDetails
+	var apiServiceEndpointDetails = Endpoints{}
 	if nova.Status.Conditions.IsTrue(novav1.NovaAPIReadyCondition) {
 		svcs, err := service.GetServicesListWithLabel(
 			ctx,
@@ -123,7 +123,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			return ctrlResult, nil
 		}
 
-		instance.Spec.Nova.Template.APIServiceTemplate.Override.Service = GetEndpointServiceOverrides(apiServiceEndpointDetails)
+		instance.Spec.Nova.Template.APIServiceTemplate.Override.Service = apiServiceEndpointDetails.GetEndpointServiceOverrides()
 	}
 
 	if nova.Status.Conditions.IsTrue(novav1.NovaAllCellsReadyCondition) {
@@ -151,7 +151,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			}
 
 			var ctrlResult reconcile.Result
-			var cellServiceEndpointDetails map[service.Endpoint]EndpointDetails
+			var cellServiceEndpointDetails = Endpoints{}
 			cellServiceEndpointDetails, ctrlResult, err = EnsureEndpointConfig(
 				ctx,
 				instance,
@@ -171,7 +171,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 				return ctrlResult, nil
 			}
 
-			routedOverrideSpec := GetEndpointServiceOverrides(cellServiceEndpointDetails)
+			routedOverrideSpec := cellServiceEndpointDetails.GetEndpointServiceOverrides()
 			cellTemplate.NoVNCProxyServiceTemplate.Override.Service = ptr.To(routedOverrideSpec[service.EndpointPublic])
 
 			instance.Spec.Nova.Template.CellTemplates[cellName] = cellTemplate
