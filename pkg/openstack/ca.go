@@ -113,6 +113,9 @@ func ReconcileCAs(ctx context.Context, instance *corev1.OpenStackControlPlane, h
 		}
 	}
 
+	if instance.Status.TLS.Endpoint == nil {
+		instance.Status.TLS.Endpoint = map[service.Endpoint]corev1.TLSCAStatus{}
+	}
 	// create RootCA cert and Issuer that uses the generated CA certificate to issue certs
 	for endpoint, config := range instance.Spec.TLS.Endpoint {
 		if config.Enabled {
@@ -121,6 +124,7 @@ func ReconcileCAs(ctx context.Context, instance *corev1.OpenStackControlPlane, h
 			if endpoint == service.EndpointInternal {
 				labels[certmanager.RootCAIssuerInternalLabel] = ""
 			}
+			caName := DefaultCAPrefix + string(endpoint)
 			// always create a root CA and issuer for the endpoint as we can
 			// not expect that all services are yet configured to be provided with
 			// a custom secret holding the cert/private key
@@ -129,7 +133,7 @@ func ReconcileCAs(ctx context.Context, instance *corev1.OpenStackControlPlane, h
 				instance,
 				helper,
 				issuerReq,
-				DefaultCAPrefix+string(endpoint),
+				caName,
 				labels,
 			)
 			if err != nil {
@@ -146,6 +150,12 @@ func ReconcileCAs(ctx context.Context, instance *corev1.OpenStackControlPlane, h
 			if err != nil {
 				return ctrl.Result{}, err
 			}
+
+			status := corev1.TLSCAStatus{
+				Name:    caName,
+				Expires: "TODO",
+			}
+			instance.Status.TLS.Endpoint[endpoint] = status
 		}
 	}
 	instance.Status.Conditions.MarkTrue(corev1.OpenStackControlPlaneCAReadyCondition, corev1.OpenStackControlPlaneCAReadyMessage)
@@ -226,6 +236,8 @@ func ReconcileCAs(ctx context.Context, instance *corev1.OpenStackControlPlane, h
 
 		return ctrlResult, err
 	}
+
+	instance.Status.TLS.CaBundleSecretName = CombinedCASecret
 
 	return ctrl.Result{}, nil
 }

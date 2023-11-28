@@ -92,7 +92,7 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 
 	// update TLS settings with Issuer,secret provided if public endpoint and CABundle
 	tlsSpec := glance.Spec.TLS
-	tlsSpec.CaBundleSecretName = endpointDetails.CaBundleSecretName
+	tlsSpec.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
 	if tlsSpec.API.Endpoint == nil {
 		tlsSpec.API.Endpoint = map[service.Endpoint]tls.GenericService{}
 	}

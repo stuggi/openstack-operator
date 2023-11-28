@@ -92,7 +92,7 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 
 	// update TLS settings with Issuer,secret provided if public endpoint and CABundle
 	tlsSpec := keystoneAPI.Spec.TLS
-	tlsSpec.CaBundleSecretName = endpointDetails.CaBundleSecretName
+	tlsSpec.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
 	if tlsSpec.API.Endpoint == nil {
 		tlsSpec.API.Endpoint = map[service.Endpoint]tls.GenericService{}
 	}

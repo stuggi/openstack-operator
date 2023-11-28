@@ -20,7 +20,7 @@ require (
 	github.com/openstack-k8s-operators/ironic-operator/api v0.3.1-0.20231121135848-459d0d2d2473
 	github.com/openstack-k8s-operators/keystone-operator/api v0.3.1-0.20231121110947-d38363cf0f05
 	github.com/openstack-k8s-operators/lib-common/modules/certmanager v0.0.0-20231121101653-551c0acef6ba
-	github.com/openstack-k8s-operators/lib-common/modules/common v0.3.1-0.20231121101653-551c0acef6ba
+	github.com/openstack-k8s-operators/lib-common/modules/common v0.3.1-0.20231128145648-956f4d361a63
 	github.com/openstack-k8s-operators/lib-common/modules/test v0.3.1-0.20231121101653-551c0acef6ba
 	github.com/openstack-k8s-operators/manila-operator/api v0.3.1-0.20231120163924-e1fb6fa23cc9
 	github.com/openstack-k8s-operators/mariadb-operator/api v0.3.1-0.20231117083621-34d6c99b70a2
@@ -37,7 +37,7 @@ require (
 	github.com/operator-framework/api v0.17.6
 	github.com/rabbitmq/cluster-operator/v2 v2.5.0
 	go.uber.org/zap v1.26.0
-	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa
+	golang.org/x/exp v0.0.0-20231127185646-65229373498e
 	k8s.io/api v0.28.1
 	k8s.io/apimachinery v0.28.1
 	k8s.io/client-go v0.28.1
@@ -52,7 +52,7 @@ require (
 	github.com/metal3-io/baremetal-operator/apis v0.3.1 // indirect
 	github.com/metal3-io/baremetal-operator/pkg/hardwareutils v0.2.0 // indirect
 	golang.org/x/mod v0.14.0 // indirect
-	golang.org/x/tools v0.15.0 // indirect
+	golang.org/x/tools v0.16.0 // indirect
 	sigs.k8s.io/gateway-api v0.6.0 // indirect
 )
 
@@ -93,10 +93,10 @@ require (
 	github.com/sirupsen/logrus v1.9.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	golang.org/x/net v0.18.0 // indirect
+	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/oauth2 v0.12.0 // indirect
-	golang.org/x/sys v0.14.0 // indirect
-	golang.org/x/term v0.14.0 // indirect
+	golang.org/x/sys v0.15.0 // indirect
+	golang.org/x/term v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.4.0 // indirect
@@ -109,7 +109,7 @@ require (
 	k8s.io/component-base v0.28.1 //indirect
 	k8s.io/klog/v2 v2.100.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20230905202853-d090da108d2f //indirect
-	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
+	k8s.io/utils v0.0.0-20231127182322-b307cd553661
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd //indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.3.0 // indirect
 	sigs.k8s.io/yaml v1.3.0 // indirect
@@ -136,12 +136,14 @@ replace github.com/openstack-k8s-operators/openstack-operator/apis => ./apis
 // must consistent within modules and service operators
 replace github.com/openshift/api => github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 //allow-merging
 
-replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20231124130126-bb758314bc7a
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20231128145746-6ba201973b79
 
-replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20231127101159-4e2c97eab503
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20231128151800-a519d8e4d5a6
 
-replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20231127101434-c68e8b38cfd5
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20231128151813-7626c14f1e06
 
-replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20231127101651-624162abb5ab
+replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20231128151826-458fa49f27fc
 
-replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/stuggi/neutron-operator/api v0.0.0-20231127102113-e1a1020bdb06
+replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/stuggi/neutron-operator/api v0.0.0-20231128151837-2446f98d7195
+
+replace github.com/openstack-k8s-operators/infra-operator/apis => github.com/stuggi/infra-operator/apis v0.0.0-20231128153957-99ca647f4058
