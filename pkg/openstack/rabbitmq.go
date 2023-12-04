@@ -233,7 +233,7 @@ func reconcileRabbitMQ(
 			rabbitmq.Spec.TLS.CaSecretName = caCert
 			rabbitmq.Spec.TLS.SecretName = tlsCert
 			// disable non tls listeners
-			rabbitmq.Spec.TLS.DisableNonTLSListeners = true
+			//rabbitmq.Spec.TLS.DisableNonTLSListeners = true
 		}
 
 		// overrides
