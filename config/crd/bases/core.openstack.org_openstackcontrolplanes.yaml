@@ -945,8 +945,21 @@ spec:
                       databaseUser:
                         default: cinder
                         type: string
+                      dbPurge:
+                        properties:
+                          age:
+                            default: 30
+                            minimum: 1
+                            type: integer
+                          schedule:
+                            default: 1 0 * * *
+                            type: string
+                        type: object
                       debug:
                         properties:
+                          dbPurge:
+                            default: false
+                            type: boolean
                           dbSync:
                             default: false
                             type: boolean
@@ -3764,10 +3777,6 @@ spec:
                             default: false
                             type: boolean
                         type: object
-                      defaultConfigOverwrite:
-                        additionalProperties:
-                          type: string
-                        type: object
                       extraMounts:
                         items:
                           properties:
@@ -4539,10 +4548,6 @@ spec:
                               service:
                                 default: false
                                 type: boolean
-                            type: object
-                          defaultConfigOverwrite:
-                            additionalProperties:
-                              type: string
                             type: object
                           networkAttachments:
                             items:
