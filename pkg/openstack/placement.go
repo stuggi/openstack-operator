@@ -17,7 +17,6 @@ import (
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
@@ -79,7 +78,7 @@ func ReconcilePlacementAPI(ctx context.Context, instance *corev1beta1.OpenStackC
 			instance.Spec.Placement.Template.Override.Service,
 			instance.Spec.Placement.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposePlacementAPIReadyCondition,
-			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
+			instance.Spec.Placement.Template.TLS.API.Disabled,
 		)
 		if err != nil {
 			return ctrlResult, err
@@ -89,6 +88,21 @@ func ReconcilePlacementAPI(ctx context.Context, instance *corev1beta1.OpenStackC
 
 		instance.Spec.Placement.Template.Override.Service = endpointDetails.GetEndpointServiceOverrides()
 	}
+
+	// update TLS settings with cert secret and CABundle
+	tlsSpec := placementAPI.Spec.TLS
+	tlsSpec.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
+	for endpt, endptCfg := range endpointDetails.EndpointDetails {
+		if endptCfg.Service.TLS.Enabled {
+			switch endpt {
+			case service.EndpointPublic:
+				tlsSpec.API.Public.SecretName = endptCfg.Service.TLS.SecretName
+			case service.EndpointInternal:
+				tlsSpec.API.Internal.SecretName = endptCfg.Service.TLS.SecretName
+			}
+		}
+	}
+	instance.Spec.Placement.Template.TLS = tlsSpec
 
 	Log.Info("Reconciling PlacementAPI", "PlacementAPI.Namespace", instance.Namespace, "PlacementAPI.Name", "placement")
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), placementAPI, func() error {

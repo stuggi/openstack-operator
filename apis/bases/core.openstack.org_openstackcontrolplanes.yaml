@@ -10858,6 +10858,26 @@ spec:
                       serviceUser:
                         default: placement
                         type: string
+                      tls:
+                        properties:
+                          api:
+                            properties:
+                              disabled:
+                                type: boolean
+                              internal:
+                                properties:
+                                  secretName:
+                                    type: string
+                                type: object
+                              public:
+                                properties:
+                                  secretName:
+                                    type: string
+                                type: object
+                            type: object
+                          caBundleSecretName:
+                            type: string
+                        type: object
                     required:
                     - containerImage
                     - databaseInstance

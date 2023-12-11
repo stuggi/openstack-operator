@@ -116,7 +116,7 @@ replace github.com/openshift/api => github.com/openshift/api v0.0.0-202304141430
 // Bump golang.org/x/net to avoid Rapid Reset CVE
 replace golang.org/x/net => golang.org/x/net v0.18.0 //allow-merging
 
-replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/Deydra71/lib-common/modules/common v0.0.0-20231208095031-62070e5707ac
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/deydra71/lib-common/modules/common v0.0.0-20231208095031-62070e5707ac
 
 replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20231211125708-133b87937d4b
 
@@ -125,3 +125,7 @@ replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/st
 replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20231211130527-a4f18fe2fe65
 
 replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20231211125951-776f680fee9d
+
+//replace github.com/openstack-k8s-operators/placement-operator/api => github.com/deydra71/placement-operator/api v0.0.0-20231211150739-ebcbc4ec208d
+
+replace github.com/openstack-k8s-operators/placement-operator/api => github.com/stuggi/placement-operator/api v0.0.0-20231212161127-421a0dc47b78
