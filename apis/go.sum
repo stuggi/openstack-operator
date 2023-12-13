@@ -154,8 +154,6 @@ github.com/openstack-k8s-operators/manila-operator/api v0.3.1-0.20231212090056-0
 github.com/openstack-k8s-operators/manila-operator/api v0.3.1-0.20231212090056-0da4204a8662/go.mod h1:TtVmtwdGHaoVpwVsRiWx1rqrvjwTwqDaGb/ylMJe2Qw=
 github.com/openstack-k8s-operators/mariadb-operator/api v0.3.1-0.20231205003453-c971bdd03386 h1:d+rwNT9RK6zuGIV1OJbiyiDQxKnIktzEZiDvWhQGAf8=
 github.com/openstack-k8s-operators/mariadb-operator/api v0.3.1-0.20231205003453-c971bdd03386/go.mod h1:2iwM6ykaObuaEbSK0ez3xau9B/rsxIgwWwGyrlVsaWg=
-github.com/openstack-k8s-operators/nova-operator/api v0.3.1-0.20231211113616-4d9a55566331 h1:2WKBXTaZovxzt/bCySmoRY1uslMuGbYErxKjIfUKppA=
-github.com/openstack-k8s-operators/nova-operator/api v0.3.1-0.20231211113616-4d9a55566331/go.mod h1:O/qwHKezjSkIHgUWeECIeAz+sT3XmR038rDtsklcMSU=
 github.com/openstack-k8s-operators/octavia-operator/api v0.3.1-0.20231207200317-cdbdd42844b8 h1:srja9F3G/ECNkjQk+uMeiLBbF0tBVS42w2nphbxFOo0=
 github.com/openstack-k8s-operators/octavia-operator/api v0.3.1-0.20231207200317-cdbdd42844b8/go.mod h1:oTRgvqd1tZaAptGaAmi9WzEMJkJs0D3CGNmGYcNFLRo=
 github.com/openstack-k8s-operators/ovn-operator/api v0.3.1-0.20231211163103-dfb4859c9848 h1:mYsb7ZZKh4CDiMKuoXnLcfN/XHce0CkRgJc04kalmQ8=
@@ -197,14 +195,16 @@ github.com/stretchr/testify v1.7.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/
 github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=
 github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
-github.com/stuggi/cinder-operator/api v0.0.0-20231211125951-776f680fee9d h1:8MQ7RdJ+mbFowh/Vbw5J3t1iYEEguJQzZ5YgxeukKmQ=
-github.com/stuggi/cinder-operator/api v0.0.0-20231211125951-776f680fee9d/go.mod h1:Jhlua03K+jKep1yq9+0FZC4QLyK4117zYg3yzXhZhNQ=
+github.com/stuggi/cinder-operator/api v0.0.0-20231213064945-69ee7691cc14 h1:Wu7N1JA28d2/8ghS5v/+pS3OeIRULNhopPpBZYo5qO0=
+github.com/stuggi/cinder-operator/api v0.0.0-20231213064945-69ee7691cc14/go.mod h1:5DRT0JiGJemI+2kZs2FmoDqTuHlKfa46dPMYtmLPrpg=
 github.com/stuggi/glance-operator/api v0.0.0-20231211130527-a4f18fe2fe65 h1:2hdwmD1Ve/1dIQjnUbxJDBVidPTYIB54ANByETj1p2A=
 github.com/stuggi/glance-operator/api v0.0.0-20231211130527-a4f18fe2fe65/go.mod h1:8u/C1xSdlhloW+v/axh9qwnNk4I1f/3TWVJU1vRAxT4=
 github.com/stuggi/keystone-operator/api v0.0.0-20231211125708-133b87937d4b h1:6VDD3N+O3rS/OnNygx0Cm/En6vWG8M4g+VLZvGMOW44=
 github.com/stuggi/keystone-operator/api v0.0.0-20231211125708-133b87937d4b/go.mod h1:mJcPcuWRBE9Aa+QhDXGEtDUFGjZ61qYf6sBSci9nOpk=
 github.com/stuggi/neutron-operator/api v0.0.0-20231211130103-dd3f9e1f9701 h1:BqoiEkJ4WJ4CZPAgKWM4EL7nPSz0WQBYsRWiaJPb1Gk=
 github.com/stuggi/neutron-operator/api v0.0.0-20231211130103-dd3f9e1f9701/go.mod h1:KGaH4ugUGqVkLoUbQ1vHmUP2JJkih0xeqTGD+B5e8zY=
+github.com/stuggi/nova-operator/api v0.0.0-20231214103628-bd1c848d9983 h1:k88HpQOl40f/6u1Z/a6UikxHP4LFSC5BGub3x0rnaM4=
+github.com/stuggi/nova-operator/api v0.0.0-20231214103628-bd1c848d9983/go.mod h1:FhHhossu0XXVgvF1V7wM78W2MGzrTWoijd1t1Wn8IzU=
 github.com/stuggi/placement-operator/api v0.0.0-20231212161127-421a0dc47b78 h1:maWTKkamyQcj0VqKOEvA3Ub+D5SvTIt+qW6/KJ9H8iY=
 github.com/stuggi/placement-operator/api v0.0.0-20231212161127-421a0dc47b78/go.mod h1:e4/3ZiVNWfDi7TukPAWEPG2/1UjCtF5w7WIoGCVbuls=
 github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f/go.mod h1:N2zxlSyiKSe5eX1tZViRH5QA0qijqEDrYZiPEAiq3wU=

@@ -116,7 +116,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			instance.Spec.Nova.Template.APIServiceTemplate.Override.Service,
 			instance.Spec.Nova.APIOverride,
 			corev1beta1.OpenStackControlPlaneExposeNovaReadyCondition,
-			ptr.To(true), // TODO: (mschuppert) disable TLS for now until implemented
+			instance.Spec.Nova.Template.APIServiceTemplate.TLS.API.Disabled,
 		)
 		if err != nil {
 			return ctrlResult, err
@@ -126,6 +126,21 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 
 		instance.Spec.Nova.Template.APIServiceTemplate.Override.Service = apiServiceEndpointDetails.GetEndpointServiceOverrides()
 	}
+
+	// update TLS settings with cert secret and CABundle
+	tlsSpec := nova.Spec.APIServiceTemplate.TLS
+	tlsSpec.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
+	for endpt, endptCfg := range apiServiceEndpointDetails.EndpointDetails {
+		if endptCfg.Service.TLS.Enabled {
+			switch endpt {
+			case service.EndpointPublic:
+				tlsSpec.API.Public.SecretName = endptCfg.Service.TLS.SecretName
+			case service.EndpointInternal:
+				tlsSpec.API.Internal.SecretName = endptCfg.Service.TLS.SecretName
+			}
+		}
+	}
+	instance.Spec.Nova.Template.APIServiceTemplate.TLS = tlsSpec
 
 	if nova.Status.Conditions.IsTrue(novav1.NovaAllCellsReadyCondition) {
 		// cell NoVNCProxy
