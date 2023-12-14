@@ -25,7 +25,6 @@ import (
 	"github.com/openstack-k8s-operators/lib-common/modules/common/secret"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/service"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/tls"
-	"github.com/openstack-k8s-operators/lib-common/modules/common/util"
 	manilav1 "github.com/openstack-k8s-operators/manila-operator/api/v1beta1"
 	mariadbv1 "github.com/openstack-k8s-operators/mariadb-operator/api/v1beta1"
 	neutronv1 "github.com/openstack-k8s-operators/neutron-operator/api/v1beta1"
@@ -75,11 +74,7 @@ func EnsureDeleted(ctx context.Context, helper *helper.Helper, obj client.Object
 // AddServiceComponentLabel - adds component label to the service override to be able to query
 // the service labels to check for any route creation
 func AddServiceComponentLabel(svcOverride service.RoutedOverrideSpec, value string) service.RoutedOverrideSpec {
-	if svcOverride.EmbeddedLabelsAnnotations == nil {
-		svcOverride.EmbeddedLabelsAnnotations = &service.EmbeddedLabelsAnnotations{}
-	}
-	svcOverride.EmbeddedLabelsAnnotations.Labels = util.MergeStringMaps(
-		svcOverride.EmbeddedLabelsAnnotations.Labels, map[string]string{common.AppSelector: value})
+	svcOverride.AddLabel(map[string]string{common.AppSelector: value})
 
 	return svcOverride
 }
