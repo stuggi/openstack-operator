@@ -24,8 +24,6 @@ github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSs
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc h1:U9qPSI2PIWSS1VwoXQT9A3Wy9MM3WgvqSxFWenqJduM=
 github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
-github.com/deydra71/lib-common/modules/common v0.0.0-20231208095031-62070e5707ac h1:+SrCwvFfPzJ5qYSsEvika4+muwyO/XhOTUs0GP9nHxk=
-github.com/deydra71/lib-common/modules/common v0.0.0-20231208095031-62070e5707ac/go.mod h1:9n2nMFDiV5hGZHKr81aTAOHUoAxvEKivHeWCXFRJEZ4=
 github.com/docopt/docopt-go v0.0.0-20180111231733-ee0de3bc6815/go.mod h1:WwZ+bS3ebgob9U8Nd0kOddGdZWjyMGR8Wziv+TBNwSE=
 github.com/emicklei/go-restful/v3 v3.11.0 h1:rAQeMHw1c7zTmncogyy8VvRZwtkmkZ4FxERmMY4rD+g=
 github.com/emicklei/go-restful/v3 v3.11.0/go.mod h1:6n3XBCmQQb25CM2LCACGz8ukIrRry+4bhvbpWn3mrbc=
@@ -224,10 +222,12 @@ github.com/stuggi/glance-operator/api v0.0.0-20231211130527-a4f18fe2fe65 h1:2hdw
 github.com/stuggi/glance-operator/api v0.0.0-20231211130527-a4f18fe2fe65/go.mod h1:8u/C1xSdlhloW+v/axh9qwnNk4I1f/3TWVJU1vRAxT4=
 github.com/stuggi/keystone-operator/api v0.0.0-20231211125708-133b87937d4b h1:6VDD3N+O3rS/OnNygx0Cm/En6vWG8M4g+VLZvGMOW44=
 github.com/stuggi/keystone-operator/api v0.0.0-20231211125708-133b87937d4b/go.mod h1:mJcPcuWRBE9Aa+QhDXGEtDUFGjZ61qYf6sBSci9nOpk=
+github.com/stuggi/lib-common/modules/common v0.0.0-20231215103329-a362140c0fca h1:Go7KP/FoS5d0rWwIsUGj1QRtSAcW/GNbTLOUGq6qeBM=
+github.com/stuggi/lib-common/modules/common v0.0.0-20231215103329-a362140c0fca/go.mod h1:9n2nMFDiV5hGZHKr81aTAOHUoAxvEKivHeWCXFRJEZ4=
 github.com/stuggi/neutron-operator/api v0.0.0-20231211130103-dd3f9e1f9701 h1:BqoiEkJ4WJ4CZPAgKWM4EL7nPSz0WQBYsRWiaJPb1Gk=
 github.com/stuggi/neutron-operator/api v0.0.0-20231211130103-dd3f9e1f9701/go.mod h1:KGaH4ugUGqVkLoUbQ1vHmUP2JJkih0xeqTGD+B5e8zY=
-github.com/stuggi/nova-operator/api v0.0.0-20231214103628-bd1c848d9983 h1:k88HpQOl40f/6u1Z/a6UikxHP4LFSC5BGub3x0rnaM4=
-github.com/stuggi/nova-operator/api v0.0.0-20231214103628-bd1c848d9983/go.mod h1:FhHhossu0XXVgvF1V7wM78W2MGzrTWoijd1t1Wn8IzU=
+github.com/stuggi/nova-operator/api v0.0.0-20231215161456-a388e7142f1e h1:G4sKoqIPbZKfk0iVozq0TZFzWc0gLBnslX0ll9O746U=
+github.com/stuggi/nova-operator/api v0.0.0-20231215161456-a388e7142f1e/go.mod h1:R+4u66SWfJhOdoJ9NAiucarODukmMPdIb51CCxR80Sc=
 github.com/stuggi/placement-operator/api v0.0.0-20231212161127-421a0dc47b78 h1:maWTKkamyQcj0VqKOEvA3Ub+D5SvTIt+qW6/KJ9H8iY=
 github.com/stuggi/placement-operator/api v0.0.0-20231212161127-421a0dc47b78/go.mod h1:e4/3ZiVNWfDi7TukPAWEPG2/1UjCtF5w7WIoGCVbuls=
 github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f/go.mod h1:N2zxlSyiKSe5eX1tZViRH5QA0qijqEDrYZiPEAiq3wU=

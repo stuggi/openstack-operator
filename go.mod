@@ -136,7 +136,10 @@ replace github.com/openstack-k8s-operators/openstack-operator/apis => ./apis
 // must consistent within modules and service operators
 replace github.com/openshift/api => github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 //allow-merging
 
-replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/deydra71/lib-common/modules/common v0.0.0-20231208095031-62070e5707ac
+//replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/deydra71/lib-common/modules/common v0.0.0-20231208095031-62070e5707ac
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20231215103329-a362140c0fca
+
+//replace github.com/openstack-k8s-operators/lib-common/modules/common => /home/mschuppe/src/github.com/openstack-k8s-operators/lib-common/modules/common
 
 replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20231211125708-133b87937d4b
 
@@ -148,4 +151,4 @@ replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stu
 
 replace github.com/openstack-k8s-operators/placement-operator/api => github.com/stuggi/placement-operator/api v0.0.0-20231212161127-421a0dc47b78
 
-replace github.com/openstack-k8s-operators/nova-operator/api => github.com/stuggi/nova-operator/api v0.0.0-20231214103628-bd1c848d9983
+replace github.com/openstack-k8s-operators/nova-operator/api => github.com/stuggi/nova-operator/api v0.0.0-20231215161456-a388e7142f1e
