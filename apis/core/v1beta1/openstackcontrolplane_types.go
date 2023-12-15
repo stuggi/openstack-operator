@@ -783,3 +783,13 @@ func SetupDefaults() {
 
 	SetupOpenStackControlPlaneDefaults(openstackControlPlaneDefaults)
 }
+
+// Enabled - returns status of tls configuration for the passed in endpoint type
+func (t *TLSSection) Enabled(endpt service.Endpoint) bool {
+	if t != nil {
+		if cfg, ok := t.Endpoint[service.EndpointInternal]; ok && cfg.Enabled {
+			return true
+		}
+	}
+	return false
+}
