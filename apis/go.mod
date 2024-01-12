@@ -114,3 +114,5 @@ replace ( //allow-merging
 replace github.com/openshift/api => github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 //allow-merging
 
 replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20240111111319-ac75ff66c1cb
+
+replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/stuggi/neutron-operator/api v0.0.0-20240110132446-b7dd116f719a
