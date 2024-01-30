@@ -155,8 +155,6 @@ github.com/openstack-k8s-operators/horizon-operator/api v0.3.1-0.20240107213124-
 github.com/openstack-k8s-operators/horizon-operator/api v0.3.1-0.20240107213124-f2df1172f89e/go.mod h1:5U3y8EfcYL21ipAXxPgVMSSfSOdCRN0wNmh0L7aREKw=
 github.com/openstack-k8s-operators/infra-operator/apis v0.3.1-0.20240125112246-15881e3c5305 h1:ld+vKNhGcBGVkbn5GCLEu+TGPp8GjXXuC7rJc6dyF/s=
 github.com/openstack-k8s-operators/infra-operator/apis v0.3.1-0.20240125112246-15881e3c5305/go.mod h1:M3859LWhTb+9zahzU3nhkrwUBvAgTmLPaG10haK9djM=
-github.com/openstack-k8s-operators/ironic-operator/api v0.3.1-0.20240112015156-0cd36db16810 h1:fUJThA4L42a7q3RBWZS63vP/iyDw2Zeoz5LFs48e3vU=
-github.com/openstack-k8s-operators/ironic-operator/api v0.3.1-0.20240112015156-0cd36db16810/go.mod h1:ucxn3iX+wWE+8khOSw+RnE6aUhuUENF5M1MHNnlYYPo=
 github.com/openstack-k8s-operators/keystone-operator/api v0.3.1-0.20240125201204-a18a1e700034 h1:aEtjPHkCsANdkB8pirv7r9p7DE0KOBwxUvaVA5LPua8=
 github.com/openstack-k8s-operators/keystone-operator/api v0.3.1-0.20240125201204-a18a1e700034/go.mod h1:bgVKIMNoFsK3roq5DA8BBn3Cpxh8PRTqYhBgnlRhWvk=
 github.com/openstack-k8s-operators/lib-common/modules/certmanager v0.0.0-20240124141114-55d029e4658b h1:j4kZGURzJ97rc8SAUeyQr9AUB27xjqJ6imbYMusOin0=
@@ -232,6 +230,8 @@ github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
 github.com/stuggi/cinder-operator/api v0.0.0-20240111111319-ac75ff66c1cb h1:K0Z8drpqdDPpAnUxW4vw5F5OB3Y4Cr2Oo1S1FH4ODOg=
 github.com/stuggi/cinder-operator/api v0.0.0-20240111111319-ac75ff66c1cb/go.mod h1:Ozgk9komox+YQxkS43VncPzHjvef2Hga/nu6fX/G0ek=
+github.com/stuggi/ironic-operator/api v0.0.0-20240130160623-09a84225aa93 h1:kgzA/HXbLKQ2oggeV2QBkPDIoGpL4/S11qg6JTfoPq4=
+github.com/stuggi/ironic-operator/api v0.0.0-20240130160623-09a84225aa93/go.mod h1:NlnYSKt/RKA28cKgtyYy0nUubhfdZ3QP+dkgjyyAl5I=
 github.com/stuggi/neutron-operator/api v0.0.0-20240110132446-b7dd116f719a h1:r19DMgleke1s0KfyMFawd6Zs3WmOL3bOE0JZwrMYVnY=
 github.com/stuggi/neutron-operator/api v0.0.0-20240110132446-b7dd116f719a/go.mod h1:yPMojR9cveY8v9D33Xg7TKgMLv1/eC5iUx38I+oW+os=
 github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f/go.mod h1:N2zxlSyiKSe5eX1tZViRH5QA0qijqEDrYZiPEAiq3wU=

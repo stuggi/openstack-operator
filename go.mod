@@ -134,3 +134,5 @@ replace github.com/openshift/api => github.com/openshift/api v0.0.0-202304141430
 replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20240111111319-ac75ff66c1cb
 
 replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/stuggi/neutron-operator/api v0.0.0-20240110132446-b7dd116f719a
+
+replace github.com/openstack-k8s-operators/ironic-operator/api => github.com/stuggi/ironic-operator/api v0.0.0-20240130160623-09a84225aa93
