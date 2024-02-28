@@ -71,36 +71,34 @@ func ReconcileOctavia(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 	}
 
-	if octavia.Status.Conditions.IsTrue(condition.ReadyCondition) {
-		svcs, err := service.GetServicesListWithLabel(
-			ctx,
-			helper,
-			instance.Namespace,
-			map[string]string{common.AppSelector: octavia.Name},
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		endpointDetails, ctrlResult, err := EnsureEndpointConfig(
-			ctx,
-			instance,
-			helper,
-			octavia,
-			svcs,
-			instance.Spec.Octavia.Template.OctaviaAPI.Override.Service,
-			instance.Spec.Octavia.APIOverride,
-			corev1beta1.OpenStackControlPlaneExposeOctaviaReadyCondition,
-			true, // TODO: (mschuppert) disable TLS for now until implemented
-		)
-		if err != nil {
-			return ctrlResult, err
-		} else if (ctrlResult != ctrl.Result{}) {
-			return ctrlResult, nil
-		}
-
-		instance.Spec.Octavia.Template.OctaviaAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
+	svcs, err := service.GetServicesListWithLabel(
+		ctx,
+		helper,
+		instance.Namespace,
+		map[string]string{common.AppSelector: octavia.Name},
+	)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
+
+	endpointDetails, ctrlResult, err := EnsureEndpointConfig(
+		ctx,
+		instance,
+		helper,
+		octavia,
+		svcs,
+		instance.Spec.Octavia.Template.OctaviaAPI.Override.Service,
+		instance.Spec.Octavia.APIOverride,
+		corev1beta1.OpenStackControlPlaneExposeOctaviaReadyCondition,
+		true, // TODO: (mschuppert) disable TLS for now until implemented
+	)
+	if err != nil {
+		return ctrlResult, err
+	} else if (ctrlResult != ctrl.Result{}) {
+		return ctrlResult, nil
+	}
+
+	instance.Spec.Octavia.Template.OctaviaAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
 
 	helper.GetLogger().Info("Reconciling Octavia", "Octavia.Namespace", instance.Namespace, "Octavia.Name", octavia.Name)
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), octavia, func() error {

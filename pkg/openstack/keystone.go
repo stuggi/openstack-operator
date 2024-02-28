@@ -57,46 +57,41 @@ func ReconcileKeystoneAPI(ctx context.Context, instance *corev1beta1.OpenStackCo
 		}
 	}
 
-	// preserve any previously set TLS certs,set CA cert
-	if instance.Spec.TLS.Enabled(service.EndpointInternal) {
-		instance.Spec.Keystone.Template.TLS = keystoneAPI.Spec.TLS
-	}
+	// set CA cert bundle
 	instance.Spec.Keystone.Template.TLS.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
 
-	if keystoneAPI.Status.Conditions.IsTrue(condition.ExposeServiceReadyCondition) {
-		svcs, err := service.GetServicesListWithLabel(
-			ctx,
-			helper,
-			instance.Namespace,
-			map[string]string{common.AppSelector: keystoneAPI.Name},
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		endpointDetails, ctrlResult, err := EnsureEndpointConfig(
-			ctx,
-			instance,
-			helper,
-			keystoneAPI,
-			svcs,
-			instance.Spec.Keystone.Template.Override.Service,
-			instance.Spec.Keystone.APIOverride,
-			corev1beta1.OpenStackControlPlaneExposeKeystoneAPIReadyCondition,
-			false, // TODO (mschuppert) could be removed when all integrated service support TLS
-		)
-		if err != nil {
-			return ctrlResult, err
-		} else if (ctrlResult != ctrl.Result{}) {
-			return ctrlResult, nil
-		}
-
-		instance.Spec.Keystone.Template.Override.Service = endpointDetails.GetEndpointServiceOverrides()
-
-		// update TLS settings with cert secret
-		instance.Spec.Keystone.Template.TLS.API.Public.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
-		instance.Spec.Keystone.Template.TLS.API.Internal.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointInternal)
+	svcs, err := service.GetServicesListWithLabel(
+		ctx,
+		helper,
+		instance.Namespace,
+		map[string]string{common.AppSelector: keystoneAPI.Name},
+	)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
+
+	endpointDetails, ctrlResult, err := EnsureEndpointConfig(
+		ctx,
+		instance,
+		helper,
+		keystoneAPI,
+		svcs,
+		instance.Spec.Keystone.Template.Override.Service,
+		instance.Spec.Keystone.APIOverride,
+		corev1beta1.OpenStackControlPlaneExposeKeystoneAPIReadyCondition,
+		false, // TODO (mschuppert) could be removed when all integrated service support TLS
+	)
+	if err != nil {
+		return ctrlResult, err
+	} else if (ctrlResult != ctrl.Result{}) {
+		return ctrlResult, nil
+	}
+
+	instance.Spec.Keystone.Template.Override.Service = endpointDetails.GetEndpointServiceOverrides()
+
+	// update TLS settings with cert secret
+	instance.Spec.Keystone.Template.TLS.API.Public.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
+	instance.Spec.Keystone.Template.TLS.API.Internal.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointInternal)
 
 	Log.Info("Reconciling KeystoneAPI", "KeystoneAPI.Namespace", instance.Namespace, "KeystoneAPI.Name", "keystone")
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), keystoneAPI, func() error {

@@ -54,46 +54,41 @@ func ReconcileBarbican(ctx context.Context, instance *corev1beta1.OpenStackContr
 		}
 	}
 
-	// preserve any previously set TLS certs, set CA cert
-	if instance.Spec.TLS.Enabled(service.EndpointInternal) {
-		instance.Spec.Barbican.Template.BarbicanAPI.TLS = barbican.Spec.BarbicanAPI.TLS
-	}
+	// set CA cert bundle
 	instance.Spec.Barbican.Template.BarbicanAPI.TLS.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
 
-	if barbican.Status.Conditions.IsTrue(barbicanv1.BarbicanAPIReadyCondition) {
-		svcs, err := service.GetServicesListWithLabel(
-			ctx,
-			helper,
-			instance.Namespace,
-			map[string]string{common.AppSelector: barbican.Name},
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		endpointDetails, ctrlResult, err := EnsureEndpointConfig(
-			ctx,
-			instance,
-			helper,
-			barbican,
-			svcs,
-			instance.Spec.Barbican.Template.BarbicanAPI.Override.Service,
-			instance.Spec.Barbican.APIOverride,
-			corev1beta1.OpenStackControlPlaneExposeBarbicanReadyCondition,
-			false, // TODO: (mschuppert) could be removed when all integrated service support TLS
-		)
-		if err != nil {
-			return ctrlResult, err
-		} else if (ctrlResult != ctrl.Result{}) {
-			return ctrlResult, nil
-		}
-
-		instance.Spec.Barbican.Template.BarbicanAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
-
-		// update TLS settings with cert secret
-		instance.Spec.Barbican.Template.BarbicanAPI.TLS.API.Public.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
-		instance.Spec.Barbican.Template.BarbicanAPI.TLS.API.Internal.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointInternal)
+	svcs, err := service.GetServicesListWithLabel(
+		ctx,
+		helper,
+		instance.Namespace,
+		map[string]string{common.AppSelector: barbican.Name},
+	)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
+
+	endpointDetails, ctrlResult, err := EnsureEndpointConfig(
+		ctx,
+		instance,
+		helper,
+		barbican,
+		svcs,
+		instance.Spec.Barbican.Template.BarbicanAPI.Override.Service,
+		instance.Spec.Barbican.APIOverride,
+		corev1beta1.OpenStackControlPlaneExposeBarbicanReadyCondition,
+		false, // TODO: (mschuppert) could be removed when all integrated service support TLS
+	)
+	if err != nil {
+		return ctrlResult, err
+	} else if (ctrlResult != ctrl.Result{}) {
+		return ctrlResult, nil
+	}
+
+	instance.Spec.Barbican.Template.BarbicanAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
+
+	// update TLS settings with cert secret
+	instance.Spec.Barbican.Template.BarbicanAPI.TLS.API.Public.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
+	instance.Spec.Barbican.Template.BarbicanAPI.TLS.API.Internal.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointInternal)
 
 	helper.GetLogger().Info("Reconciling Barbican", "Barbican.Namespace", instance.Namespace, "Barbican.Name", "barbican")
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), barbican, func() error {

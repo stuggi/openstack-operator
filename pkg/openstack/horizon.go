@@ -40,16 +40,6 @@ func ReconcileHorizon(ctx context.Context, instance *corev1beta1.OpenStackContro
 	}
 
 	// add selector to service overrides
-	/*
-		for _, endpointType := range []service.Endpoint{service.EndpointPublic, service.EndpointInternal} {
-			if instance.Spec.Horizon.Template.Override.Service == nil {
-				instance.Spec.Horizon.Template.Override.Service = map[string]service.RoutedOverrideSpec{}
-			}
-			instance.Spec.Horizon.Template.Override.Service[string(endpointType)] =
-				AddServiceComponentLabel(
-					ptr.To(instance.Spec.Horizon.Template.Override.Service[string(endpointType)]),
-					horizon.Name)
-	*/
 	serviceOverrides := map[service.Endpoint]service.RoutedOverrideSpec{}
 	if instance.Spec.Horizon.Template.Override.Service != nil {
 		serviceOverrides[service.EndpointPublic] = *instance.Spec.Horizon.Template.Override.Service
@@ -67,43 +57,38 @@ func ReconcileHorizon(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 	}
 
-	// preserve any previously set TLS certs, set CA cert
-	if instance.Spec.TLS.Enabled(service.EndpointInternal) {
-		instance.Spec.Horizon.Template.TLS = horizon.Spec.TLS
-	}
+	// set CA cert bundle
 	instance.Spec.Horizon.Template.TLS.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
 
-	if horizon.Status.Conditions.IsTrue(condition.ExposeServiceReadyCondition) {
-		svcs, err := service.GetServicesListWithLabel(
-			ctx,
-			helper,
-			instance.Namespace,
-			map[string]string{common.AppSelector: horizon.Name},
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		endpointDetails, ctrlResult, err := EnsureEndpointConfig(
-			ctx,
-			instance,
-			helper,
-			horizon,
-			svcs,
-			serviceOverrides,
-			instance.Spec.Horizon.APIOverride,
-			corev1beta1.OpenStackControlPlaneExposeHorizonReadyCondition,
-			false, // TODO (mschuppert) could be removed when all integrated service support TLS
-		)
-		if err != nil {
-			return ctrlResult, err
-		} else if (ctrlResult != ctrl.Result{}) {
-			return ctrlResult, nil
-		}
-		serviceOverrides = endpointDetails.GetEndpointServiceOverrides()
-
-		instance.Spec.Horizon.Template.TLS.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
+	svcs, err := service.GetServicesListWithLabel(
+		ctx,
+		helper,
+		instance.Namespace,
+		map[string]string{common.AppSelector: horizon.Name},
+	)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
+
+	endpointDetails, ctrlResult, err := EnsureEndpointConfig(
+		ctx,
+		instance,
+		helper,
+		horizon,
+		svcs,
+		serviceOverrides,
+		instance.Spec.Horizon.APIOverride,
+		corev1beta1.OpenStackControlPlaneExposeHorizonReadyCondition,
+		false, // TODO (mschuppert) could be removed when all integrated service support TLS
+	)
+	if err != nil {
+		return ctrlResult, err
+	} else if (ctrlResult != ctrl.Result{}) {
+		return ctrlResult, nil
+	}
+	serviceOverrides = endpointDetails.GetEndpointServiceOverrides()
+
+	instance.Spec.Horizon.Template.TLS.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
 
 	Log.Info("Reconcile Horizon", "horizon.Namespace", instance.Namespace, "horizon.Name", "horizon")
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), horizon, func() error {

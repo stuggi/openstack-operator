@@ -55,36 +55,34 @@ func ReconcileDesignate(ctx context.Context, instance *corev1beta1.OpenStackCont
 		}
 	}
 
-	if designate.Status.Conditions.IsTrue(designatev1.DesignateAPIReadyCondition) {
-		svcs, err := service.GetServicesListWithLabel(
-			ctx,
-			helper,
-			instance.Namespace,
-			map[string]string{common.AppSelector: designate.Name},
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		endpointDetails, ctrlResult, err := EnsureEndpointConfig(
-			ctx,
-			instance,
-			helper,
-			designate,
-			svcs,
-			instance.Spec.Designate.Template.DesignateAPI.Override.Service,
-			instance.Spec.Designate.APIOverride,
-			corev1beta1.OpenStackControlPlaneExposeDesignateReadyCondition,
-			true, // TODO: (mschuppert) disable TLS for now until implemented
-		)
-		if err != nil {
-			return ctrlResult, err
-		} else if (ctrlResult != ctrl.Result{}) {
-			return ctrlResult, nil
-		}
-
-		instance.Spec.Designate.Template.DesignateAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
+	svcs, err := service.GetServicesListWithLabel(
+		ctx,
+		helper,
+		instance.Namespace,
+		map[string]string{common.AppSelector: designate.Name},
+	)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
+
+	endpointDetails, ctrlResult, err := EnsureEndpointConfig(
+		ctx,
+		instance,
+		helper,
+		designate,
+		svcs,
+		instance.Spec.Designate.Template.DesignateAPI.Override.Service,
+		instance.Spec.Designate.APIOverride,
+		corev1beta1.OpenStackControlPlaneExposeDesignateReadyCondition,
+		true, // TODO: (mschuppert) disable TLS for now until implemented
+	)
+	if err != nil {
+		return ctrlResult, err
+	} else if (ctrlResult != ctrl.Result{}) {
+		return ctrlResult, nil
+	}
+
+	instance.Spec.Designate.Template.DesignateAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
 
 	helper.GetLogger().Info("Reconciling Designate", "Designate.Namespace", instance.Namespace, "Designate.Name", "designate")
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), designate, func() error {

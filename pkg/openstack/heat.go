@@ -67,85 +67,75 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 		}
 	}
 
-	// preserve any previously set TLS certs,set CA cert
-	if instance.Spec.TLS.Enabled(service.EndpointInternal) {
-		instance.Spec.Heat.Template.HeatAPI.TLS = heat.Spec.HeatAPI.TLS
-		instance.Spec.Heat.Template.HeatCfnAPI.TLS = heat.Spec.HeatCfnAPI.TLS
-	}
+	// set CA cert bundle
 	instance.Spec.Heat.Template.HeatAPI.TLS.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
 	instance.Spec.Heat.Template.HeatCfnAPI.TLS.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
 
 	// Heat API
-	if heat.Status.Conditions.IsTrue(heatv1.HeatAPIReadyCondition) {
-		svcs, err := service.GetServicesListWithLabel(
-			ctx,
-			helper,
-			instance.Namespace,
-			map[string]string{common.AppSelector: heat.Name + "-api"},
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		endpointDetails, ctrlResult, err := EnsureEndpointConfig(
-			ctx,
-			instance,
-			helper,
-			heat,
-			svcs,
-			instance.Spec.Heat.Template.HeatAPI.Override.Service,
-			instance.Spec.Heat.APIOverride,
-			corev1beta1.OpenStackControlPlaneExposeHeatReadyCondition,
-			false, // TODO (mschuppert) could be removed when all integrated service support TLS
-		)
-		if err != nil {
-			return ctrlResult, err
-		} else if (ctrlResult != ctrl.Result{}) {
-			return ctrlResult, nil
-		}
-
-		instance.Spec.Heat.Template.HeatAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
-
-		// update TLS settings with cert secret
-		instance.Spec.Heat.Template.HeatAPI.TLS.API.Public.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
-		instance.Spec.Heat.Template.HeatAPI.TLS.API.Internal.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointInternal)
+	svcs, err := service.GetServicesListWithLabel(
+		ctx,
+		helper,
+		instance.Namespace,
+		map[string]string{common.AppSelector: heat.Name + "-api"},
+	)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
+
+	endpointDetails, ctrlResult, err := EnsureEndpointConfig(
+		ctx,
+		instance,
+		helper,
+		heat,
+		svcs,
+		instance.Spec.Heat.Template.HeatAPI.Override.Service,
+		instance.Spec.Heat.APIOverride,
+		corev1beta1.OpenStackControlPlaneExposeHeatReadyCondition,
+		false, // TODO (mschuppert) could be removed when all integrated service support TLS
+	)
+	if err != nil {
+		return ctrlResult, err
+	} else if (ctrlResult != ctrl.Result{}) {
+		return ctrlResult, nil
+	}
+	// set service overrides
+	instance.Spec.Heat.Template.HeatAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
+	// update TLS settings with cert secret
+	instance.Spec.Heat.Template.HeatAPI.TLS.API.Public.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
+	instance.Spec.Heat.Template.HeatAPI.TLS.API.Internal.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointInternal)
 
 	// Heat CFNAPI
-	if heat.Status.Conditions.IsTrue(heatv1.HeatCfnAPIReadyCondition) {
-		svcs, err := service.GetServicesListWithLabel(
-			ctx,
-			helper,
-			instance.Namespace,
-			map[string]string{common.AppSelector: heat.Name + "-cfn"},
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		endpointDetails, ctrlResult, err := EnsureEndpointConfig(
-			ctx,
-			instance,
-			helper,
-			heat,
-			svcs,
-			instance.Spec.Heat.Template.HeatCfnAPI.Override.Service,
-			instance.Spec.Heat.CnfAPIOverride,
-			corev1beta1.OpenStackControlPlaneExposeHeatReadyCondition,
-			false, // TODO (mschuppert) could be removed when all integrated service support TLS
-		)
-		if err != nil {
-			return ctrlResult, err
-		} else if (ctrlResult != ctrl.Result{}) {
-			return ctrlResult, nil
-		}
-
-		instance.Spec.Heat.Template.HeatCfnAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
-
-		// update TLS settings with cert secret
-		instance.Spec.Heat.Template.HeatCfnAPI.TLS.API.Public.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
-		instance.Spec.Heat.Template.HeatCfnAPI.TLS.API.Internal.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointInternal)
+	svcs, err = service.GetServicesListWithLabel(
+		ctx,
+		helper,
+		instance.Namespace,
+		map[string]string{common.AppSelector: heat.Name + "-cfn"},
+	)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
+
+	endpointDetails, ctrlResult, err = EnsureEndpointConfig(
+		ctx,
+		instance,
+		helper,
+		heat,
+		svcs,
+		instance.Spec.Heat.Template.HeatCfnAPI.Override.Service,
+		instance.Spec.Heat.CnfAPIOverride,
+		corev1beta1.OpenStackControlPlaneExposeHeatReadyCondition,
+		false, // TODO (mschuppert) could be removed when all integrated service support TLS
+	)
+	if err != nil {
+		return ctrlResult, err
+	} else if (ctrlResult != ctrl.Result{}) {
+		return ctrlResult, nil
+	}
+	// set service overrides
+	instance.Spec.Heat.Template.HeatCfnAPI.Override.Service = endpointDetails.GetEndpointServiceOverrides()
+	// update TLS settings with cert secret
+	instance.Spec.Heat.Template.HeatCfnAPI.TLS.API.Public.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
+	instance.Spec.Heat.Template.HeatCfnAPI.TLS.API.Internal.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointInternal)
 
 	Log := GetLogger(ctx)
 

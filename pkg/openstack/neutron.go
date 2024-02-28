@@ -56,46 +56,40 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 		}
 	}
 
-	// preserve any previously set TLS certs,set CA cert
-	if instance.Spec.TLS.Enabled(service.EndpointInternal) {
-		instance.Spec.Neutron.Template.TLS = neutronAPI.Spec.TLS
-	}
+	// set CA cert bundle
 	instance.Spec.Neutron.Template.TLS.CaBundleSecretName = instance.Status.TLS.CaBundleSecretName
 
-	if neutronAPI.Status.Conditions.IsTrue(condition.ExposeServiceReadyCondition) {
-		svcs, err := service.GetServicesListWithLabel(
-			ctx,
-			helper,
-			instance.Namespace,
-			map[string]string{common.AppSelector: neutronAPI.Name},
-		)
-		if err != nil {
-			return ctrl.Result{}, err
-		}
-
-		endpointDetails, ctrlResult, err := EnsureEndpointConfig(
-			ctx,
-			instance,
-			helper,
-			neutronAPI,
-			svcs,
-			instance.Spec.Neutron.Template.Override.Service,
-			instance.Spec.Neutron.APIOverride,
-			corev1beta1.OpenStackControlPlaneExposeNeutronReadyCondition,
-			false, // TODO (mschuppert) could be removed when all integrated service support TLS
-		)
-		if err != nil {
-			return ctrlResult, err
-		} else if (ctrlResult != ctrl.Result{}) {
-			return ctrlResult, nil
-		}
-
-		instance.Spec.Neutron.Template.Override.Service = endpointDetails.GetEndpointServiceOverrides()
-
-		// update TLS settings with cert secret
-		instance.Spec.Neutron.Template.TLS.API.Public.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
-		instance.Spec.Neutron.Template.TLS.API.Internal.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointInternal)
+	svcs, err := service.GetServicesListWithLabel(
+		ctx,
+		helper,
+		instance.Namespace,
+		map[string]string{common.AppSelector: neutronAPI.Name},
+	)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
+
+	endpointDetails, ctrlResult, err := EnsureEndpointConfig(
+		ctx,
+		instance,
+		helper,
+		neutronAPI,
+		svcs,
+		instance.Spec.Neutron.Template.Override.Service,
+		instance.Spec.Neutron.APIOverride,
+		corev1beta1.OpenStackControlPlaneExposeNeutronReadyCondition,
+		false, // TODO (mschuppert) could be removed when all integrated service support TLS
+	)
+	if err != nil {
+		return ctrlResult, err
+	} else if (ctrlResult != ctrl.Result{}) {
+		return ctrlResult, nil
+	}
+
+	instance.Spec.Neutron.Template.Override.Service = endpointDetails.GetEndpointServiceOverrides()
+	// update TLS settings with cert secret
+	instance.Spec.Neutron.Template.TLS.API.Public.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointPublic)
+	instance.Spec.Neutron.Template.TLS.API.Internal.SecretName = endpointDetails.GetEndptCertSecret(service.EndpointInternal)
 
 	Log.Info("Reconciling NeutronAPI", "NeutronAPI.Namespace", instance.Namespace, "NeutronAPI.Name", "neutron")
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), neutronAPI, func() error {
