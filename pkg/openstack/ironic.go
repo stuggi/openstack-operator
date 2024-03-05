@@ -92,6 +92,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 		instance.Spec.Ironic.APIOverride,
 		corev1beta1.OpenStackControlPlaneExposeIronicReadyCondition,
 		false, // TODO (mschuppert) could be removed when all integrated service support TLS
+		instance.Spec.Ironic.Template.IronicAPI.TLS,
 	)
 	if err != nil {
 		return ctrlResult, err
@@ -116,7 +117,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 	}
 
 	// make sure to get to EndpointConfig when all service got created
-	if len(svcs.Items) == len(instance.Spec.Ironic.Template.IronicAPI.Override.Service) {
+	if len(svcs.Items) == len(instance.Spec.Ironic.Template.IronicInspector.Override.Service) {
 		endpointDetails, ctrlResult, err = EnsureEndpointConfig(
 			ctx,
 			instance,
@@ -127,6 +128,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Ironic.InspectorOverride,
 			corev1beta1.OpenStackControlPlaneExposeIronicReadyCondition,
 			false, // TODO (mschuppert) could be removed when all integrated service support TLS
+			instance.Spec.Ironic.Template.IronicInspector.TLS,
 		)
 		if err != nil {
 			return ctrlResult, err
