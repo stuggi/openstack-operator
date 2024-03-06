@@ -86,12 +86,8 @@ github.com/openstack-k8s-operators/heat-operator/api v0.3.1-0.20240229065949-dc7
 github.com/openstack-k8s-operators/heat-operator/api v0.3.1-0.20240229065949-dc7919e45441/go.mod h1:Trb7pKg10PcbXs7LbX3b+tnPtuPixe9Y4/RlP7pU+kg=
 github.com/openstack-k8s-operators/horizon-operator/api v0.3.1-0.20240227193241-8c506107e152 h1:dh5h1jEaYGXThCKAtirR/GSTum9CDhTUQyckv1cxJDM=
 github.com/openstack-k8s-operators/horizon-operator/api v0.3.1-0.20240227193241-8c506107e152/go.mod h1:Hzq/OQJ/CC2HeohMw7jh3eqQpIf3FEC2kQSw48bWV+s=
-github.com/openstack-k8s-operators/infra-operator/apis v0.3.1-0.20240221083751-49edc0df8a12 h1:n+A0L+6w3Yt9iOVWdu0aU8Ig0fICv4luruVjH5kU7KM=
-github.com/openstack-k8s-operators/infra-operator/apis v0.3.1-0.20240221083751-49edc0df8a12/go.mod h1:2//rIZ8ucDbK+gLxvwmU6uPCm6o/C6GxXJHDo4ye7I8=
 github.com/openstack-k8s-operators/ironic-operator/api v0.3.1-0.20240229174131-28e3aee56d91 h1:3yvrS33IOQibrXJJlVs/fDxLi5RCZlN5oDrR2c8aShk=
 github.com/openstack-k8s-operators/ironic-operator/api v0.3.1-0.20240229174131-28e3aee56d91/go.mod h1:Yac7wRClzl1/a7uBso4w8wq6Rjm+JLIouEsLre7VSDE=
-github.com/openstack-k8s-operators/keystone-operator/api v0.3.1-0.20240226160457-b1b853eb4600 h1:Lqlkv5CWGlarcjsc1SW2YzhxAVQtQZp0BWEwFUl+OyM=
-github.com/openstack-k8s-operators/keystone-operator/api v0.3.1-0.20240226160457-b1b853eb4600/go.mod h1:YyoDWNxCFstwhVRAcEh2X6bXBG0ML5iEhOYQhltgqi4=
 github.com/openstack-k8s-operators/lib-common/modules/common v0.3.1-0.20240229121803-169ced56d56e h1:zpxxz/iI8C09XHBcDYW9prMoODndBBsSmoonRXRXu1Q=
 github.com/openstack-k8s-operators/lib-common/modules/common v0.3.1-0.20240229121803-169ced56d56e/go.mod h1:P2a38htIPn9Ws9eqZBS/5jfxzLdMdBqZcbv6H4YcQfw=
 github.com/openstack-k8s-operators/lib-common/modules/openstack v0.3.1-0.20240229121803-169ced56d56e h1:T/ZQR6KfJf45ydZq4gsq7FUl+bKR1IIQpuvja9Nun4s=
@@ -114,8 +110,6 @@ github.com/openstack-k8s-operators/placement-operator/api v0.3.1-0.2024022913460
 github.com/openstack-k8s-operators/placement-operator/api v0.3.1-0.20240229134606-d2a5a5abde9d/go.mod h1:ePH8U08vCJQ4dwTuh/nLiidqlNOPx/EuRWjIbSEW1hY=
 github.com/openstack-k8s-operators/swift-operator/api v0.3.1-0.20240301170116-13941759ec79 h1:OPqHOID5/2sr4hZtvWdm03xje1GeCf/u6FiRViZXFwU=
 github.com/openstack-k8s-operators/swift-operator/api v0.3.1-0.20240301170116-13941759ec79/go.mod h1:NW/gfy7soUXzx7H/JsOcqQ7GhBJ2DvrjEy4ZKr5uR8s=
-github.com/openstack-k8s-operators/telemetry-operator/api v0.3.1-0.20240301135657-444ba309cbb5 h1:j8Kj8+xQC2FQRkdVUwOgFAZlhFtMV1YygVCypxLmllw=
-github.com/openstack-k8s-operators/telemetry-operator/api v0.3.1-0.20240301135657-444ba309cbb5/go.mod h1:Css7ZpU59JmTX/GegION98Y6XFKceBx/zxQQHptwd+8=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
@@ -145,6 +139,12 @@ github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/stretchr/testify v1.6.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
+github.com/stuggi/infra-operator/apis v0.0.0-20240306152039-72ca7614f687 h1:dXho0FTt+8BtZyninmfn0MxoCcIzucNyxr+C1t1Nguc=
+github.com/stuggi/infra-operator/apis v0.0.0-20240306152039-72ca7614f687/go.mod h1:yPqJ+WU8jApuDXNUjpTxMafihuZpX3Yik9ZXqGaxYBQ=
+github.com/stuggi/keystone-operator/api v0.0.0-20240306123620-2c7659787135 h1:etdfXGRFaOpaXj1Zs4ygRsQPB5bKaHvgk1HDJFB/RZg=
+github.com/stuggi/keystone-operator/api v0.0.0-20240306123620-2c7659787135/go.mod h1:YyoDWNxCFstwhVRAcEh2X6bXBG0ML5iEhOYQhltgqi4=
+github.com/stuggi/telemetry-operator/api v0.0.0-20240306125733-a0781bd81e3d h1:cEiChWo6UZ5wFuxL3RyWE4+2PWNsgzPoIZUJ5k5PpaU=
+github.com/stuggi/telemetry-operator/api v0.0.0-20240306125733-a0781bd81e3d/go.mod h1:Css7ZpU59JmTX/GegION98Y6XFKceBx/zxQQHptwd+8=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
