@@ -16506,12 +16506,12 @@ spec:
                       duration: 8760h
                     enabled: true
                   podLevel:
-                    default:
+                    enabled: false
+                    internal:
                       ca:
                         duration: 43800h
                       cert:
                         duration: 8760h
-                    enabled: false
                     ovn:
                       ca:
                         duration: 43800h
@@ -16541,7 +16541,9 @@ spec:
                     type: object
                   podLevel:
                     properties:
-                      default:
+                      enabled:
+                        type: boolean
+                      internal:
                         properties:
                           ca:
                             properties:
@@ -16558,8 +16560,6 @@ spec:
                                 type: string
                             type: object
                         type: object
-                      enabled:
-                        type: boolean
                       ovn:
                         properties:
                           ca:
