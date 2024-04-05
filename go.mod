@@ -18,12 +18,12 @@ require (
 	github.com/openstack-k8s-operators/designate-operator/api v0.0.0-20240306213520-073a542389ea
 	github.com/openstack-k8s-operators/glance-operator/api v0.3.1-0.20240402071437-c504b07a56dc
 	github.com/openstack-k8s-operators/heat-operator/api v0.3.1-0.20240402094019-17495fd5d880
-	github.com/openstack-k8s-operators/horizon-operator/api v0.3.1-0.20240402065230-7477c1fcec43
+	github.com/openstack-k8s-operators/horizon-operator/api v0.3.1-0.20240403071259-b48a63e06810
 	github.com/openstack-k8s-operators/infra-operator/apis v0.3.1-0.20240327192142-3a7330c5f527
 	github.com/openstack-k8s-operators/ironic-operator/api v0.3.1-0.20240320220525-7cb8f24d903d
 	github.com/openstack-k8s-operators/keystone-operator/api v0.3.1-0.20240402154848-e5f862707f49
 	github.com/openstack-k8s-operators/lib-common/modules/certmanager v0.0.0-20240402131709-f2ff3c9b230b
-	github.com/openstack-k8s-operators/lib-common/modules/common v0.3.1-0.20240402131709-f2ff3c9b230b
+	github.com/openstack-k8s-operators/lib-common/modules/common v0.3.1-0.20240404123425-54f145c97484
 	github.com/openstack-k8s-operators/lib-common/modules/test v0.3.1-0.20240402131709-f2ff3c9b230b
 	github.com/openstack-k8s-operators/manila-operator/api v0.3.1-0.20240329184204-9f02757cd23c
 	github.com/openstack-k8s-operators/mariadb-operator/api v0.3.1-0.20240314113200-40cf3e6aa38e
@@ -125,3 +125,5 @@ replace github.com/openstack-k8s-operators/openstack-operator/apis => ./apis
 // mschuppert: map to latest commit from release-4.13 tag
 // must consistent within modules and service operators
 replace github.com/openshift/api => github.com/openshift/api v0.0.0-20230414143018-3367bc7e6ac7 //allow-merging
+
+replace github.com/openstack-k8s-operators/nova-operator/api => github.com/stuggi/nova-operator/api v0.0.0-20240405100628-c3e9c955a067
