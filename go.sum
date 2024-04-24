@@ -132,8 +132,6 @@ github.com/openstack-k8s-operators/mariadb-operator/api v0.3.1-0.20240423084440-
 github.com/openstack-k8s-operators/mariadb-operator/api v0.3.1-0.20240423084440-ce9687c332d9/go.mod h1:2wiOEd5wTbKQ00Js5pZx1ePwMM6xBkuZE+G4J38aYi0=
 github.com/openstack-k8s-operators/neutron-operator/api v0.3.1-0.20240423000317-4ab0461c4f4c h1:sIYwo5JcIQ4023IAV+jgzY58dKQb+fIsN0bYWE6EsRM=
 github.com/openstack-k8s-operators/neutron-operator/api v0.3.1-0.20240423000317-4ab0461c4f4c/go.mod h1:G7LfIV+CFmhmuWv+auNBs3hiPAWR5o9EY8dunWlCSQQ=
-github.com/openstack-k8s-operators/nova-operator/api v0.3.1-0.20240424114254-e29489614c87 h1:M38U9s7LreCB77pdtbdkWbAGPh3mizOm0BMlkUhwvys=
-github.com/openstack-k8s-operators/nova-operator/api v0.3.1-0.20240424114254-e29489614c87/go.mod h1:UZAnwFc1uxJLDYNUIzhyGqvLrd28PP+j9ZtoMbdH0CA=
 github.com/openstack-k8s-operators/octavia-operator/api v0.3.1-0.20240425132514-782502386dce h1:c/8rvmnd6jYpE9w7Ic72fD+eCqn5Sem98hACBR6vMBc=
 github.com/openstack-k8s-operators/octavia-operator/api v0.3.1-0.20240425132514-782502386dce/go.mod h1:EZymlUAhQzGNIAGrpGZ5P6oqfq2IhqY2lNPKLG9iKh8=
 github.com/openstack-k8s-operators/openstack-ansibleee-operator/api v0.3.1-0.20240424152826-ca1ade1c04a5 h1:hh0Ob81OSzP7lR14oGPzzLbbCHfTWDphlosuoQBnJTk=
@@ -180,6 +178,8 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.6.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
+github.com/stuggi/nova-operator/api v0.0.0-20240424144216-76289136a3c8 h1:0TAaZ5qlcsGkuYsFBjQU4LJtAGNOD2q9UDw+V4Jp4w8=
+github.com/stuggi/nova-operator/api v0.0.0-20240424144216-76289136a3c8/go.mod h1:UZAnwFc1uxJLDYNUIzhyGqvLrd28PP+j9ZtoMbdH0CA=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
