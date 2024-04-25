@@ -259,16 +259,11 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 					endpointDetails.GetEndptCertSecret(service.EndpointPublic)
 
 				// create novncproxy vencrypt cert
-
 				if instance.Spec.TLS.PodLevel.Enabled {
 					serviceName := endpointDetails.EndpointDetails[service.EndpointPublic].Service.Spec.Name
-
-					// create certificate for ovncontroller
 					certRequest := certmanager.CertificateRequest{
-						// TODO libvirt issuer!!
-						IssuerName: instance.GetOvnIssuer(),
+						IssuerName: instance.GetLibvirtIssuer(),
 						CertName:   nova.Name + "-novncproxy-" + cellName + "-vencrypt",
-						Duration:   nil,
 						CommonName: ptr.To(fmt.Sprintf("%s.%s.svc", serviceName, instance.Namespace)),
 						Subject: &certmgrv1.X509Subject{
 							Organizations: []string{fmt.Sprintf("%s.%s", instance.Namespace, ClusterInternalDomain)},
@@ -279,6 +274,12 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 							certmgrv1.UsageServerAuth,
 							certmgrv1.UsageClientAuth,
 						},
+					}
+					if instance.Spec.TLS.PodLevel.Libvirt.Cert.Duration != nil {
+						certRequest.Duration = &instance.Spec.TLS.PodLevel.Libvirt.Cert.Duration.Duration
+					}
+					if instance.Spec.TLS.PodLevel.Libvirt.Cert.RenewBefore != nil {
+						certRequest.RenewBefore = &instance.Spec.TLS.PodLevel.Libvirt.Cert.RenewBefore.Duration
 					}
 					certSecret, ctrlResult, err := certmanager.EnsureCert(
 						ctx,

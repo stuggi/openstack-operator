@@ -100,8 +100,6 @@ github.com/openstack-k8s-operators/barbican-operator/api v0.0.0-20240423101259-6
 github.com/openstack-k8s-operators/barbican-operator/api v0.0.0-20240423101259-62edc96e695f/go.mod h1:d4lFj3oT9ZReHGT/ngbF8ViVnv3vnHs/nemKVubkBGA=
 github.com/openstack-k8s-operators/cinder-operator/api v0.3.1-0.20240425145843-86b883b8bb8f h1:Uy3ilfnNlSCQrwRxgqu+BnSBrnNSiUml6J3Ccrgn/as=
 github.com/openstack-k8s-operators/cinder-operator/api v0.3.1-0.20240425145843-86b883b8bb8f/go.mod h1:p0UgdOEWu80NP7dzi2s134ojTcMtz2zAgiMbkshw66w=
-github.com/openstack-k8s-operators/dataplane-operator/api v0.3.1-0.20240425131656-f9f807ba87a0 h1:lx7sNj0+TFSyopTmLhnc/Vtx0sO9XHZr9ziBzwyghqA=
-github.com/openstack-k8s-operators/dataplane-operator/api v0.3.1-0.20240425131656-f9f807ba87a0/go.mod h1:qjz8cSVQEDiZOTpOeMHu+vg9Zuvasenrjo7+KtNQwhk=
 github.com/openstack-k8s-operators/designate-operator/api v0.0.0-20240425112656-c92ba51ac5b9 h1:Q97c7T0PyHdxYMx8navS0bvNEljwjUuSQ5or6mXES+8=
 github.com/openstack-k8s-operators/designate-operator/api v0.0.0-20240425112656-c92ba51ac5b9/go.mod h1:SHv9v0wscyVv0yT3VD2UuPvw+kwRAEX/x/8fbnfZVpo=
 github.com/openstack-k8s-operators/glance-operator/api v0.3.1-0.20240424153927-5b4c1b78d319 h1:Z+8p3+ZYjbRoy7BecJA+a9NBua4FIFHFrW06T4+554Y=
@@ -178,8 +176,10 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.6.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
-github.com/stuggi/nova-operator/api v0.0.0-20240424144216-76289136a3c8 h1:0TAaZ5qlcsGkuYsFBjQU4LJtAGNOD2q9UDw+V4Jp4w8=
-github.com/stuggi/nova-operator/api v0.0.0-20240424144216-76289136a3c8/go.mod h1:UZAnwFc1uxJLDYNUIzhyGqvLrd28PP+j9ZtoMbdH0CA=
+github.com/stuggi/dataplane-operator/api v0.0.0-20240425085030-ad36c4415ab3 h1:VXT5pHLy5H/rciS0PR0miaWJkxBdVUyhYDsJKDgakcQ=
+github.com/stuggi/dataplane-operator/api v0.0.0-20240425085030-ad36c4415ab3/go.mod h1:qjz8cSVQEDiZOTpOeMHu+vg9Zuvasenrjo7+KtNQwhk=
+github.com/stuggi/nova-operator/api v0.0.0-20240425151212-5fae55c0a457 h1:ZwqjygM1H8EHL5ZLAwiymqSX6b+188XWrWJPTahNeXM=
+github.com/stuggi/nova-operator/api v0.0.0-20240425151212-5fae55c0a457/go.mod h1:UZAnwFc1uxJLDYNUIzhyGqvLrd28PP+j9ZtoMbdH0CA=
 github.com/yuin/goldmark v1.1.27/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.2.1/go.mod h1:3hX8gzYuyVAZsxl0MRgGTJEmQBFcNTphYh9decYSb74=
 github.com/yuin/goldmark v1.4.13/go.mod h1:6yULJ656Px+3vBD8DxQVa3kxgyrAnzto9xy5taEt/CY=
