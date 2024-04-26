@@ -17111,31 +17111,40 @@ spec:
                 default:
                   ingress:
                     ca:
-                      duration: 43800h
+                      duration: 87600h
                     cert:
-                      duration: 8760h
+                      duration: 10950h
                     enabled: true
                   podLevel:
                     enabled: true
                     internal:
                       ca:
-                        duration: 43800h
+                        duration: 10950h
                       cert:
-                        duration: 8760h
+                        duration: 10950h
                     libvirt:
                       ca:
-                        duration: 43800h
+                        duration: 87600h
                       cert:
-                        duration: 17520h
+                        duration: 43800h
                     ovn:
                       ca:
-                        duration: 43800h
+                        duration: 87600h
                       cert:
-                        duration: 8760h
+                        duration: 10950h
                 properties:
                   caBundleSecretName:
                     type: string
                   ingress:
+                    allOf:
+                    - default:
+                        ca:
+                          duration: 87600h
+                        enabled: true
+                    - default:
+                        ca:
+                          duration: 87600h
+                        enabled: true
                     properties:
                       ca:
                         properties:
@@ -17157,6 +17166,23 @@ spec:
                         type: boolean
                     type: object
                   podLevel:
+                    default:
+                      enabled: true
+                      internal:
+                        ca:
+                          duration: 10950h
+                        cert:
+                          duration: 10950h
+                      libvirt:
+                        ca:
+                          duration: 87600h
+                        cert:
+                          duration: 43800h
+                      ovn:
+                        ca:
+                          duration: 87600h
+                        cert:
+                          duration: 10950h
                     properties:
                       enabled:
                         type: boolean

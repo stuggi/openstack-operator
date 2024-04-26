@@ -80,7 +80,7 @@ type OpenStackControlPlaneSpec struct {
 
 	// +kubebuilder:validation:Optional
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
-	// +kubebuilder:default={ingress: {enabled: true, ca: {duration: "43800h"}, cert: {duration: "8760h"}}, podLevel: {enabled: true, internal:{ca: {duration: "43800h"}, cert: {duration: "8760h"}}, libvirt: {ca: {duration: "43800h"}, cert: {duration: "17520h"}}, ovn: {ca: {duration: "43800h"}, cert: {duration: "8760h"}}}}
+	// +kubebuilder:default={ingress: {enabled: true, ca: {duration: "87600h"}, cert: {duration: "10950h"}}, podLevel: {enabled: true, internal:{ca: {duration: "10950h"}, cert: {duration: "10950h"}}, libvirt: {ca: {duration: "87600h"}, cert: {duration: "43800h"}}, ovn: {ca: {duration: "87600h"}, cert: {duration: "10950h"}}}}
 	// TLS - Parameters related to the TLS
 	TLS TLSSection `json:"tls"`
 
@@ -190,10 +190,12 @@ type OpenStackControlPlaneSpec struct {
 type TLSSection struct {
 	// +kubebuilder:validation:optional
 	//+operator-sdk:csv:customresourcedefinitions:type=spec
+	//+kubebuilder:default={enabled: true, ca: {duration: "87600h"}}
 	Ingress TLSIngressConfig `json:"ingress,omitempty"`
 
 	// +kubebuilder:validation:optional
 	//+operator-sdk:csv:customresourcedefinitions:type=spec
+	//+kubebuilder:default={enabled: true, internal:{ca: {duration: "10950h"}, cert: {duration: "10950h"}}, libvirt: {ca: {duration: "87600h"}, cert: {duration: "43800h"}}, ovn: {ca: {duration: "87600h"}, cert: {duration: "10950h"}}}
 	PodLevel TLSPodLevelConfig `json:"podLevel,omitempty"`
 
 	// +kubebuilder:validation:optional
@@ -213,6 +215,7 @@ type TLSIngressConfig struct {
 
 	// +kubebuilder:validation:optional
 	//+operator-sdk:csv:customresourcedefinitions:type=spec
+	//+kubebuilder:default={enabled: true, ca: {duration: "87600h"}}
 	CertSection `json:",inline"`
 }
 
