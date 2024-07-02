@@ -1,3 +1,24 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: keystone-public-route
+spec:
+  duration: 500h0m0s
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: keystone-public-svc
+spec:
+  duration: 500h0m0s
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: keystone-internal-svc
+spec:
+  duration: 500h0m0s
+---
 apiVersion: core.openstack.org/v1beta1
 kind: OpenStackControlPlane
 metadata:
