@@ -24,15 +24,19 @@ import (
 	"github.com/go-playground/validator/v10"
 	corev1 "k8s.io/api/core/v1"
 	k8s_errors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/go-logr/logr"
 	condition "github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
@@ -434,8 +438,25 @@ func (r *OpenStackDataPlaneDeploymentReconciler) setHashes(
 	return nil
 }
 
+// fields to index to reconcile when change
+const (
+	nodeSetsField = ".spec.nodeSets"
+)
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *OpenStackDataPlaneDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// index nodeSetsField
+	if err := mgr.GetFieldIndexer().IndexField(context.Background(), &dataplanev1.OpenStackDataPlaneDeployment{}, nodeSetsField, func(rawObj client.Object) []string {
+		// Extract the secret name from the spec, if one is provided
+		cr := rawObj.(*dataplanev1.OpenStackDataPlaneDeployment)
+		if cr.Spec.NodeSets == nil {
+			return nil
+		}
+		return cr.Spec.NodeSets
+	}); err != nil {
+		return err
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&dataplanev1.OpenStackDataPlaneDeployment{},
 			builder.WithPredicates(predicate.Or(
@@ -443,5 +464,45 @@ func (r *OpenStackDataPlaneDeploymentReconciler) SetupWithManager(mgr ctrl.Manag
 				predicate.AnnotationChangedPredicate{},
 				predicate.LabelChangedPredicate{}))).
 		Owns(&ansibleeev1.OpenStackAnsibleEE{}).
+		Watches(&certmgrv1.Certificate{},
+			handler.EnqueueRequestsFromMapFunc(r.findCertObjectsForSrc),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
+		).
 		Complete(r)
+}
+
+func (r *OpenStackDataPlaneDeploymentReconciler) findCertObjectsForSrc(ctx context.Context, src client.Object) []reconcile.Request {
+	requests := []reconcile.Request{}
+
+	Log := r.GetLogger(context.Background())
+
+	if nodeSetName, ok := src.GetLabels()[deployment.NodeSetLabel]; ok {
+		crList := &dataplanev1.OpenStackDataPlaneDeploymentList{}
+		listOps := &client.ListOptions{
+			FieldSelector: fields.OneTermEqualSelector(nodeSetsField, nodeSetName),
+			Namespace:     src.GetNamespace(),
+		}
+		err := r.List(ctx, crList, listOps)
+		if err != nil {
+			return []reconcile.Request{}
+		}
+
+		for _, item := range crList.Items {
+			Log.Info(fmt.Sprintf("input source %s changed, reconcile: %s - %s", src.GetName(), item.GetName(), item.GetNamespace()))
+
+			// only add a request if the OpenStackDataPlaneDeployment is not already deployed
+			if !item.Status.Deployed {
+				requests = append(requests,
+					reconcile.Request{
+						NamespacedName: types.NamespacedName{
+							Name:      item.GetName(),
+							Namespace: item.GetNamespace(),
+						},
+					},
+				)
+			}
+		}
+	}
+
+	return requests
 }
