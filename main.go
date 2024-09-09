@@ -76,6 +76,7 @@ import (
 	corev1 "github.com/openstack-k8s-operators/openstack-operator/apis/core/v1beta1"
 	dataplanev1 "github.com/openstack-k8s-operators/openstack-operator/apis/dataplane/v1beta1"
 
+	nadv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	ocp_configv1 "github.com/openshift/api/config/v1"
 	clientcontrollers "github.com/openstack-k8s-operators/openstack-operator/controllers/client"
 	corecontrollers "github.com/openstack-k8s-operators/openstack-operator/controllers/core"
@@ -117,7 +118,6 @@ func init() {
 	utilruntime.Must(swiftv1.AddToScheme(scheme))
 	utilruntime.Must(clientv1.AddToScheme(scheme))
 	utilruntime.Must(routev1.AddToScheme(scheme))
-	utilruntime.Must(certmgrv1.AddToScheme(scheme))
 	utilruntime.Must(barbicanv1.AddToScheme(scheme))
 	utilruntime.Must(ocp_configv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
@@ -146,6 +146,24 @@ func main() {
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+
+	setupLog.Info("BOOOJAAA")
+
+	err = certmgrv1.AddToScheme(scheme)
+	if err != nil {
+		setupLog.Error(err, "cert-manager is not installed, unable to create controller", "controller", "OpenStackControlPlane")
+		os.Exit(1)
+	}
+
+	setupLog.Info("BOOO")
+
+	err = nadv1.AddToScheme(scheme)
+	if err != nil {
+		setupLog.Error(err, "multus CNI is not installed and required by multiple service operators, unable to create controller", "controller", "OpenStackControlPlane")
+		os.Exit(1)
+	}
+
+	setupLog.Info("BOOO222")
 
 	disableHTTP2 := func(c *tls.Config) {
 		if enableHTTP2 {
@@ -215,14 +233,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&corecontrollers.OpenStackVersionReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Kclient: kclient,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "OpenStackVersion")
-		os.Exit(1)
-	}
+	//	if err = (&corecontrollers.OpenStackVersionReconciler{
+	//		Client:  mgr.GetClient(),
+	//		Scheme:  mgr.GetScheme(),
+	//		Kclient: kclient,
+	//	}).SetupWithManager(mgr); err != nil {
+	//		setupLog.Error(err, "unable to create controller", "controller", "OpenStackVersion")
+	//		os.Exit(1)
+	//	}
 
 	if err = (&dataplanecontrollers.OpenStackDataPlaneNodeSetReconciler{
 		Client:  mgr.GetClient(),
