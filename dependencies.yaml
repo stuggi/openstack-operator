@@ -1,4 +1,14 @@
 dependencies:
+  - type: olm.gvk
+    value:
+      group: cert-manager.io
+      kind: Issuer
+      version: v1
+  - type: olm.gvk
+    value:
+      group: cert-manager.io
+      kind: Certificate
+      version: v1
   - type: olm.package
     value:
       packageName: rabbitmq-cluster-operator
