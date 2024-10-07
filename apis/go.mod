@@ -23,7 +23,7 @@ require (
 	github.com/openstack-k8s-operators/neutron-operator/api v0.4.1-0.20241002143558-cc9057fb3ecb
 	github.com/openstack-k8s-operators/nova-operator/api v0.4.1-0.20241004094255-bfc06d9ba5f0
 	github.com/openstack-k8s-operators/octavia-operator/api v0.4.1-0.20241004142613-90ffa9a759ca
-	github.com/openstack-k8s-operators/openstack-baremetal-operator/api v0.4.1-0.20241004135556-199ee1a0e111
+	github.com/openstack-k8s-operators/openstack-baremetal-operator/api v0.4.1-0.20241007083205-b5622e3c3d3c
 	github.com/openstack-k8s-operators/ovn-operator/api v0.4.1-0.20241004235326-1a06180488f1
 	github.com/openstack-k8s-operators/placement-operator/api v0.4.1-0.20240930083623-0dbd528ec911
 	github.com/openstack-k8s-operators/swift-operator/api v0.4.1-0.20240930070251-1f0a2f5e19b0
@@ -116,3 +116,5 @@ replace github.com/openshift/api => github.com/openshift/api v0.0.0-202408300231
 
 // custom RabbitmqClusterSpecCore for OpenStackControlplane (v2.6.0_patches_tag)
 replace github.com/rabbitmq/cluster-operator/v2 => github.com/openstack-k8s-operators/rabbitmq-cluster-operator/v2 v2.6.1-0.20240719064129-c0201810c8f5 //allow-merging
+
+replace github.com/openstack-k8s-operators/ovn-operator/api => github.com/stuggi/ovn-operator/api v0.0.0-20241007132957-66dd9da42e21
