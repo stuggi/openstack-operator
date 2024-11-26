@@ -9,11 +9,11 @@ require (
 	github.com/onsi/gomega v1.34.1
 	github.com/openstack-k8s-operators/barbican-operator/api v0.4.1-0.20241016144515-afdcc747d15d
 	github.com/openstack-k8s-operators/cinder-operator/api v0.4.1-0.20241016131023-405a20c57587
-	github.com/openstack-k8s-operators/designate-operator/api v0.1.1-0.20241017142748-ba17591a0731
+	github.com/openstack-k8s-operators/designate-operator/api v0.5.1-0.20241121141324-390385c64c15
 	github.com/openstack-k8s-operators/glance-operator/api v0.4.1-0.20241018102005-b38ee106b37d
 	github.com/openstack-k8s-operators/heat-operator/api v0.4.1-0.20241018100621-bfd90678fca0
 	github.com/openstack-k8s-operators/horizon-operator/api v0.4.1-0.20241017085952-cdfbe98abf09
-	github.com/openstack-k8s-operators/infra-operator/apis v0.4.1-0.20241018085734-6534d4914f87
+	github.com/openstack-k8s-operators/infra-operator/apis v0.5.1-0.20241120213010-335e32b1dc65
 	github.com/openstack-k8s-operators/ironic-operator/api v0.4.1-0.20241016184335-60fb2a3ccf1a
 	github.com/openstack-k8s-operators/keystone-operator/api v0.4.1-0.20241018180515-61e711f07467
 	github.com/openstack-k8s-operators/lib-common/modules/common v0.4.1-0.20241014140317-e5c35d28f3af
@@ -27,7 +27,7 @@ require (
 	github.com/openstack-k8s-operators/ovn-operator/api v0.4.1-0.20241018052304-b2f1022e67a0
 	github.com/openstack-k8s-operators/placement-operator/api v0.4.1-0.20241016073632-718abf1faec1
 	github.com/openstack-k8s-operators/swift-operator/api v0.4.1-0.20241016113221-7b5e6572638c
-	github.com/openstack-k8s-operators/telemetry-operator/api v0.4.1-0.20241018110953-a5889858101b
+	github.com/openstack-k8s-operators/telemetry-operator/api v0.5.1-0.20241126173627-01e141712c89
 	github.com/rabbitmq/cluster-operator/v2 v2.11.0
 	github.com/rhobs/obo-prometheus-operator/pkg/apis/monitoring v0.71.0-rhobs1 // indirect
 	github.com/rhobs/observability-operator v0.3.1 // indirect
@@ -115,3 +115,8 @@ replace github.com/openshift/api => github.com/openshift/api v0.0.0-202408300231
 
 // custom RabbitmqClusterSpecCore for OpenStackControlplane (v2.6.0_patches_tag)
 replace github.com/rabbitmq/cluster-operator/v2 => github.com/openstack-k8s-operators/rabbitmq-cluster-operator/v2 v2.6.1-0.20241017142550-a3524acedd49 //allow-merging
+
+// 18.0-FR1 async fixes for designate operator @ 390385c64c15d301639e610529c208ecd486c65e
+replace github.com/openstack-k8s-operators/designate-operator/api => github.com/openstack-k8s-operators/designate-operator/api v0.0.0-20241121141324-390385c64c15
+// 18.0-FR1 async fixes for telemetry operator from upstream 18.0-fr1-async which cherry-picked only 3129d79 and a524c87
+replace github.com/openstack-k8s-operators/telemetry-operator/api => github.com/openstack-k8s-operators/telemetry-operator/api v0.1.1-0.20241126173627-01e141712c89
