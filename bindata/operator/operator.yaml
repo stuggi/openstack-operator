@@ -76,6 +76,12 @@ spec:
         env:
         - name: OPENSTACK_RELEASE_VERSION
           value: '{{ .OpenstackReleaseVersion }}'
+        - name: LEASE_DURATION
+          value: '{{ .OperatorLeaseDuration }}'
+        - name: RENEW_DEADLINE
+          value: '{{ .OperatorRenewDeadline }}'
+        - name: RETRY_PERIOD
+          value: '{{ .OperatorRetryPeriod }}'
 {{ range $envName, $envValue := .OpenStackServiceRelatedImages }}
         - name: {{ $envName }}
           value: {{ $envValue }}
