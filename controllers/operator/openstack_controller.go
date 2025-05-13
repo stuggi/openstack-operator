@@ -71,6 +71,9 @@ var (
 	operatorImage                    string
 	kubeRbacProxyImage               string
 	openstackReleaseVersion          string
+	operatorLeaseDuration            string
+	operatorRenewDeadline            string
+	operatorRetryPeriod              string
 )
 
 // SetupEnv -
@@ -78,28 +81,46 @@ func SetupEnv() {
 	envRelatedOperatorImages = make(map[string]*string)
 	envRelatedOpenStackServiceImages = make(map[string]*string)
 	for _, name := range os.Environ() {
-		envArr := strings.Split(name, "=")
+		envArr := strings.SplitN(name, "=", 2)
+		if len(envArr) != 2 { // Handle cases where the environment variable doesn't have a value
+			continue
+		}
+		key := envArr[0]
+		value := envArr[1]
 
-		if strings.HasSuffix(envArr[0], "_OPERATOR_MANAGER_IMAGE_URL") {
-			operatorName := strings.TrimPrefix(envArr[0], "RELATED_IMAGE_")
+		switch {
+		case strings.HasSuffix(key, "_OPERATOR_MANAGER_IMAGE_URL"):
+			operatorName := strings.TrimPrefix(key, "RELATED_IMAGE_")
 			operatorName = strings.TrimSuffix(operatorName, "_OPERATOR_MANAGER_IMAGE_URL")
 			operatorName = strings.ToLower(operatorName)
 			operatorName = strings.ReplaceAll(operatorName, "_", "-")
-			// rabbitmq-cluster is a special case with an alternate deployment template
 			if operatorName == "rabbitmq-cluster" {
-				rabbitmqImage = envArr[1]
+				rabbitmqImage = value
 			} else {
-				envRelatedOperatorImages[operatorName] = &envArr[1]
+				envRelatedOperatorImages[operatorName] = &value
 			}
-			log.Log.Info("Found operator related image", "operator", operatorName, "image", envArr[1])
-		} else if strings.HasPrefix(envArr[0], "RELATED_IMAGE_") {
-			envRelatedOpenStackServiceImages[envArr[0]] = &envArr[1]
-		} else if envArr[0] == "KUBE_RBAC_PROXY" {
-			kubeRbacProxyImage = envArr[1]
-		} else if envArr[0] == "OPERATOR_IMAGE_URL" {
-			operatorImage = envArr[1]
-		} else if envArr[0] == "OPENSTACK_RELEASE_VERSION" {
-			openstackReleaseVersion = envArr[1]
+			log.Log.Info("Found operator related image", "operator", operatorName, "image", value)
+
+		case strings.HasPrefix(key, "RELATED_IMAGE_"):
+			envRelatedOpenStackServiceImages[key] = &value
+
+		case key == "KUBE_RBAC_PROXY":
+			kubeRbacProxyImage = value
+
+		case key == "OPERATOR_IMAGE_URL":
+			operatorImage = value
+
+		case key == "OPENSTACK_RELEASE_VERSION":
+			openstackReleaseVersion = value
+
+		case key == "LEASE_DURATION":
+			operatorLeaseDuration = value
+
+		case key == "RENEW_DEADLINE":
+			operatorRenewDeadline = value
+
+		case key == "RETRY_PERIOD":
+			operatorRetryPeriod = value
 		}
 	}
 }
@@ -455,6 +476,9 @@ func (r *OpenStackReconciler) applyOperator(ctx context.Context, instance *opera
 	data.Data["KubeRbacProxyImage"] = kubeRbacProxyImage
 	data.Data["OpenstackReleaseVersion"] = openstackReleaseVersion
 	data.Data["OpenStackServiceRelatedImages"] = envRelatedOpenStackServiceImages
+	data.Data["OperatorLeaseDuration"] = operatorLeaseDuration
+	data.Data["OperatorRenewDeadline"] = operatorRenewDeadline
+	data.Data["OperatorRetryPeriod"] = operatorRetryPeriod
 	return r.renderAndApply(ctx, instance, data, "operator", true)
 }
 

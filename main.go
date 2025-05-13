@@ -83,6 +83,7 @@ import (
 	machineconfig "github.com/openshift/api/machineconfiguration/v1"
 	ocp_image "github.com/openshift/api/operator/v1alpha1"
 
+	"github.com/openstack-k8s-operators/lib-common/modules/common/operator"
 	clientcontrollers "github.com/openstack-k8s-operators/openstack-operator/controllers/client"
 	corecontrollers "github.com/openstack-k8s-operators/openstack-operator/controllers/core"
 	dataplanecontrollers "github.com/openstack-k8s-operators/openstack-operator/controllers/dataplane"
@@ -165,7 +166,7 @@ func main() {
 		c.NextProtos = []string{"http/1.1"}
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	options := ctrl.Options{
 		Scheme: scheme,
 		Metrics: metricsserver.Options{
 			BindAddress: metricsAddr,
@@ -189,7 +190,15 @@ func main() {
 		// if you are doing or is intended to do any operation such as perform cleanups
 		// after the manager stops then its usage might be unsafe.
 		// LeaderElectionReleaseOnCancel: true,
-	})
+	}
+
+	err = operator.SetManagerOptions(&options, setupLog)
+	if err != nil {
+		setupLog.Error(err, "unable to set manager options")
+		os.Exit(1)
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), options)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
