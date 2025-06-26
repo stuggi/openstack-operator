@@ -33,6 +33,134 @@ spec:
           metadata:
             type: object
           spec:
+            properties:
+              serviceOperators:
+                default:
+                - name: barbican
+                - name: cinder
+                - name: designate
+                - name: glance
+                - name: heat
+                - name: horizon
+                - name: infra
+                - name: keystone
+                - name: manila
+                - name: mariadb
+                - name: neutron
+                - name: nova
+                - name: octavia
+                - name: openstack-baremetal
+                - name: ovn
+                - name: placement
+                - name: rabbitmq-cluster
+                - name: swift
+                - name: telemetry
+                - name: test
+                - name: okr
+                  replicas: 0
+                items:
+                  properties:
+                    controllerManager:
+                      default:
+                        limits:
+                          cpu: 500m
+                          memory: 128Mi
+                        requests:
+                          cpu: 10m
+                          memory: 256Mi
+                      properties:
+                        resources:
+                          properties:
+                            claims:
+                              items:
+                                properties:
+                                  name:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                              type: array
+                              x-kubernetes-list-map-keys:
+                              - name
+                              x-kubernetes-list-type: map
+                            limits:
+                              additionalProperties:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              type: object
+                            requests:
+                              additionalProperties:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              type: object
+                          type: object
+                      type: object
+                    kubeRbacProxy:
+                      default:
+                        limits:
+                          cpu: 500m
+                          memory: 128Mi
+                        requests:
+                          cpu: 5m
+                          memory: 64Mi
+                      properties:
+                        resources:
+                          properties:
+                            claims:
+                              items:
+                                properties:
+                                  name:
+                                    type: string
+                                required:
+                                - name
+                                type: object
+                              type: array
+                              x-kubernetes-list-map-keys:
+                              - name
+                              x-kubernetes-list-type: map
+                            limits:
+                              additionalProperties:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              type: object
+                            requests:
+                              additionalProperties:
+                                anyOf:
+                                - type: integer
+                                - type: string
+                                pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                                x-kubernetes-int-or-string: true
+                              type: object
+                          type: object
+                      type: object
+                    name:
+                      minLength: 1
+                      type: string
+                    replicas:
+                      default: 1
+                      format: int32
+                      maximum: 1
+                      minimum: 0
+                      type: integer
+                  required:
+                  - name
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: names in ServiceOperators must be unique
+                  rule: self.all(x, self.filter(y, y.name == x.name).size() == 1)
             type: object
           status:
             properties:
