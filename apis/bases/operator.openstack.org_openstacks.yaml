@@ -62,12 +62,13 @@ spec:
                   properties:
                     controllerManager:
                       default:
-                        limits:
-                          cpu: 500m
-                          memory: 128Mi
-                        requests:
-                          cpu: 10m
-                          memory: 256Mi
+                        resources:
+                          limits:
+                            cpu: 500m
+                            memory: 256Mi
+                          requests:
+                            cpu: 10m
+                            memory: 128Mi
                       properties:
                         resources:
                           properties:
@@ -103,12 +104,13 @@ spec:
                       type: object
                     kubeRbacProxy:
                       default:
-                        limits:
-                          cpu: 500m
-                          memory: 128Mi
-                        requests:
-                          cpu: 5m
-                          memory: 64Mi
+                        resources:
+                          limits:
+                            cpu: 500m
+                            memory: 128Mi
+                          requests:
+                            cpu: 5m
+                            memory: 64Mi
                       properties:
                         resources:
                           properties:
@@ -158,9 +160,6 @@ spec:
                 x-kubernetes-list-map-keys:
                 - name
                 x-kubernetes-list-type: map
-                x-kubernetes-validations:
-                - message: names in ServiceOperators must be unique
-                  rule: self.all(x, self.filter(y, y.name == x.name).size() == 1)
             type: object
           status:
             properties:

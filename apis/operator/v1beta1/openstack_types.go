@@ -19,32 +19,36 @@ package v1beta1
 import (
 	condition "github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 )
 
 const (
-	BarbicanOperatorName           = "barbican"
-	CinderOperatorName             = "cinder"
-	DesignateOperatorName          = "designate"
-	GlanceOperatorName             = "glance"
-	HeatOperatorName               = "heat"
-	HorizonOperatorName            = "horizon"
-	InfraOperatorName              = "infra"
-	IronicOperatorName             = "ironic"
-	KeystoneOperatorName           = "keystone"
-	ManilaOperatorName             = "manila"
-	MariaDBOperatorName            = "mariadb"
-	NeutronOperatorName            = "neutron"
-	NovaOperatorName               = "nova"
-	OctaviaOperatorName            = "octavia"
-	OpenStackBaremetalOperatorName = "openstack-baremetal"
-	OvnOperatorName                = "ovn"
-	PlacementOperatorName          = "placement"
-	RabbitMQOperatorName           = "rabbitmq-cluster"
-	SwiftOperatorName              = "swift"
-	TelemetryOperatorName          = "telemetry"
-	TestOperatorName               = "test"
-	OkrOperatorName                = "okr"
+	BarbicanOperatorName                 = "barbican"
+	CinderOperatorName                   = "cinder"
+	DesignateOperatorName                = "designate"
+	GlanceOperatorName                   = "glance"
+	HeatOperatorName                     = "heat"
+	HorizonOperatorName                  = "horizon"
+	InfraOperatorName                    = "infra"
+	IronicOperatorName                   = "ironic"
+	KeystoneOperatorName                 = "keystone"
+	ManilaOperatorName                   = "manila"
+	MariaDBOperatorName                  = "mariadb"
+	NeutronOperatorName                  = "neutron"
+	NovaOperatorName                     = "nova"
+	OctaviaOperatorName                  = "octavia"
+	OpenStackBaremetalOperatorName       = "openstack-baremetal"
+	OvnOperatorName                      = "ovn"
+	PlacementOperatorName                = "placement"
+	RabbitMQOperatorName                 = "rabbitmq-cluster"
+	SwiftOperatorName                    = "swift"
+	TelemetryOperatorName                = "telemetry"
+	TestOperatorName                     = "test"
+	OkrOperatorName                      = "okr"
+	ReplicasEnabled                int32 = 1
+	ReplicasDisabled               int32 = 0
 )
 
 // NOTE: test-operator was deployed as a independant package so it may or may not be installed
@@ -52,29 +56,82 @@ const (
 // added into this list in the future
 // IMPORTANT: have this list in synce with the kubebuilder annotations of the ServiceOperators parameter
 var (
-	ServiceOperatorNames []string = []string{
-		BarbicanOperatorName,
-		CinderOperatorName,
-		DesignateOperatorName,
-		GlanceOperatorName,
-		HeatOperatorName,
-		HorizonOperatorName,
-		InfraOperatorName,
-		IronicOperatorName,
-		KeystoneOperatorName,
-		ManilaOperatorName,
-		MariaDBOperatorName,
-		NeutronOperatorName,
-		NovaOperatorName,
-		OctaviaOperatorName,
-		OpenStackBaremetalOperatorName,
-		OvnOperatorName,
-		PlacementOperatorName,
-		RabbitMQOperatorName,
-		SwiftOperatorName,
-		TelemetryOperatorName,
-		TestOperatorName,
-		OkrOperatorName,
+	DefaultManagerCPULimit         resource.Quantity = resource.MustParse("500m")
+	DefaultManagerCPURequests      resource.Quantity = resource.MustParse("10m")
+	DefaultManagerMemoryLimit      resource.Quantity = resource.MustParse("256Mi")
+	DefaultManagerMemoryRequests   resource.Quantity = resource.MustParse("128Mi")
+	DefaultRbacProxyCPULimit       resource.Quantity = resource.MustParse("500m")
+	DefaultRbacProxyCPURequests    resource.Quantity = resource.MustParse("5m")
+	DefaultRbacProxyMemoryLimit    resource.Quantity = resource.MustParse("128Mi")
+	DefaultRbacProxyMemoryRequests resource.Quantity = resource.MustParse("64Mi")
+	ServiceOperatorNames           []OperatorSpec    = []OperatorSpec{
+		{
+			Name: BarbicanOperatorName,
+		},
+		{
+			Name: CinderOperatorName,
+		},
+		{
+			Name: DesignateOperatorName,
+		},
+		{
+			Name: GlanceOperatorName,
+		},
+		{
+			Name: HeatOperatorName,
+		},
+		{
+			Name: HorizonOperatorName,
+		},
+		{
+			Name: InfraOperatorName,
+		},
+		{
+			Name: IronicOperatorName,
+		},
+		{
+			Name: KeystoneOperatorName,
+		},
+		{
+			Name: ManilaOperatorName,
+		},
+		{
+			Name: MariaDBOperatorName,
+		},
+		{
+			Name: NeutronOperatorName,
+		},
+		{
+			Name: NovaOperatorName,
+		},
+		{
+			Name: OctaviaOperatorName,
+		},
+		{
+			Name: OpenStackBaremetalOperatorName,
+		},
+		{
+			Name: OvnOperatorName,
+		},
+		{
+			Name: PlacementOperatorName,
+		},
+		{
+			Name: RabbitMQOperatorName,
+		},
+		{
+			Name: SwiftOperatorName,
+		},
+		{
+			Name: TelemetryOperatorName,
+		},
+		{
+			Name: TestOperatorName,
+		},
+		{
+			Name:     OkrOperatorName,
+			Replicas: ptr.To(ReplicasDisabled),
+		},
 	}
 )
 
@@ -83,7 +140,6 @@ type OpenStackSpec struct {
 	// +kubebuilder:validation:Optional
 	// +listType=map
 	// +listMapKey=name
-	// +kubebuilder:validation:XValidation:rule="self.all(x, self.filter(y, y.name == x.name).size() == 1)",message="names in ServiceOperators must be unique"
 	// +kubebuilder:default={{name: barbican}, {name: cinder}, {name: designate}, {name: glance}, {name: heat}, {name: horizon}, {name: infra}, {name: keystone}, {name: manila}, {name: mariadb}, {name: neutron}, {name: nova}, {name: octavia}, {name: openstack-baremetal}, {name: ovn}, {name: placement}, {name: rabbitmq-cluster}, {name: swift}, {name: telemetry}, {name: test}, {name: okr, replicas: 0}}
 	// ServiceOperators - list of service operators to deploy with tunings
 	// NOTE: test-operator was deployed as a independant package so it may or may not be installed
@@ -106,12 +162,12 @@ type OperatorSpec struct {
 	Replicas *int32 `json:"replicas"`
 
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default={limits: {cpu: "500m", memory: "128Mi"},requests: {cpu: "10m", memory: "256Mi"}}
+	// +kubebuilder:default={resources: {limits: {cpu: "500m", memory: "256Mi"},requests: {cpu: "10m", memory: "128Mi"}}}
 	// ControllerManager - tunings for the controller manager container
 	ControllerManager ContainerSpec `json:"controllerManager"`
 
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default={limits: {cpu: "500m", memory: "128Mi"},requests: {cpu: "5m", memory: "64Mi"}}
+	// +kubebuilder:default={resources: {limits: {cpu: "500m", memory: "128Mi"},requests: {cpu: "5m", memory: "64Mi"}}}
 	// ControllerManager - tunings for the kube-rbac-proxy container
 	KubeRbacProxy ContainerSpec `json:"kubeRbacProxy"`
 }

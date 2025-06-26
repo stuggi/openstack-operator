@@ -317,6 +317,26 @@ webhooks:
     resources:
     - openstackdataplaneservices
   sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: openstack-operator-webhook-service
+      namespace: '{{ .OperatorNamespace }}'
+      path: /mutate-operator-openstack-org-v1beta1-openstack
+  failurePolicy: Fail
+  name: mopenstack.kb.io
+  rules:
+  - apiGroups:
+    - operator.openstack.org
+    apiVersions:
+    - v1beta1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - openstacks
+  sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration

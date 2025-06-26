@@ -146,6 +146,11 @@ func main() {
 	checker := healthz.Ping
 	if strings.ToLower(os.Getenv("ENABLE_WEBHOOKS")) != "false" {
 
+		if err = (&operatorv1beta1.OpenStack{}).SetupWebhookWithManager(mgr); err != nil {
+			setupLog.Error(err, "unable to create webhook", "webhook", "OpenStack")
+			os.Exit(1)
+		}
+
 		checker = mgr.GetWebhookServer().StartedChecker()
 	}
 

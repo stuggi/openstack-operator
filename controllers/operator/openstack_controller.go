@@ -40,6 +40,7 @@ import (
 	"github.com/openstack-k8s-operators/openstack-operator/pkg/operator/bindata"
 	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -57,6 +58,24 @@ type OpenStackReconciler struct {
 	client.Client
 	Scheme  *runtime.Scheme
 	Kclient kubernetes.Interface
+}
+
+type operator struct {
+	Name       string
+	Namespace  string
+	Deployment deployment
+}
+
+type deployment struct {
+	Replicas      *int32
+	Manager       container
+	KubeRbacProxy container
+}
+
+type container struct {
+	Image     string
+	Env       []corev1.EnvVar
+	Resources corev1.ResourceRequirements
 }
 
 // GetLog returns a logger object with a prefix of "controller.name" and aditional controller context fields
@@ -110,7 +129,6 @@ func SetupEnv() {
 		} else if envArr[0] == "RETRY_PERIOD" {
 			retryPeriod = envArr[1]
 		}
-
 	}
 }
 
@@ -479,17 +497,61 @@ func (r *OpenStackReconciler) applyRBAC(ctx context.Context, instance *operatorv
 }
 
 func (r *OpenStackReconciler) applyOperator(ctx context.Context, instance *operatorv1beta1.OpenStack) error {
+	serviceOperators := []operator{} // operator details
+	for _, op := range instance.Spec.ServiceOperators {
+		if img, ok := envRelatedOperatorImages[op.Name]; ok && img != nil {
+			serviceOp := operator{
+				Name:      op.Name,
+				Namespace: instance.Namespace,
+			}
+			serviceOp.Deployment.Replicas = op.Replicas
+
+			// manager container
+			serviceOp.Deployment.Manager.Image = *img
+			serviceOp.Deployment.Manager.Resources = op.ControllerManager.Resources
+			serviceOp.Deployment.Manager.Env = []corev1.EnvVar{
+				{
+					Name:  "LEASE_DURATION",
+					Value: leaseDuration,
+				},
+				{
+					Name:  "RENEW_DEADLINE",
+					Value: renewDeadline,
+				},
+				{
+					Name:  "RETRY_PERIOD",
+					Value: retryPeriod,
+				}}
+
+			// kube-rbac-proxy container
+			serviceOp.Deployment.KubeRbacProxy.Image = kubeRbacProxyImage
+			serviceOp.Deployment.KubeRbacProxy.Resources = op.KubeRbacProxy.Resources
+
+			serviceOperators = append(serviceOperators, serviceOp)
+		}
+	}
+
 	data := bindata.MakeRenderData()
+
+	// global stuff
 	data.Data["OperatorNamespace"] = instance.Namespace
-	data.Data["OperatorImages"] = envRelatedOperatorImages
+	data.Data["KubeRbacProxyImage"] = kubeRbacProxyImage // -> kube-rbac-proxy container image all managers.yaml, operator.yaml
+	// TODO, use global env var for all operator deployments
+	data.Data["LeaseDuration"] = leaseDuration // -> env all
+	data.Data["RenewDeadline"] = renewDeadline // -> env all
+	data.Data["RetryPeriod"] = retryPeriod     // -> env all
+
+	// rabbitmaq-cluster-operator-manager image rabbit.yaml
 	data.Data["RabbitmqImage"] = rabbitmqImage
+
+	// openstack-operator-controller-manager image operator.yaml
 	data.Data["OperatorImage"] = operatorImage
-	data.Data["KubeRbacProxyImage"] = kubeRbacProxyImage
-	data.Data["OpenstackReleaseVersion"] = openstackReleaseVersion
-	data.Data["LeaseDuration"] = leaseDuration
-	data.Data["RenewDeadline"] = renewDeadline
-	data.Data["RetryPeriod"] = retryPeriod
-	data.Data["OpenStackServiceRelatedImages"] = envRelatedOpenStackServiceImages
+	data.Data["OpenStackServiceRelatedImages"] = envRelatedOpenStackServiceImages // -> env openstack-operator-controller-manager
+	data.Data["OpenstackReleaseVersion"] = openstackReleaseVersion                // -> env
+
+	// service operators
+	data.Data["ServiceOperators"] = serviceOperators // -> service operator images managers.yaml
+
 	return r.renderAndApply(ctx, instance, data, "operator", true)
 }
 
@@ -545,7 +607,7 @@ func (r *OpenStackReconciler) renderAndApply(
 
 func isServiceOperatorResource(name string) bool {
 	for _, item := range operatorv1beta1.ServiceOperatorNames {
-		if strings.Index(name, item) == 0 {
+		if strings.Index(name, item.Name) == 0 {
 			return true
 		}
 	}
