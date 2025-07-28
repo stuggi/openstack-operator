@@ -5,7 +5,7 @@ on:
 
 jobs:
   call-build-workflow:
-    uses: openstack-k8s-operators/openstack-k8s-operators-ci/.github/workflows/force-bump-pull-request.yaml@main
+    uses: stuggi/openstack-k8s-operators-ci/.github/workflows/force-bump-pull-request.yaml@OSPRH-17779-image
     with:
       operator_name: openstack
       branch_name: ${{ github.ref_name }}
