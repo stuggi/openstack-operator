@@ -303,7 +303,7 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 CRD_MARKDOWN ?= $(LOCALBIN)/crd-to-markdown
 GINKGO ?= $(LOCALBIN)/ginkgo
-GINKGO_TESTS ?= ./tests/... ./apis/client/... ./apis/core/... ./apis/dataplane/... ./pkg/...
+GINKGO_TESTS ?= ./tests/... ./apis/client/... ./apis/core/... ./apis/dataplane/... ./pkg/... ./controllers/...
 
 KUTTL ?= $(LOCALBIN)/kubectl-kuttl
 
