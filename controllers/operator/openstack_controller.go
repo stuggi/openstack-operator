@@ -865,20 +865,44 @@ func (r *OpenStackReconciler) postCleanupObsoleteResources(ctx context.Context, 
 				// The horizon-operator.openstack-operators has references to old roles/bindings
 				// the code below will delete those references before continuing
 				for _, ref := range refs {
-					refData := ref.(map[string]interface{})
-					Log.Info("Deleting operator reference", "Reference", ref)
-					obj := uns.Unstructured{}
-					obj.SetName(refData["name"].(string))
-
-					// Some of the references are not namespaced, so we need to check if the namespace is present
-					if namespace, ok := refData["namespace"]; ok {
-						obj.SetNamespace(namespace.(string))
+					refData, ok := ref.(map[string]interface{})
+					if !ok {
+						Log.Info("Skipping invalid reference: not a map", "Reference", ref)
+						continue
 					}
 
-					apiVersion := refData["apiVersion"].(string)
+					name, ok := refData["name"].(string)
+					if !ok || name == "" {
+						Log.Info("Skipping reference: invalid or missing name", "Reference", ref)
+						continue
+					}
+
+					apiVersion, ok := refData["apiVersion"].(string)
+					if !ok || apiVersion == "" {
+						Log.Info("Skipping reference: invalid or missing apiVersion", "Reference", ref)
+						continue
+					}
+
+					kind, ok := refData["kind"].(string)
+					if !ok || kind == "" {
+						Log.Info("Skipping reference: invalid or missing kind", "Reference", ref)
+						continue
+					}
+
+					Log.Info("Deleting operator reference", "Reference", ref)
+					obj := uns.Unstructured{}
+					obj.SetName(name)
+
+					// Some of the references are not namespaced, so we need to check if the namespace is present
+					if namespace, exists := refData["namespace"]; exists {
+						if nsString, ok := namespace.(string); ok && nsString != "" {
+							obj.SetNamespace(nsString)
+						}
+					}
+
 					apiParts := strings.Split(apiVersion, "/")
 					objGvk := schema.GroupVersionResource{
-						Resource: refData["kind"].(string),
+						Resource: kind,
 					}
 					// Some of the references have an apiVersion that lacks a group prefix
 					if len(apiParts) > 1 {
@@ -889,11 +913,11 @@ func (r *OpenStackReconciler) postCleanupObsoleteResources(ctx context.Context, 
 						objGvk.Version = apiParts[0]
 						Log.Info("postCleanupObsoleteResources: Found apiVersion without group prefix", "apiVersion", apiVersion)
 					}
-					obj.SetGroupVersionKind(objGvk.GroupVersion().WithKind(refData["kind"].(string)))
+					obj.SetGroupVersionKind(objGvk.GroupVersion().WithKind(kind))
 
 					// references from CRD's should be removed before this function is called
 					// but this is a safeguard as we do not want to delete them
-					if refData["kind"].(string) != "CustomResourceDefinition" {
+					if kind != "CustomResourceDefinition" {
 						err = r.Client.Delete(ctx, &obj)
 						if err != nil {
 							if apierrors.IsNotFound(err) {
