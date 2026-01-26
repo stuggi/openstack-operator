@@ -42,6 +42,32 @@ All services are **operator-managed** and **stateless**. The operator will autom
    - **MANUAL STEP REQUIRED**: You must restore the original user credentials to the new cluster by exec'ing into the RabbitMQ pods. This will change in later version where we have the RabbitMQUser CRD which allows us to create users referencing an secret which holds the password to use.
    - This ensures all services can reconnect (TransportURL CRs will regenerate the transport URL secrets automatically)
 
+**Fresh Cluster Strategy:**
+
+This procedure creates a **brand new RabbitMQ cluster** instead of restoring the old one:
+
+**Why Fresh Cluster?**
+- Avoids complexity of queue state restoration
+- Eliminates stale messages that might cause issues
+- Provides clean messaging layer for restored services
+- Allows for fresh cluster configuration
+
+**What Happens During Restore:**
+1. Old RabbitMQ clusters are deleted during cleanup
+2. New RabbitMQ clusters are created when OpenStackControlPlane CR is restored
+3. New default admin credentials are automatically generated (different from backup)
+4. **MANUAL STEP**: You restore the backed-up user credentials by exec'ing into RabbitMQ pods
+5. Service operators reconcile and TransportURL CRs are created/updated
+6. Operator automatically generates new transport URL secrets referencing the restored credentials
+7. All services connect to new RabbitMQ using the restored credentials
+
+**Impact:**
+- ✅ No stale messages or queue corruption
+- ✅ Clean start for message bus
+- ✅ Services use restored credentials from backup (continuity for EDPM nodes)
+- ❌ Any in-flight messages are lost (acceptable for stateless restore)
+- ⚠️ **Requires manual step** to restore user credentials
+
 **What to Backup:**
 - ✅ **RabbitMQ default user secrets** (CRITICAL - needed for manual user restoration)
 - ❌ RabbitMQ queue data (out of scope - fresh cluster created)
@@ -1639,33 +1665,7 @@ oc get events -n openstack --sort-by='.lastTimestamp'
 4. **Persistent volumes** - Any data in PVs (logs, temporary files)
 5. **Running VM state** - Nova instances state might be not correct since the env usage moved on from when the backup was taken.
 
-### RabbitMQ Fresh Cluster Strategy:
-This procedure creates a **brand new RabbitMQ cluster** instead of restoring the old one:
-
-**Why Fresh Cluster?**
-- Avoids complexity of queue state restoration
-- Eliminates stale messages that might cause issues
-- Provides clean messaging layer for restored services
-- Allows for fresh cluster configuration
-
-**What Happens:**
-1. Old RabbitMQ clusters are deleted during cleanup
-2. New RabbitMQ clusters are created when OpenStackControlPlane CR is restored
-3. New default admin credentials are automatically generated (different from backup)
-4. **MANUAL STEP**: You restore the backed-up user credentials by exec'ing into RabbitMQ pods
-5. Service operators reconcile and TransportURL CRs are created/updated
-6. Operator automatically generates new transport URL secrets referencing the restored credentials
-7. All services connect to new RabbitMQ using the restored credentials
-
-**Impact:**
-- ✅ No stale messages or queue corruption
-- ✅ Clean start for message bus
-- ✅ Services use restored credentials from backup (continuity for EDPM nodes)
-- ❌ Any in-flight messages are lost (acceptable for stateless restore)
-- ⚠️ **Requires manual step** to restore user credentials (step 11 in restore procedure)
-
-**EDPM/Data Plane Impact:**
-For deployments with external data plane nodes, the manual user credential restoration step is critical to maintain immediate connectivity. See "RabbitMQ User Management" in the Scope section for details.
+**Note:** For complete explanation of the RabbitMQ fresh cluster strategy and why user credential restoration is critical, see the "RabbitMQ User Management" section in the Scope.
 
 ### Namespace Change Implications:
 When restoring to a different namespace:
