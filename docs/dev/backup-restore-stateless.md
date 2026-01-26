@@ -1388,6 +1388,33 @@ oc apply -f openstackcontrolplane-backup.json -n ${NEW_NAMESPACE}
 - Services will register with new DNS names
 - External clients need to be reconfigured
 
+**EDPM/Data Plane Updates Required:**
+
+If you have EDPM nodes (compute, network), you **MUST** run EDPM deployment to update their configurations:
+
+```bash
+# EDPM node configurations still reference the old namespace DNS names
+# Example: transport_url points to rabbitmq-cell1.openstack.svc
+# Must update to: rabbitmq-cell1.openstack-restored.svc
+
+# Run EDPM deployment to update all node configurations
+oc apply -f <your-edpm-deployment-cr.yaml>
+
+# Monitor EDPM deployment
+oc get openstackdataplanedeployment -n ${NEW_NAMESPACE} --watch
+
+# Verify data plane nodes are updated and functional
+oc get openstackdataplanenodeset -n ${NEW_NAMESPACE}
+```
+
+**What gets updated on EDPM nodes:**
+- RabbitMQ transport URLs (cell, notifications)
+- Service endpoints (Keystone, Nova, Neutron, Glance)
+- OVN database connections
+- Any other control plane service references
+
+Without running EDPM deployment, data plane nodes will continue trying to connect to the old namespace endpoints and fail.
+
 ---
 
 ### Scenario 3: Restore to Different Cluster
