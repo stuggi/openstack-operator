@@ -204,8 +204,8 @@ $(oc get subscription -n openstack-operators)
 EOF
 
 # Save detailed CSV and subscription info
-oc get csv -n openstack-operators -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.selfLink, .items[].metadata.managedFields, .metadata)' > csv-backup.json
-oc get subscription -n openstack-operators -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.selfLink, .items[].metadata.managedFields, .metadata)' > subscription-backup.json
+oc get csv -n openstack-operators -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > csv-backup.json
+oc get subscription -n openstack-operators -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > subscription-backup.json
 
 # Check which catalog sources are being used
 oc get subscription -n openstack-operators -o jsonpath='{.items[*].spec.source}' | tr ' ' '\n' | sort -u
@@ -355,11 +355,9 @@ The script follows the correct restore order and prompts for confirmation at cri
 ```bash
 # Export the main control plane CR
 oc get openstackcontrolplane -n openstack -o json | \
-  jq 'del(.items[].metadata.ownerReferences,
-          .items[].metadata.uid,
+  jq 'del(.items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > openstackcontrolplane-backup.json
 ```
@@ -375,17 +373,14 @@ oc get openstackversion -n openstack -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > openstackversion-backup.json
 
 # Backup NetConfig (CRITICAL - defines network topology, subnets, IP allocation)
 oc get netconfig -n openstack -o json | \
-  jq 'del(.items[].metadata.ownerReferences,
-          .items[].metadata.uid,
+  jq 'del(.items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > netconfig-backup.json
 
@@ -395,7 +390,6 @@ oc get topology -n openstack -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > topology-backup.json 2>/dev/null || echo "No topology found"
 ```
@@ -411,11 +405,9 @@ NetworkAttachmentDefinitions (NADs) define the networks used by OpenStack servic
 ```bash
 # Backup all NetworkAttachmentDefinitions in the namespace
 oc get network-attachment-definition -n openstack -o json | \
-  jq 'del(.items[].metadata.ownerReferences,
-          .items[].metadata.uid,
+  jq 'del(.items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > network-attachment-definitions-backup.json
 ```
@@ -434,7 +426,6 @@ oc get secrets -n openstack -o json | \
       del(.items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > secrets-all-backup.json
@@ -463,7 +454,6 @@ These are **cluster-specific runtime metadata** that Kubernetes manages automati
 - **`creationTimestamp`**: Set automatically by API server. Cannot be set manually - will be ignored or cause validation errors.
 - **`generation`**: Incremented when `.spec` changes. Starting fresh makes sense on restore (begins at generation 1).
 - **`managedFields`**: Tracks which controllers manage which fields (Server-Side Apply). Old managedFields reference old controller instances, causing conflicts when new controllers reconcile.
-- **`selfLink`**: Deprecated URL path to resource (removed in Kubernetes 1.24).
 
 By removing these fields, we provide the **desired state** (spec + data) and let Kubernetes manage runtime metadata as if creating fresh resources.
 
@@ -474,7 +464,6 @@ By removing these fields, we provide the **desired state** (spec + data) and let
 - Certificate secrets (TLS certificates)
 - Transport URL secrets (will be regenerated, but backup doesn't hurt)
 - All operator-generated config secrets
-```
 
 **CRITICAL - RabbitMQ Secrets Backup:**
 
@@ -515,7 +504,6 @@ oc get mariadbdatabase -n openstack -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > mariadbdatabase-backup.json
 
@@ -525,7 +513,6 @@ oc get mariadbaccount -n openstack -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > mariadbaccount-backup.json
 ```
@@ -547,7 +534,6 @@ oc get issuer -n openstack -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > issuer-backup.json
 
@@ -557,7 +543,6 @@ oc get certificate -n openstack -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > certificates-backup.json
 ```
@@ -629,7 +614,6 @@ oc get configmaps -n openstack -o json | \
   jq 'del(.items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > configmaps-all-backup.json
 ```
@@ -694,7 +678,6 @@ oc get csv -n openstack-operators -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > csv-backup.json
 
@@ -703,7 +686,6 @@ oc get subscription -n openstack-operators -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > subscription-backup.json
 
@@ -712,7 +694,6 @@ oc get installplan -n openstack-operators -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > installplan-backup.json
 
@@ -1682,14 +1663,14 @@ BACKUP_DIR="/backups/openstack/$(date +%Y%m%d-%H%M%S)"
 mkdir -p ${BACKUP_DIR}
 
 # Backup all CRs and resources
-oc get openstackcontrolplane -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.selfLink, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/openstackcontrolplane-backup.json
-oc get network-attachment-definition -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.selfLink, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/network-attachment-definitions-backup.json
-oc get issuer -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.selfLink, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/issuer-backup.json
-oc get certificate -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.selfLink, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/certificates-backup.json
-oc get secrets -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.selfLink, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/secrets-all-backup.json
-oc get configmaps -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.selfLink, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/configmaps-all-backup.json
-oc get netconfig -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.selfLink, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/netconfig-backup.json
-oc get openstackversion -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.selfLink, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/openstackversion-backup.json 2>/dev/null || true
+oc get openstackcontrolplane -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/openstackcontrolplane-backup.json
+oc get network-attachment-definition -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/network-attachment-definitions-backup.json
+oc get issuer -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/issuer-backup.json
+oc get certificate -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/certificates-backup.json
+oc get secrets -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/secrets-all-backup.json
+oc get configmaps -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/configmaps-all-backup.json
+oc get netconfig -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/netconfig-backup.json
+oc get openstackversion -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/openstackversion-backup.json 2>/dev/null || true
 
 # Commit to git
 cd ${BACKUP_DIR}
