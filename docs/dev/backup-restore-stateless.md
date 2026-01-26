@@ -366,6 +366,8 @@ oc get openstackcontrolplane -n openstack -o json | \
 
 ### 2. Backup Related Custom Resources
 
+**TODO**: Review and expand this list of CRs to backup. There may be additional Custom Resources that need to be included in the backup procedure.
+
 ```bash
 # Backup OpenStackVersion
 oc get openstackversion -n openstack -o json | \
