@@ -5,9 +5,9 @@
 This procedure is designed for **Red Hat OpenShift** deployments using the `oc` CLI client.
 
 This procedure covers backup and restore of the OpenStack Control Plane focusing on **stateless services only**. It excludes:
-- Database data (Galera/MariaDB) - see [PVC/PV Backup/Restore](backup-restore-pvc.md) for database backup procedures
-- OVN databases - see [OVN Backup/Restore](backup-restore-ovn.md) for OVN-specific procedures
-- PersistentVolumes/PersistentVolumeClaims - see [PVC/PV Backup/Restore](backup-restore-pvc.md) for PVC backup procedures
+- Database data (Galera/MariaDB)
+- OVN databases
+- PersistentVolumes/PersistentVolumeClaims
 - RabbitMQ message queue data (persistent messages)
 
 ## Scope
@@ -1594,7 +1594,7 @@ oc get events -n openstack --sort-by='.lastTimestamp'
 
 ### What This Procedure Does NOT Restore:
 1. **Database content** (Galera/MariaDB) - You must separately backup/restore databases
-2. **OVN state** - Network topology, virtual routers, security groups (see [OVN Backup/Restore](backup-restore-ovn.md))
+2. **OVN state** - Network topology, virtual routers, security groups
 3. **RabbitMQ messages** - In-flight messages will be lost (fresh cluster created)
 4. **Persistent volumes** - Any data in PVs (logs, temporary files)
 5. **Running VM state** - Nova instances state might be not correct since the env usage moved on from when the backup was taken.
@@ -1979,13 +1979,11 @@ As the backup/restore workflow matures, a dedicated script could be developed to
 This procedure covers **stateless service restoration**. For complete control plane recovery, you need:
 
 1. **Database Backup/Restore** - Critical for all OpenStack service data
-2. **OVN Database Backup/Restore** - Network topology and state (see [backup-restore-ovn.md](backup-restore-ovn.md))
+2. **OVN Database Backup/Restore** - Network topology and state
 3. **Volume Backup** - PVC snapshots or volume clones
 4. **Integration Testing** - Verify database + stateless services work together
 
 ## See Also
 
-- [OVN Backup/Restore](backup-restore-ovn.md) - OVN database backup and restore procedures
-- [PVC/PV Backup/Restore](backup-restore-pvc.md) - Persistent volume backup and restore procedures
 - [OpenStack on OpenShift Documentation](https://openstack-k8s-operators.github.io/openstack-operator/) - Main documentation
 - [cert-manager Documentation](https://cert-manager.io/docs/) - Certificate management
