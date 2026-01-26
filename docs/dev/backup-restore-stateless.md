@@ -362,16 +362,6 @@ oc get openstackcontrolplane -n openstack -o json | \
           .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .metadata)' > openstackcontrolplane-backup.json
-
-# Alternatively, export with specific name
-CTLPLANE_NAME=$(oc get openstackcontrolplane -n openstack -o jsonpath='{.items[0].metadata.name}')
-oc get openstackcontrolplane ${CTLPLANE_NAME} -n openstack -o json | \
-  jq 'del(.metadata.ownerReferences,
-          .metadata.uid,
-          .metadata.resourceVersion,
-          .metadata.creationTimestamp,
-          .metadata.selfLink,
-          .metadata.managedFields)' > openstackcontrolplane-${CTLPLANE_NAME}-backup.json
 ```
 
 ### 2. Backup Related Custom Resources
