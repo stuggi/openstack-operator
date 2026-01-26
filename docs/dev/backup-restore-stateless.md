@@ -500,16 +500,24 @@ oc get mariadbaccount -n openstack -o json | \
 
 **Note**: Database account password secrets (e.g., `keystonedb-secret`, `novadb-secret`) are already backed up in section 4 (all secrets backup). MariaDBAccount CRs reference these secrets by name.
 
-### 6. Backup TLS Certificates and CAs
+### 6. Backup TLS Issuers and CA Secrets
 
-**CRITICAL**: TLS is enabled by default in RHOSO deployments. You **MUST** back up and restore the exact same certificates and CAs. Regenerating new certificates will break trust relationships and require reconfiguration of all clients (especially EDPM nodes).
+**CRITICAL**: TLS is enabled by default in RHOSO deployments. You **MUST** back up CA secrets and Issuers. Regenerating with new CAs will break trust relationships and require reconfiguration of all clients (especially EDPM nodes).
 
-**Note**: TLS secrets (root CAs, certificates) are already backed up in section 4 (all secrets backup). This section focuses on the Certificate CRs and Issuer CRs. The CA secrets are created by default even if TLS pod-level encryption is not explicitly enabled.
+**What gets backed up:**
+- **CA secrets**: Already backed up in section 4 (CA private keys and certificates)
+- **Issuer CRs**: Backed up here (define how certificates are issued using the CA)
+- **Certificate CRs**: Backed up for disaster recovery but **NOT restored** (operators recreate these)
+- **Service certificate secrets**: Already backed up in section 4 but **NOT restored** (cert-manager issues fresh ones)
 
-**Strategy**: Backup Certificate and Issuer CRs with ownerReferences stripped, allowing restore before OpenStackControlPlane.
+**What gets restored:**
+- ✅ **CA secrets** - Preserved to maintain trust chain
+- ✅ **Issuer CRs** - Define certificate authorities
+- ❌ **Certificate CRs** - Operators recreate during reconciliation
+- ❌ **Service certificate secrets** - cert-manager issues fresh certificates
 
 ```bash
-# Backup Issuer CRs (cert-manager issuers) with ownerReferences removed
+# Backup Issuer CRs (cert-manager issuers)
 oc get issuer -n openstack -o json | \
   jq 'del(.items[].metadata.ownerReferences,
           .items[].metadata.uid,
@@ -518,7 +526,7 @@ oc get issuer -n openstack -o json | \
           .items[].metadata.managedFields,
           .metadata)' > issuer-backup.json
 
-# Backup Certificate CRs (cert-manager certificates)
+# Backup Certificate CRs (for disaster recovery archive - not used in restore)
 oc get certificate -n openstack -o json | \
   jq 'del(.items[].metadata.ownerReferences,
           .items[].metadata.uid,
@@ -528,61 +536,40 @@ oc get certificate -n openstack -o json | \
           .metadata)' > certificates-backup.json
 ```
 
-**Why TLS backup is critical:**
-- **Certificate Trust**: Services and clients trust specific CA certificates
-- **Data Plane**: EDPM nodes may have CA certificates configured
-- **Service Communication**: Services use specific certificates for mTLS
-- **Regenerating breaks everything**: New certificates mean new trust chains, requiring reconfiguration of all clients
+**Why this approach:**
 
-**What's included:**
-- **Root CA secrets**: Already backed up in section 4 (secrets backup with ownerReferences removed)
-- **Certificate secrets**: Already backed up in section 4 (secrets backup with ownerReferences removed)
-- **Issuer CRs**: Backed up here with ownerReferences removed (define how certificates are issued)
-- **Certificate CRs**: Backed up here with ownerReferences removed (define which certificates to create)
+1. **CA secrets restored** - Maintains the same trust chain:
+   - Services and EDPM nodes already trust this CA
+   - No need to reconfigure clients
+   - Same root of trust preserved
+
+2. **Issuer CRs restored** - Tell cert-manager which CA to use:
+   - References the restored CA secret
+   - Ready before operators start creating Certificate CRs
+
+3. **Certificate CRs NOT restored** - Operators recreate them:
+   - ALL Certificate CRs have ownerReferences to operators
+   - Operators create these during OpenStackControlPlane reconciliation
+   - Follows Kubernetes operator ownership pattern
+
+4. **Fresh service certificates issued** - Best practice:
+   - cert-manager issues new certificates with fresh expiry dates
+   - Uses the restored CA (same trust chain)
+   - No risk of restoring expired or soon-to-expire certificates
+   - Clean certificate lifecycle
 
 **Certificate Rotation After Restore:**
 
-This backup strategy ensures cert-manager can continue to rotate certificates after restore:
-
-1. **Certificate CR** (restored in step 5) contains:
-   - Certificate spec (DNS names, duration, renewBefore settings)
-   - Reference to the Issuer to use
-   - Reference to the secret where the cert is stored
-
-2. **Issuer CR** (restored in step 5) contains:
-   - Reference to the CA secret (spec.ca.secretName)
-   - Configuration for how to issue certificates
-
-3. **CA Secret** (restored in restore step 3 - secrets) contains:
-   - CA private key (used for signing certificates)
-   - CA certificate
-
-4. **Certificate Secret** (restored in restore step 3 - secrets) contains:
-   - Current certificate and private key
-   - cert-manager checks expiration and renews based on renewBefore settings
-
-After restore, cert-manager will:
-- Reconcile the Certificate CRs
-- Check the existing certificates in the secrets
-- Calculate renewal time based on certificate expiration and renewBefore settings
-- Automatically renew certificates when needed using the Issuer and CA secret
+After restore, cert-manager handles certificate rotation:
+- Operators create Certificate CRs during reconciliation
+- cert-manager issues certificates from the restored CA
+- Certificates are monitored for expiration
+- Automatic renewal when certificates approach expiry
+- New CertificateRequests created as needed
 
 **About CertificateRequests:**
 
-CertificateRequests are **NOT** backed up because they are ephemeral/historical records:
-- Created by cert-manager when issuing or renewing a certificate
-- Once the certificate is issued and stored in the secret, the CertificateRequest serves as an audit record
-- The Certificate CR status tracks certificate expiration and renewal time, but does not reference CertificateRequest objects
-- When renewal is needed, cert-manager creates a **NEW** CertificateRequest
-- Old CertificateRequests are not needed for ongoing certificate management
-
-After restore, when certificates need renewal, cert-manager will create new CertificateRequests automatically.
-
-**Why remove ownerReferences and runtime metadata:**
-- Allows restoring TLS infrastructure in the correct order (Issuers → Secrets → Certificates)
-- Secrets must exist before Certificate CRs so cert-manager can adopt them
-- Operators will set new ownerReferences after reconciliation
-- See section 4 for detailed explanation of why runtime metadata fields are removed
+CertificateRequests are **NOT** backed up - they are ephemeral records created by cert-manager during certificate issuance. After restore, cert-manager creates new CertificateRequests as needed.
 
 ### 7. Backup ConfigMaps
 
@@ -719,9 +706,9 @@ All backup files are in JSON format for consistency.
 - secrets-all-backup.json: All secrets (includes OpenStack secrets, RabbitMQ, TLS CAs, certificates)
 - configmaps-all-backup.json: All ConfigMaps
 
-### TLS Infrastructure (ownerReferences removed)
-- issuer-backup.json: cert-manager Issuer CRs
-- certificates-backup.json: cert-manager Certificate CRs
+### TLS Infrastructure
+- issuer-backup.json: cert-manager Issuer CRs (RESTORED - define certificate authorities)
+- certificates-backup.json: cert-manager Certificate CRs (NOT RESTORED - operators recreate these)
 
 ### Operator Version Information
 - operator-versions.txt: Operator and platform versions (human-readable summary)
@@ -1330,14 +1317,15 @@ oc apply -f network-attachment-definitions-backup.json -n ${NEW_NAMESPACE}
 # 2. Restore TLS Issuers
 oc apply -f issuer-backup.json -n ${NEW_NAMESPACE}
 
-# 3. Restore Secrets (must come before Certificate CRs)
+# 3. Restore Secrets
 oc apply -f secrets-all-backup.json -n ${NEW_NAMESPACE}
 
 # 4. Restore ConfigMaps
 oc apply -f configmaps-all-backup.json -n ${NEW_NAMESPACE}
 
-# 5. Restore TLS Certificates (adopts existing secrets)
-oc apply -f certificates-backup.json -n ${NEW_NAMESPACE}
+# 5. Restore MariaDB CRs
+oc apply -f mariadbdatabase-backup.json -n ${NEW_NAMESPACE}
+oc apply -f mariadbaccount-backup.json -n ${NEW_NAMESPACE}
 
 # 6. Restore Related CRs
 oc apply -f openstackversion-backup.json -n ${NEW_NAMESPACE} 2>/dev/null || true
@@ -1446,17 +1434,18 @@ oc label namespace openstack openstack.org/name=openstack
 # 1. Restore NetworkAttachmentDefinitions
 oc apply -f network-attachment-definitions-backup.json
 
-# 2. Restore TLS Issuers (cert-manager authority)
+# 2. Restore TLS Issuers
 oc apply -f issuer-backup.json
 
-# 3. Restore Secrets (must come before Certificate CRs)
+# 3. Restore Secrets
 oc apply -f secrets-all-backup.json
 
 # 4. Restore ConfigMaps
 oc apply -f configmaps-all-backup.json
 
-# 5. Restore TLS Certificates (adopts existing secrets)
-oc apply -f certificates-backup.json
+# 5. Restore MariaDB CRs
+oc apply -f mariadbdatabase-backup.json
+oc apply -f mariadbaccount-backup.json
 
 # 6. Restore Related CRs
 oc apply -f openstackversion-backup.json 2>/dev/null || true
