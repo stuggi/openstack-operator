@@ -28,11 +28,9 @@ pushd ${BACKUP_DIR} > /dev/null
 
 echo "Step 1: Backup OpenStackControlPlane CR..."
 oc get openstackcontrolplane -n ${NAMESPACE} -o json | \
-  jq 'del(.items[].metadata.ownerReferences,
-          .items[].metadata.uid,
+  jq 'del(.items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > openstackcontrolplane-backup.json
@@ -46,18 +44,15 @@ oc get openstackversion -n ${NAMESPACE} -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > openstackversion-backup.json 2>/dev/null || echo "No OpenStackVersion found"
 
 # Backup NetConfig (CRITICAL)
 oc get netconfig -n ${NAMESPACE} -o json | \
-  jq 'del(.items[].metadata.ownerReferences,
-          .items[].metadata.uid,
+  jq 'del(.items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > netconfig-backup.json
@@ -69,7 +64,6 @@ oc get topology -n ${NAMESPACE} -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > topology-backup.json 2>/dev/null || echo "No Topology found"
@@ -77,11 +71,9 @@ echo ""
 
 echo "Step 3: Backup NetworkAttachmentDefinitions..."
 oc get network-attachment-definition -n ${NAMESPACE} -o json | \
-  jq 'del(.items[].metadata.ownerReferences,
-          .items[].metadata.uid,
+  jq 'del(.items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > network-attachment-definitions-backup.json
@@ -96,7 +88,6 @@ oc get secrets -n ${NAMESPACE} -o json | \
       del(.items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > secrets-all-backup.json
@@ -113,7 +104,6 @@ oc get mariadbdatabase -n ${NAMESPACE} -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > mariadbdatabase-backup.json
@@ -125,33 +115,30 @@ oc get mariadbaccount -n ${NAMESPACE} -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > mariadbaccount-backup.json
 echo "✓ MariaDBAccount CRs backed up"
 echo ""
 
-echo "Step 6: Backup TLS Certificates and CAs..."
+echo "Step 6: Backup TLS Issuers and CA Secrets..."
 # Backup Issuer CRs
 oc get issuer -n ${NAMESPACE} -o json | \
   jq 'del(.items[].metadata.ownerReferences,
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > issuer-backup.json
 echo "✓ Issuers backed up"
 
-# Backup Certificate CRs
+# Backup Certificate CRs (for disaster recovery archive - not restored)
 oc get certificate -n ${NAMESPACE} -o json | \
   jq 'del(.items[].metadata.ownerReferences,
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > certificates-backup.json
@@ -164,7 +151,6 @@ oc get configmaps -n ${NAMESPACE} -o json | \
   jq 'del(.items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > configmaps-all-backup.json
@@ -213,7 +199,6 @@ oc get csv -n openstack-operators -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > csv-backup.json
@@ -223,7 +208,6 @@ oc get subscription -n openstack-operators -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > subscription-backup.json
@@ -233,7 +217,6 @@ oc get installplan -n openstack-operators -o json | \
           .items[].metadata.uid,
           .items[].metadata.resourceVersion,
           .items[].metadata.creationTimestamp,
-          .items[].metadata.selfLink,
           .items[].metadata.managedFields,
           .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
           .metadata)' > installplan-backup.json
