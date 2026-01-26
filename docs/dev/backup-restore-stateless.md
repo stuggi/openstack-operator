@@ -1489,7 +1489,7 @@ oc new-project openstack
 oc label namespace openstack openstack.org/name=openstack
 ```
 
-#### 3. Restore Resources
+#### 3. Restore Resources with Staged Deployment
 
 **Follow the correct restore order** (see "Important: Restore Order Matters" section above):
 
@@ -1515,22 +1515,82 @@ oc apply -f openstackversion-backup.json 2>/dev/null || true
 oc apply -f netconfig-backup.json
 oc apply -f topology-backup.json 2>/dev/null || true
 
-# 7. Restore OpenStackControlPlane CR
-oc apply -f openstackcontrolplane-backup.json
+# 7. Restore OpenStackControlPlane CR with staged deployment annotation
+jq '.items[0].metadata.annotations["core.openstack.org/deployment-stage"] = "infrastructure-only"' \
+  openstackcontrolplane-backup.json > openstackcontrolplane-staged.json
 
-# Monitor
+oc apply -f openstackcontrolplane-staged.json
+
+# Wait for InfrastructureReady condition
+oc wait --for=condition=InfrastructureReady openstackcontrolplane/openstack -n openstack --timeout=20m
+
+# 8. Restore Database Contents (MariaDB and OVN)
+# Follow separate database restore procedures while services are NOT running
+
+# 9. Restore RabbitMQ User Credentials
+# Extract and restore credentials for EDPM compatibility
+RABBITMQ_USER=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.username' secrets-all-backup.json | base64 -d)
+RABBITMQ_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.password' secrets-all-backup.json | base64 -d)
+
+oc rsh -n openstack rabbitmq-server-0 rabbitmqctl add_user "${RABBITMQ_USER}" "${RABBITMQ_PASS}" || echo "User may already exist"
+oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_user_tags "${RABBITMQ_USER}" administrator
+oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_USER}" ".*" ".*" ".*"
+
+# Repeat for rabbitmq-cell1 and rabbitmq-notifications clusters
+RABBITMQ_CELL1_USER=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.username' secrets-all-backup.json | base64 -d)
+RABBITMQ_CELL1_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.password' secrets-all-backup.json | base64 -d)
+
+oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl add_user "${RABBITMQ_CELL1_USER}" "${RABBITMQ_CELL1_PASS}" || echo "User may already exist"
+oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl set_user_tags "${RABBITMQ_CELL1_USER}" administrator
+oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_CELL1_USER}" ".*" ".*" ".*"
+
+# 10. Resume Deployment (Remove staged deployment annotation)
+oc annotate openstackcontrolplane openstack -n openstack \
+  core.openstack.org/deployment-stage-
+
+# Wait for control plane to be ready
+oc wait --for=condition=Ready openstackcontrolplane/openstack -n openstack --timeout=30m
+
+# Monitor services being created
 oc get openstackcontrolplane -n openstack --watch
 ```
 
-**Note**: Follow step 10 from Scenario 1 to manually restore RabbitMQ user credentials after the control plane reconciles.
+#### 4. Post-Restore Configuration
 
-#### 4. Update External Access
+**Update External Access:**
 
 Since this is a new cluster, update:
 - Load balancer configurations
 - DNS records for external API endpoints
 - Firewall rules
 - Client configurations
+
+**EDPM/Data Plane Updates Required:**
+
+If you have EDPM nodes (compute, network), you **MUST** run EDPM deployment to update their configurations for the new cluster:
+
+```bash
+# EDPM node configurations reference the old cluster endpoints
+# Must update to new cluster endpoints
+
+# Run EDPM deployment to update all node configurations
+oc apply -f <your-edpm-deployment-cr.yaml>
+
+# Monitor EDPM deployment
+oc get openstackdataplanedeployment -n openstack --watch
+
+# Verify data plane nodes are updated and functional
+oc get openstackdataplanenodeset -n openstack
+```
+
+**What gets updated on EDPM nodes:**
+- RabbitMQ transport URLs (pointing to new cluster)
+- Service endpoints (Keystone, Nova, Neutron, Glance on new cluster)
+- OVN database connections (new cluster)
+- TLS certificates (new cluster CA)
+- Any other control plane service references
+
+Without running EDPM deployment, data plane nodes will continue trying to connect to the old cluster endpoints and fail.
 
 ---
 
