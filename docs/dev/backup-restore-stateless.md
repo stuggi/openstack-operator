@@ -10,62 +10,6 @@ This procedure covers backup and restore of the OpenStack Control Plane focusing
 - PersistentVolumes/PersistentVolumeClaims - see [PVC/PV Backup/Restore](backup-restore-pvc.md) for PVC backup procedures
 - RabbitMQ message queue data (persistent messages)
 
-### Restore Workflow with Staged Deployment
-
-```mermaid
-flowchart TD
-    Start([Start Restore]) --> PreReq{Prerequisites Exist?<br/>✓ StorageClass<br/>✓ NNCP<br/>✓ MetalLB}
-    PreReq -->|Missing| RestorePreReq[Restore/Create Prerequisites:<br/>- StorageClass<br/>- NodeNetworkConfigurationPolicy<br/>- MetalLB IPAddressPool & L2Advertisement]
-    RestorePreReq --> PreReq
-    PreReq -->|Ready| Backup[Extract Backup Archive]
-    Backup --> RestoreNAD[Restore NetworkAttachmentDefinitions]
-    RestoreNAD --> RestoreSecrets[Restore Secrets<br/>filtered: user-provided + CA + DB passwords]
-    RestoreSecrets --> RestoreConfigMaps[Restore ConfigMaps<br/>filtered: user-provided only]
-    RestoreConfigMaps --> RestoreIssuers[Restore TLS Issuers]
-    RestoreIssuers --> RestoreMariaDBCRs[Restore MariaDBDatabase &<br/>MariaDBAccount CRs]
-    RestoreMariaDBCRs --> RestoreCtlPlane[Restore OpenStackControlPlane CR<br/>with annotation:<br/>deployment-stage=infrastructure-only]
-
-    RestoreCtlPlane --> WaitInfra{Wait for<br/>InfrastructureReady<br/>condition}
-    WaitInfra -->|Not Ready| WaitInfra
-    WaitInfra -->|Ready| InfraReady[Infrastructure Ready:<br/>✓ Galera<br/>✓ OVN NB/SB<br/>✓ RabbitMQ<br/>✓ Memcached]
-
-    InfraReady --> RestoreMariaDB[Restore MariaDB Database Contents]
-    RestoreMariaDB --> RestoreOVN[Restore OVN Database Contents<br/>NB & SB databases]
-    RestoreOVN --> RestoreRabbitMQ[Restore RabbitMQ User Credentials<br/>for EDPM compatibility]
-
-    RestoreRabbitMQ --> Resume[Resume Deployment<br/>Remove deployment-stage annotation]
-
-    Resume --> WaitServices{Wait for<br/>OpenStack Services<br/>to be Ready}
-    WaitServices -->|Not Ready| WaitServices
-    WaitServices -->|Ready| ServicesReady[Services Ready:<br/>✓ Keystone<br/>✓ Nova<br/>✓ Neutron<br/>✓ Glance<br/>etc.]
-
-    ServicesReady --> Verify[Verify:<br/>1. Database contents<br/>2. OVN state<br/>3. Service functionality]
-    Verify --> End([Restore Complete])
-
-    style PreReq fill:#FFA07A
-    style RestorePreReq fill:#FFE4B5
-    style InfraReady fill:#90EE90
-    style ServicesReady fill:#90EE90
-    style RestoreCtlPlane fill:#FFE4B5
-    style Resume fill:#FFE4B5
-    style WaitInfra fill:#87CEEB
-    style WaitServices fill:#87CEEB
-```
-
-**Key Points:**
-- **Prerequisites**: Cluster infrastructure must exist first (StorageClass, NNCP, MetalLB) - either still present or restored separately
-- **Staged Deployment**: Infrastructure (databases, message queue) is created first with annotation `deployment-stage=infrastructure-only`
-- **InfrastructureReady Condition**: Single condition check validates all infrastructure components are ready
-- **Database Restore**: Performed while OpenStack services are NOT yet created (clean restore)
-- **Resume Deployment**: Removing the `deployment-stage` annotation triggers creation of OpenStack services
-- **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases (no restarts needed)
-
-**Important**: While we don't backup RabbitMQ queue data, we create a fresh RabbitMQ cluster on restore. The RabbitMQ default user credentials **MUST be backed up and manually restored** to ensure:
-- **EDPM/data plane nodes (compute, network) maintain immediate connectivity without emergency reconfiguration**
-- Data plane nodes will be updated with current credentials on their next EDPM deployment run
-
-⚠️ **CRITICAL**: If you have external data plane nodes deployed, the manual RabbitMQ user restoration step is **mandatory** to provide immediate connectivity. This avoids having to immediately reconfigure all dataplane nodes during restore.
-
 ## Scope
 
 ### Services Covered (Stateless)
@@ -138,6 +82,62 @@ This is not optional - it's **absolutely required** for production deployments w
 **Without this manual restoration step**: You would need to immediately reconfigure all dataplane nodes with new credentials, causing extended downtime and operational complexity. With manual restoration, data plane nodes maintain connectivity immediately after restore, and can be updated with new credentials during their next regular EDPM deployment cycle.
 
 ---
+
+## Restore Workflow with Staged Deployment
+
+```mermaid
+flowchart TD
+    Start([Start Restore]) --> PreReq{Prerequisites Exist?<br/>✓ StorageClass<br/>✓ NNCP<br/>✓ MetalLB}
+    PreReq -->|Missing| RestorePreReq[Restore/Create Prerequisites:<br/>- StorageClass<br/>- NodeNetworkConfigurationPolicy<br/>- MetalLB IPAddressPool & L2Advertisement]
+    RestorePreReq --> PreReq
+    PreReq -->|Ready| Backup[Extract Backup Archive]
+    Backup --> RestoreNAD[Restore NetworkAttachmentDefinitions]
+    RestoreNAD --> RestoreSecrets[Restore Secrets<br/>filtered: user-provided + CA + DB passwords]
+    RestoreSecrets --> RestoreConfigMaps[Restore ConfigMaps<br/>filtered: user-provided only]
+    RestoreConfigMaps --> RestoreIssuers[Restore TLS Issuers]
+    RestoreIssuers --> RestoreMariaDBCRs[Restore MariaDBDatabase &<br/>MariaDBAccount CRs]
+    RestoreMariaDBCRs --> RestoreCtlPlane[Restore OpenStackControlPlane CR<br/>with annotation:<br/>deployment-stage=infrastructure-only]
+
+    RestoreCtlPlane --> WaitInfra{Wait for<br/>InfrastructureReady<br/>condition}
+    WaitInfra -->|Not Ready| WaitInfra
+    WaitInfra -->|Ready| InfraReady[Infrastructure Ready:<br/>✓ Galera<br/>✓ OVN NB/SB<br/>✓ RabbitMQ<br/>✓ Memcached]
+
+    InfraReady --> RestoreMariaDB[Restore MariaDB Database Contents]
+    RestoreMariaDB --> RestoreOVN[Restore OVN Database Contents<br/>NB & SB databases]
+    RestoreOVN --> RestoreRabbitMQ[Restore RabbitMQ User Credentials<br/>for EDPM compatibility]
+
+    RestoreRabbitMQ --> Resume[Resume Deployment<br/>Remove deployment-stage annotation]
+
+    Resume --> WaitServices{Wait for<br/>OpenStack Services<br/>to be Ready}
+    WaitServices -->|Not Ready| WaitServices
+    WaitServices -->|Ready| ServicesReady[Services Ready:<br/>✓ Keystone<br/>✓ Nova<br/>✓ Neutron<br/>✓ Glance<br/>etc.]
+
+    ServicesReady --> Verify[Verify:<br/>1. Database contents<br/>2. OVN state<br/>3. Service functionality]
+    Verify --> End([Restore Complete])
+
+    style PreReq fill:#FFA07A
+    style RestorePreReq fill:#FFE4B5
+    style InfraReady fill:#90EE90
+    style ServicesReady fill:#90EE90
+    style RestoreCtlPlane fill:#FFE4B5
+    style Resume fill:#FFE4B5
+    style WaitInfra fill:#87CEEB
+    style WaitServices fill:#87CEEB
+```
+
+**Key Points:**
+- **Prerequisites**: Cluster infrastructure must exist first (StorageClass, NNCP, MetalLB) - either still present or restored separately
+- **Staged Deployment**: Infrastructure (databases, message queue) is created first with annotation `deployment-stage=infrastructure-only`
+- **InfrastructureReady Condition**: Single condition check validates all infrastructure components are ready
+- **Database Restore**: Performed while OpenStack services are NOT yet created (clean restore)
+- **Resume Deployment**: Removing the `deployment-stage` annotation triggers creation of OpenStack services
+- **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases (no restarts needed)
+
+**Important**: While we don't backup RabbitMQ queue data, we create a fresh RabbitMQ cluster on restore. The RabbitMQ default user credentials **MUST be backed up and manually restored** to ensure:
+- **EDPM/data plane nodes (compute, network) maintain immediate connectivity without emergency reconfiguration**
+- Data plane nodes will be updated with current credentials on their next EDPM deployment run
+
+⚠️ **CRITICAL**: If you have external data plane nodes deployed, the manual RabbitMQ user restoration step is **mandatory** to provide immediate connectivity. This avoids having to immediately reconfigure all dataplane nodes during restore.
 
 ## Prerequisites
 
