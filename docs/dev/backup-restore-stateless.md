@@ -1062,43 +1062,69 @@ oc apply -f topology-backup.json 2>/dev/null || true
 
 **Note on Certificate CRs**: We also do NOT restore Certificate CRs. When the OpenStackControlPlane CR is restored, operators will create Certificate CRs during reconciliation, and cert-manager will issue fresh certificates from the restored CAs (Issuers + CA secrets).
 
-#### 10. Restore OpenStackControlPlane CR
+#### 10. Restore OpenStackControlPlane CR with Staged Deployment
+
+**CRITICAL**: Use the staged deployment annotation to pause after infrastructure creation, allowing database restore before services start.
 
 ```bash
-# Apply the control plane CR
-oc apply -f openstackcontrolplane-backup.json
+# Add the deployment-stage annotation to pause after infrastructure creation
+jq '.items[0].metadata.annotations["core.openstack.org/deployment-stage"] = "infrastructure-only"' \
+  openstackcontrolplane-backup.json > openstackcontrolplane-staged.json
 
-# Watch the operator reconcile - operators will create Certificate CRs
+# Apply the control plane CR with annotation
+oc apply -f openstackcontrolplane-staged.json
+
+# Watch the operator reconcile infrastructure components
 oc get openstackcontrolplane -n openstack --watch
 
-# Watch cert-manager issue fresh certificates
-oc get certificate -n openstack --watch
-# Certificates should appear and become READY: True as operators create them
-
-# Wait for RabbitMQ clusters to be created and running
-oc get rabbitmq -n openstack
-# All should show STATUS: True, MESSAGE: Setup complete
-
-# Check RabbitMQ pods are running
-oc get pods -n openstack | grep rabbitmq
-# Wait until all rabbitmq-server-* pods are Running
+# Wait for InfrastructureReady condition
+oc wait --for=condition=InfrastructureReady openstackcontrolplane/openstack -n openstack --timeout=20m
 ```
 
-**What happens during reconciliation:**
+**What happens during this stage:**
 1. Operators reconcile the OpenStackControlPlane CR
-2. Operators create Certificate CRs for all services (keystone, nova, neutron, etc.)
-3. cert-manager sees the Certificate CRs and Issuers
-4. cert-manager issues **fresh TLS certificates** from the restored CA
-5. Certificates are stored in secrets (overwriting any previously restored certificate secrets)
-6. Services start with fresh, valid TLS certificates
+2. Infrastructure components are created:
+   - Galera (MariaDB cluster)
+   - OVN NB/SB databases
+   - RabbitMQ clusters
+   - Memcached
+3. Operators create Certificate CRs for infrastructure services
+4. cert-manager issues fresh TLS certificates from the restored CA
+5. **Deployment PAUSES** - OpenStack services (Keystone, Nova, etc.) are NOT created yet
+6. InfrastructureReady condition becomes True
 
-**Why this is better than restoring Certificate CRs:**
-- Fresh certificates with new expiry dates (no risk of expired certificates)
-- Operators manage what they own (Certificate CRs)
-- Same trust chain preserved (same CA)
-- Cleaner, more operator-aligned approach
+**Verify infrastructure is ready:**
 
-#### 11. Restore RabbitMQ User Credentials (CRITICAL MANUAL STEP)
+```bash
+# Check InfrastructureReady condition
+oc get openstackcontrolplane openstack -n openstack -o jsonpath='{.status.conditions[?(@.type=="InfrastructureReady")]}'
+
+# Verify infrastructure components
+oc get galera -n openstack
+oc get ovndbcluster -n openstack
+oc get rabbitmq -n openstack
+oc get memcached -n openstack
+
+# All infrastructure should show Ready status
+```
+
+**Why staged deployment is critical:**
+- Allows restoring database contents to empty databases before services start
+- Prevents services from initializing fresh schemas (which would conflict with restored data)
+- Ensures clean database restore without service restarts
+- Services start with already-restored databases (no db_sync race conditions)
+
+#### 11. Restore Database Contents (MariaDB and OVN)
+
+**CRITICAL**: Restore database contents while services are NOT running. This is only possible because of the staged deployment pause.
+
+Follow the separate database restore procedures:
+- **MariaDB**: See separate MariaDB backup/restore documentation or use `./restore-mariadb.sh` script
+- **OVN Databases**: See separate OVN backup/restore documentation or use `./restore-ovn.sh` script
+
+After database restore is complete, proceed to the next step.
+
+#### 12. Restore RabbitMQ User Credentials (CRITICAL MANUAL STEP)
 
 ⚠️ **CRITICAL FOR EDPM/DATA PLANE DEPLOYMENTS** ⚠️
 
@@ -1151,7 +1177,46 @@ echo ""
 echo "RabbitMQ user credentials restored successfully!"
 ```
 
-#### 9. Verify Restoration
+#### 13. Resume Deployment (Remove Staged Deployment Annotation)
+
+Now that databases and RabbitMQ credentials are restored, resume the deployment to create OpenStack services.
+
+```bash
+# Remove the deployment-stage annotation to resume deployment
+oc annotate openstackcontrolplane openstack -n openstack \
+  core.openstack.org/deployment-stage-
+
+# Watch services being created
+oc get openstackcontrolplane -n openstack --watch
+
+# Wait for control plane to be ready
+oc wait --for=condition=Ready openstackcontrolplane/openstack -n openstack --timeout=30m
+```
+
+**What happens after resuming:**
+1. Operator creates all OpenStack services (Keystone, Nova, Neutron, Glance, etc.)
+2. Services start and connect to the already-restored databases
+3. Services connect to RabbitMQ using the restored credentials
+4. No database initialization or db_sync needed (data already restored)
+5. Services come up with existing data intact
+
+**Monitor the deployment:**
+
+```bash
+# Watch services being created
+oc get pods -n openstack --watch
+
+# Check Certificate CRs being created for services
+oc get certificate -n openstack
+
+# Verify TransportURL resources are created
+oc get transporturl -n openstack
+
+# Check operator logs for any issues
+oc logs -n openstack-operators deployment/openstack-operator-controller-manager -f
+```
+
+#### 14. Verify Restoration
 
 ```bash
 # Check control plane status
