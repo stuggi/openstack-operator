@@ -802,18 +802,15 @@ cd openstack-ctlplane-backup-*/
 # Review operator versions from backup
 cat operator-versions.txt
 
-# Check current cluster operator versions
+# Check current cluster operator version
 echo "Current OpenStack Operator:"
 oc get deployment openstack-operator-controller-manager -n openstack-operators -o jsonpath='{.spec.template.spec.containers[0].image}'
 echo ""
 
-echo "Current Infra Operator:"
-oc get deployment infra-operator-controller-manager -n openstack-operators -o jsonpath='{.spec.template.spec.containers[0].image}'
-echo ""
-
 # MANUAL VERIFICATION REQUIRED:
-# Compare the output above with the versions in operator-versions.txt
-# If they DO NOT match, STOP and install matching operator versions
+# Compare the output above with the version in operator-versions.txt
+# If they DO NOT match, STOP and install matching operator version
+# Note: Installing the correct openstack-operator will automatically install the matching infra-operator
 ```
 
 **If Versions Don't Match:**
@@ -1380,23 +1377,20 @@ echo "========================================="
 cat operator-versions.txt | grep -A 10 "Operator Versions:"
 echo ""
 
-# Check current operator versions on target cluster
+# Check current operator version on target cluster
 echo "========================================="
-echo "CURRENT OPERATOR VERSIONS (target cluster):"
+echo "CURRENT OPERATOR VERSION (target cluster):"
 echo "========================================="
 echo "OpenStack Operator:"
 oc get deployment openstack-operator-controller-manager -n openstack-operators -o jsonpath='{.spec.template.spec.containers[0].image}'
 echo ""
 
-echo "Infra Operator:"
-oc get deployment infra-operator-controller-manager -n openstack-operators -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "Not found"
-echo ""
-
 echo "========================================="
 echo "MANUAL VERIFICATION REQUIRED!"
 echo "========================================="
-echo "Compare the versions above. They MUST match exactly."
-echo "If they don't match, STOP and install matching operator versions."
+echo "Compare the version above with operator-versions.txt. They MUST match exactly."
+echo "If they don't match, STOP and install matching operator version."
+echo "Note: Installing the correct openstack-operator will automatically install the matching infra-operator."
 echo ""
 
 # Verify storage classes exist
