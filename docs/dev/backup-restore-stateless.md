@@ -5,13 +5,62 @@
 This procedure is designed for **Red Hat OpenShift** deployments using the `oc` CLI client.
 
 This procedure covers backup and restore of the OpenStack Control Plane focusing on **stateless services only**. It excludes:
-- Database data (Galera/MariaDB)
+- Database data (Galera/MariaDB) - see [PVC/PV Backup/Restore](backup-restore-pvc.md) for database backup procedures
 - OVN databases - see [OVN Backup/Restore](backup-restore-ovn.md) for OVN-specific procedures
 - PersistentVolumes/PersistentVolumeClaims - see [PVC/PV Backup/Restore](backup-restore-pvc.md) for PVC backup procedures
 - RabbitMQ message queue data (persistent messages)
 
+### Restore Workflow with Staged Deployment
+
+```mermaid
+flowchart TD
+    Start([Start Restore]) --> PreReq{Prerequisites Exist?<br/>✓ StorageClass<br/>✓ NNCP<br/>✓ MetalLB}
+    PreReq -->|Missing| RestorePreReq[Restore/Create Prerequisites:<br/>- StorageClass<br/>- NodeNetworkConfigurationPolicy<br/>- MetalLB IPAddressPool & L2Advertisement]
+    RestorePreReq --> PreReq
+    PreReq -->|Ready| Backup[Extract Backup Archive]
+    Backup --> RestoreNAD[Restore NetworkAttachmentDefinitions]
+    RestoreNAD --> RestoreSecrets[Restore Secrets<br/>filtered: user-provided + CA + DB passwords]
+    RestoreSecrets --> RestoreConfigMaps[Restore ConfigMaps<br/>filtered: user-provided only]
+    RestoreConfigMaps --> RestoreIssuers[Restore TLS Issuers]
+    RestoreIssuers --> RestoreMariaDBCRs[Restore MariaDBDatabase &<br/>MariaDBAccount CRs]
+    RestoreMariaDBCRs --> RestoreCtlPlane[Restore OpenStackControlPlane CR<br/>with annotation:<br/>deployment-stage=infrastructure-only]
+
+    RestoreCtlPlane --> WaitInfra{Wait for<br/>InfrastructureReady<br/>condition}
+    WaitInfra -->|Not Ready| WaitInfra
+    WaitInfra -->|Ready| InfraReady[Infrastructure Ready:<br/>✓ Galera<br/>✓ OVN NB/SB<br/>✓ RabbitMQ<br/>✓ Memcached]
+
+    InfraReady --> RestoreMariaDB[Restore MariaDB Database Contents]
+    RestoreMariaDB --> RestoreOVN[Restore OVN Database Contents<br/>NB & SB databases]
+    RestoreOVN --> RestoreRabbitMQ[Restore RabbitMQ User Credentials<br/>for EDPM compatibility]
+
+    RestoreRabbitMQ --> Resume[Resume Deployment<br/>Remove deployment-stage annotation]
+
+    Resume --> WaitServices{Wait for<br/>OpenStack Services<br/>to be Ready}
+    WaitServices -->|Not Ready| WaitServices
+    WaitServices -->|Ready| ServicesReady[Services Ready:<br/>✓ Keystone<br/>✓ Nova<br/>✓ Neutron<br/>✓ Glance<br/>etc.]
+
+    ServicesReady --> Verify[Verify:<br/>1. Database contents<br/>2. OVN state<br/>3. Service functionality]
+    Verify --> End([Restore Complete])
+
+    style PreReq fill:#FFA07A
+    style RestorePreReq fill:#FFE4B5
+    style InfraReady fill:#90EE90
+    style ServicesReady fill:#90EE90
+    style RestoreCtlPlane fill:#FFE4B5
+    style Resume fill:#FFE4B5
+    style WaitInfra fill:#87CEEB
+    style WaitServices fill:#87CEEB
+```
+
+**Key Points:**
+- **Prerequisites**: Cluster infrastructure must exist first (StorageClass, NNCP, MetalLB) - either still present or restored separately
+- **Staged Deployment**: Infrastructure (databases, message queue) is created first with annotation `deployment-stage=infrastructure-only`
+- **InfrastructureReady Condition**: Single condition check validates all infrastructure components are ready
+- **Database Restore**: Performed while OpenStack services are NOT yet created (clean restore)
+- **Resume Deployment**: Removing the `deployment-stage` annotation triggers creation of OpenStack services
+- **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases (no restarts needed)
+
 **Important**: While we don't backup RabbitMQ queue data, we create a fresh RabbitMQ cluster on restore. The RabbitMQ default user credentials **MUST be backed up and manually restored** to ensure:
-- Control plane services can authenticate
 - **EDPM/data plane nodes (compute, network) maintain immediate connectivity without emergency reconfiguration**
 - Data plane nodes will be updated with current credentials on their next EDPM deployment run
 
@@ -66,8 +115,8 @@ This is not optional - it's **absolutely required** for production deployments w
 
 2. **Services on Data Plane Nodes**:
    - nova-compute agents (connect to cell RabbitMQ)
-   - neutron-ovn-metadata-agent (connect to notifications RabbitMQ)
-   - Maybe other compute/network services
+   - ceilometer-compute agents (connect to RabbitMQ for metrics)
+   - Maybe other compute/networker services
 
 3. **Why Preserving Credentials is Required**:
    - Data plane nodes have RabbitMQ credentials in their configuration files
@@ -84,8 +133,7 @@ This is not optional - it's **absolutely required** for production deployments w
 
 5. **Critical RabbitMQ Clusters for Data Plane**:
    - **Cell RabbitMQ** (e.g., rabbitmq-cell1) - Used by nova-compute on compute nodes
-   - **Notifications RabbitMQ** (rabbitmq-notifications) - Used by neutron agents on network nodes
-   - Main RabbitMQ - Used by control plane services
+   - **Notifications RabbitMQ** (rabbitmq-notifications) - Used by ceilometer-compute on data plane nodes
 
 **Without this manual restoration step**: You would need to immediately reconfigure all dataplane nodes with new credentials, causing extended downtime and operational complexity. With manual restoration, data plane nodes maintain connectivity immediately after restore, and can be updated with new credentials during their next regular EDPM deployment cycle.
 
@@ -1151,8 +1199,7 @@ oc get pods -n openstack | grep rabbitmq
 
 **Critical clusters to restore:**
 - `rabbitmq-cell1` - **REQUIRED** for immediate compute node connectivity (nova-compute)
-- `rabbitmq-notifications` - **REQUIRED** for immediate network node connectivity (neutron agents)
-- `rabbitmq` - Used by control plane services
+- `rabbitmq-notifications` - **REQUIRED** for telemetry node connectivity (ceilometer-compute)
 
 ```bash
 # For each RabbitMQ cluster, restore the user credentials
@@ -1254,9 +1301,12 @@ After completing the restore, verify that data plane nodes can still connect:
 ssh compute-node-1
 sudo tail -f /var/log/containers/nova/nova-compute.log | grep -i rabbit
 
-# Check neutron agent connectivity from a network node
+# Check ceilometer-compute connectivity from a compute node
+sudo tail -f /var/log/containers/ceilometer/ceilometer-compute.log | grep -i rabbit
+
+# Check neutron metadata agent connectivity from a network node
 ssh network-node-1
-sudo tail -f /var/log/containers/neutron/ovn-metadata-agent.log | grep -i rabbit
+sudo tail -f /var/log/containers/neutron/ovn-metadata-agent.log | grep -i ovn
 
 # From the control plane, verify compute services are reporting
 oc rsh -n openstack openstackclient
@@ -1579,7 +1629,6 @@ This procedure creates a **brand new RabbitMQ cluster** instead of restoring the
 - TransportURL secrets reference this shared user credential
 - **EDPM/data plane nodes** (compute, network) have these credentials configured locally
 - Manual restoration ensures:
-  - Control plane services can authenticate (via automatically regenerated TransportURL secrets)
   - **Data plane nodes maintain immediate connectivity** without emergency reconfiguration
   - Normal EDPM deployment cycles will update credentials over time
 - This is especially critical for:

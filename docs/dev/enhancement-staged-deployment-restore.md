@@ -89,7 +89,7 @@ spec:
 
 **Values:**
 - `infrastructure-only` - Deploy infrastructure (MariaDB, OVN, RabbitMQ, Memcached) only, then pause
-- `complete` or annotation removed - Deploy all services (default behavior)
+- annotation removed (or not set) - Deploy all services (default behavior)
 
 **Benefits:**
 - No API version changes needed
@@ -163,7 +163,7 @@ if instance.Annotations["core.openstack.org/deployment-stage"] == "infrastructur
             corev1beta1.OpenStackControlPlaneInfrastructureReadyCondition,
             condition.ReadyMessage,
             "Infrastructure (Galera, OVN, RabbitMQ, Memcached) is ready for database restore. "+
-            "Set annotation core.openstack.org/deployment-stage=complete to resume deployment.",
+            "Remove annotation core.openstack.org/deployment-stage to resume deployment.",
         ))
 
         instance.Status.Conditions.Set(condition.FalseCondition(
@@ -256,7 +256,7 @@ status:
   - type: InfrastructureReady
     status: "True"
     lastTransitionTime: "2026-01-23T10:05:00Z"
-    message: "Infrastructure (Galera, OVN, RabbitMQ, Memcached) is ready for database restore. Set annotation core.openstack.org/deployment-stage=complete to resume deployment."
+    message: "Infrastructure (Galera, OVN, RabbitMQ, Memcached) is ready for database restore. Remove annotation core.openstack.org/deployment-stage to resume deployment."
     reason: Ready
   - type: Ready
     status: "False"
@@ -363,9 +363,9 @@ echo "Step 5: Resuming full control plane deployment..."
 echo ""
 
 oc annotate openstackcontrolplane openstack -n ${NAMESPACE} \
-    core.openstack.org/deployment-stage=complete
+    core.openstack.org/deployment-stage-
 
-echo "✓ Deployment stage set to 'complete'"
+echo "✓ Deployment stage annotation removed"
 echo ""
 
 # Step 6: Wait for all services
@@ -426,7 +426,7 @@ T+20:  System stable
 3. Wait for SINGLE condition: InfrastructureReady ⭐
    └─ Controller validates all components automatically
 4. Restore databases into RUNNING pods
-5. Resume deployment (complete mode)
+5. Resume deployment (remove annotation)
 6. Services start with RESTORED databases
    └─ No restarts needed
 ```
@@ -437,7 +437,7 @@ T+0:   Restore CR (infrastructure-only)
 T+1:   MariaDB pod starting, NO other services
 T+5:   InfrastructureReady=True (all validated!)
 T+10:  Restore databases
-T+11:  Resume deployment (complete)
+T+11:  Resume deployment (remove annotation)
 T+12:  Keystone pod starting (with RESTORED DB!)
 T+15:  System stable
 ```
@@ -502,12 +502,11 @@ NAMESPACE="${NAMESPACE:-openstack}"
 echo "Resuming OpenStack control plane deployment..."
 echo ""
 
-# Remove staging annotation or set to complete
+# Remove staging annotation
 oc annotate openstackcontrolplane openstack -n ${NAMESPACE} \
-    core.openstack.org/deployment-stage=complete \
-    --overwrite
+    core.openstack.org/deployment-stage-
 
-echo "✓ Deployment resumed"
+echo "✓ Deployment resumed (annotation removed)"
 echo ""
 echo "Waiting for all services to be ready..."
 oc wait --for=condition=Ready openstackcontrolplane/openstack \
@@ -1052,7 +1051,7 @@ func (r *OpenStackControlPlaneReconciler) Reconcile(ctx context.Context, req ctr
                 corev1beta1.OpenStackControlPlaneInfrastructureReadyCondition,
                 condition.ReadyMessage,
                 "Infrastructure (Galera, OVN, RabbitMQ, Memcached) is ready for database restore. "+
-                "Set annotation core.openstack.org/deployment-stage=complete to resume deployment.",
+                "Remove annotation core.openstack.org/deployment-stage to resume deployment.",
             ))
 
             instance.Status.Conditions.Set(condition.FalseCondition(
