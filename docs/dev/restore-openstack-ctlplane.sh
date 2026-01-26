@@ -13,9 +13,12 @@ set -e
 # 5. MariaDBDatabase CRs (needs database password secrets)
 # 6. MariaDBAccount CRs (needs MariaDBDatabase CRs)
 # 7. Related CRs (NetConfig, OpenStackVersion, Topology)
-# 8. OpenStackControlPlane CR (triggers operator reconciliation)
-# 9. Operators create Certificate CRs → cert-manager issues fresh certificates
-# 10. Manual RabbitMQ user restoration
+# 8. OpenStackControlPlane CR with staged deployment annotation
+# 9. Wait for InfrastructureReady condition
+# 10. Restore database contents (MariaDB and OVN)
+# 11. Restore RabbitMQ user credentials
+# 12. Resume deployment (remove annotation)
+# 13. Operators create Certificate CRs → cert-manager issues fresh certificates
 #
 # NOTE: Certificate CRs and certificate secrets are NOT restored.
 #       Operators recreate Certificate CRs during reconciliation, and cert-manager
@@ -396,83 +399,106 @@ fi
 echo ""
 
 echo "========================================"
-echo "Step 10: Restore OpenStackControlPlane CR"
+echo "Step 10: Restore OpenStackControlPlane CR with Staged Deployment"
 echo "========================================"
 echo ""
-echo "When the OpenStackControlPlane CR is restored, operators will:"
-echo "  1. Reconcile and create Certificate CRs for all services"
-echo "  2. cert-manager will issue fresh certificates from the restored CAs"
-echo "  3. Services will use new certificates with fresh expiry dates"
+echo "CRITICAL: Using staged deployment annotation to pause after infrastructure creation."
+echo "This allows database restore before OpenStack services start."
 echo ""
-read -p "Ready to restore OpenStackControlPlane CR? This will trigger operator reconciliation. (yes/no): " RESTORE_CONFIRM
+echo "When the OpenStackControlPlane CR is restored with annotation, operators will:"
+echo "  1. Create infrastructure: Galera, OVN, RabbitMQ, Memcached"
+echo "  2. Create Certificate CRs for infrastructure services"
+echo "  3. cert-manager issues fresh certificates from the restored CAs"
+echo "  4. PAUSE - OpenStack services (Keystone, Nova, etc.) are NOT created yet"
+echo "  5. Set InfrastructureReady condition to True"
+echo ""
+read -p "Ready to restore OpenStackControlPlane CR with staged deployment? (yes/no): " RESTORE_CONFIRM
 
 if [ "${RESTORE_CONFIRM}" != "yes" ]; then
     echo "Aborting. You can manually restore later with:"
     echo "  cd ${BACKUP_DIR}"
-    echo "  oc apply -f openstackcontrolplane-backup.json -n ${NAMESPACE}"
+    echo "  jq '.items[0].metadata.annotations[\"core.openstack.org/deployment-stage\"] = \"infrastructure-only\"' openstackcontrolplane-backup.json > openstackcontrolplane-staged.json"
+    echo "  oc apply -f openstackcontrolplane-staged.json -n ${NAMESPACE}"
     popd > /dev/null
     rm -rf ${WORK_DIR}
     exit 1
 fi
 
-oc apply -f openstackcontrolplane-backup.json -n ${NAMESPACE}
-echo "✓ OpenStackControlPlane CR restored"
+echo "Adding deployment-stage annotation..."
+CTLPLANE_STAGED=$(mktemp)
+jq '.items[0].metadata.annotations["core.openstack.org/deployment-stage"] = "infrastructure-only"' \
+  openstackcontrolplane-backup.json > ${CTLPLANE_STAGED}
+
+oc apply -f ${CTLPLANE_STAGED} -n ${NAMESPACE}
+rm -f ${CTLPLANE_STAGED}
+echo "✓ OpenStackControlPlane CR restored with staged deployment annotation"
 echo ""
 
-echo "Waiting for operator reconciliation to start..."
-sleep 10
+echo "Waiting for infrastructure to be ready..."
+echo "This may take several minutes..."
 echo ""
 
-echo "Checking RabbitMQ cluster status..."
-oc get rabbitmq -n ${NAMESPACE} || echo "No RabbitMQ resources yet"
-echo ""
-
-echo "Waiting for RabbitMQ clusters to be created and ready..."
-echo "This may take several minutes. Checking every 30 seconds..."
-WAIT_COUNT=0
-MAX_WAIT=20  # 10 minutes max
-
-while [ ${WAIT_COUNT} -lt ${MAX_WAIT} ]; do
-    RABBITMQ_COUNT=$(oc get rabbitmq -n ${NAMESPACE} --no-headers 2>/dev/null | wc -l)
-
-    if [ "${RABBITMQ_COUNT}" -gt 0 ]; then
-        echo ""
-        echo "RabbitMQ clusters found:"
-        oc get rabbitmq -n ${NAMESPACE}
-        echo ""
-
-        # Check if all are ready
-        NOT_READY=$(oc get rabbitmq -n ${NAMESPACE} -o json | jq '[.items[] | select(.status.conditions[] | select(.type=="Ready" and .status!="True"))] | length')
-
-        if [ "${NOT_READY}" -eq 0 ]; then
-            echo "✓ All RabbitMQ clusters are ready!"
-            break
-        else
-            echo "Waiting for ${NOT_READY} RabbitMQ cluster(s) to become ready..."
-        fi
-    else
-        echo "  No RabbitMQ clusters yet... (attempt $((WAIT_COUNT+1))/${MAX_WAIT})"
-    fi
-
-    sleep 30
-    WAIT_COUNT=$((WAIT_COUNT+1))
-done
-
-if [ ${WAIT_COUNT} -ge ${MAX_WAIT} ]; then
-    echo "Warning: Timeout waiting for RabbitMQ clusters. Check manually:"
-    echo "  oc get rabbitmq -n ${NAMESPACE}"
-    echo "  oc get pods -n ${NAMESPACE} | grep rabbitmq"
+echo "Waiting for InfrastructureReady condition..."
+if oc wait --for=condition=InfrastructureReady openstackcontrolplane/openstack -n ${NAMESPACE} --timeout=20m; then
+    echo "✓ Infrastructure is ready!"
+else
+    echo "Warning: Timeout waiting for InfrastructureReady condition"
+    echo "Check status manually:"
+    echo "  oc get openstackcontrolplane openstack -n ${NAMESPACE} -o jsonpath='{.status.conditions}'"
 fi
 echo ""
 
-echo "Checking RabbitMQ pods..."
-oc get pods -n ${NAMESPACE} | grep rabbitmq || echo "No RabbitMQ pods found yet"
+echo "Verifying infrastructure components..."
+echo "Galera clusters:"
+oc get galera -n ${NAMESPACE} || echo "  No Galera clusters found"
+echo ""
+echo "OVN database clusters:"
+oc get ovndbcluster -n ${NAMESPACE} || echo "  No OVN database clusters found"
+echo ""
+echo "RabbitMQ clusters:"
+oc get rabbitmq -n ${NAMESPACE} || echo "  No RabbitMQ clusters found"
+echo ""
+echo "Memcached instances:"
+oc get memcached -n ${NAMESPACE} || echo "  No Memcached instances found"
+echo ""
+
+echo "========================================"
+echo "Step 11: Restore Database Contents"
+echo "========================================"
+echo ""
+echo "CRITICAL: Restore database contents while services are NOT running."
+echo "This is only possible because of the staged deployment pause."
+echo ""
+echo "You must restore databases using separate procedures:"
+echo "  - MariaDB: Use backup-mariadb.sh and restore-mariadb.sh"
+echo "  - OVN Databases: Use OVN database backup/restore procedures"
+echo ""
+echo "After database restore is complete, press Enter to continue..."
+read -p "Have you completed database restore? (yes/no): " DB_RESTORE_CONFIRM
+
+if [ "${DB_RESTORE_CONFIRM}" != "yes" ]; then
+    echo ""
+    echo "⚠️  WARNING: Database restore is required before continuing!"
+    echo "Without database restore, OpenStack services will initialize fresh schemas."
+    echo ""
+    read -p "Continue anyway without database restore? (yes/no): " SKIP_DB_CONFIRM
+
+    if [ "${SKIP_DB_CONFIRM}" != "yes" ]; then
+        echo "Aborting. Restore databases and then resume with:"
+        echo "  oc annotate openstackcontrolplane openstack -n ${NAMESPACE} core.openstack.org/deployment-stage-"
+        popd > /dev/null
+        rm -rf ${WORK_DIR}
+        exit 1
+    fi
+else
+    echo "✓ Database restore completed"
+fi
 echo ""
 
 # RabbitMQ User Restoration
 if [ "${SKIP_RABBITMQ_RESTORE}" != "true" ]; then
     echo "========================================"
-    echo "Step 11: Restore RabbitMQ User Credentials"
+    echo "Step 12: Restore RabbitMQ User Credentials"
     echo "========================================"
     echo ""
     echo "⚠️  CRITICAL FOR EDPM/DATA PLANE DEPLOYMENTS ⚠️"
@@ -566,12 +592,63 @@ else
 fi
 echo ""
 
+echo "========================================"
+echo "Step 13: Resume Deployment"
+echo "========================================"
+echo ""
+echo "Now that databases and RabbitMQ credentials are restored,"
+echo "remove the staged deployment annotation to resume deployment."
+echo ""
+echo "This will:"
+echo "  1. Create all OpenStack services (Keystone, Nova, Neutron, Glance, etc.)"
+echo "  2. Services start and connect to the already-restored databases"
+echo "  3. Services connect to RabbitMQ using the restored credentials"
+echo "  4. No database initialization or db_sync needed (data already restored)"
+echo ""
+read -p "Ready to resume deployment? (yes/no): " RESUME_CONFIRM
+
+if [ "${RESUME_CONFIRM}" != "yes" ]; then
+    echo ""
+    echo "⚠️  Deployment is still paused with annotation."
+    echo "To resume later, run:"
+    echo "  oc annotate openstackcontrolplane openstack -n ${NAMESPACE} core.openstack.org/deployment-stage-"
+    popd > /dev/null
+    rm -rf ${WORK_DIR}
+    exit 0
+fi
+
+echo "Removing deployment-stage annotation..."
+oc annotate openstackcontrolplane openstack -n ${NAMESPACE} \
+  core.openstack.org/deployment-stage-
+echo "✓ Annotation removed, deployment resuming"
+echo ""
+
+echo "Monitoring deployment progress..."
+echo "Services will be created and started with restored data"
+echo ""
+sleep 5
+
+echo "Current OpenStackControlPlane status:"
+oc get openstackcontrolplane openstack -n ${NAMESPACE}
+echo ""
+
+echo "Waiting for OpenStackControlPlane to become Ready..."
+echo "This may take 10-30 minutes depending on the deployment size..."
+if oc wait --for=condition=Ready openstackcontrolplane/openstack -n ${NAMESPACE} --timeout=30m; then
+    echo "✓ OpenStackControlPlane is Ready!"
+else
+    echo "Warning: Timeout waiting for Ready condition"
+    echo "Deployment may still be in progress. Check manually:"
+    echo "  oc get openstackcontrolplane openstack -n ${NAMESPACE} --watch"
+fi
+echo ""
+
 # Return to original directory and cleanup temporary directory
 popd > /dev/null
 rm -rf ${WORK_DIR}
 
 echo "========================================"
-echo "Restore completed!"
+echo "Restore Completed!"
 echo "========================================"
 echo ""
 echo "Next steps:"
