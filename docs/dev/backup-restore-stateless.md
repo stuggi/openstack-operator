@@ -1119,8 +1119,8 @@ oc get memcached -n openstack
 **CRITICAL**: Restore database contents while services are NOT running. This is only possible because of the staged deployment pause.
 
 Follow the separate database restore procedures:
-- **MariaDB**: See separate MariaDB backup/restore documentation or use `./restore-mariadb.sh` script
-- **OVN Databases**: See separate OVN backup/restore documentation or use `./restore-ovn.sh` script
+- **MariaDB**
+- **OVN Databases**
 
 After database restore is complete, proceed to the next step.
 
