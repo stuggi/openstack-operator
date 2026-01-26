@@ -21,11 +21,7 @@ This procedure covers backup and restore of the OpenStack Control Plane focusing
 
 ⚠️ **This procedure includes critical steps for EDPM deployments**
 
-If you have **External Data Plane Management (EDPM)** nodes deployed:
-- **Compute nodes** (running nova-compute)
-- **Network nodes** (running neutron agents)
-
-These nodes have RabbitMQ credentials configured locally and depend on the **manual RabbitMQ user restoration step** (Step 6 in the restore procedure). Without this step, all data plane nodes would lose connectivity to the control plane immediately after restore, requiring emergency reconfiguration of all dataplane nodes. With the manual restoration, data plane nodes maintain connectivity and will be updated with current credentials on their next regular EDPM deployment run.
+If you have **External Data Plane Management (EDPM)** nodes deployed (compute nodes, network nodes), the **manual RabbitMQ user restoration step** is mandatory. See the RabbitMQ User Management section below for details.
 
 ### Key Principle
 All services are **operator-managed** and **stateless**. The operator will automatically recreate all resources (Deployments, Services, ConfigMaps, etc.) when you restore the Custom Resources.
@@ -133,11 +129,7 @@ flowchart TD
 - **Resume Deployment**: Removing the `deployment-stage` annotation triggers creation of OpenStack services
 - **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases (no restarts needed)
 
-**Important**: While we don't backup RabbitMQ queue data, we create a fresh RabbitMQ cluster on restore. The RabbitMQ default user credentials **MUST be backed up and manually restored** to ensure:
-- **EDPM/data plane nodes (compute, network) maintain immediate connectivity without emergency reconfiguration**
-- Data plane nodes will be updated with current credentials on their next EDPM deployment run
-
-⚠️ **CRITICAL**: If you have external data plane nodes deployed, the manual RabbitMQ user restoration step is **mandatory** to provide immediate connectivity. This avoids having to immediately reconfigure all dataplane nodes during restore.
+**Important**: While we don't backup RabbitMQ queue data, we create a fresh RabbitMQ cluster on restore. The RabbitMQ default user credentials **MUST be backed up and manually restored** for EDPM/data plane deployments. See "RabbitMQ User Management" in the Scope section for details.
 
 ## Prerequisites
 
@@ -467,18 +459,7 @@ By removing these fields, we provide the **desired state** (spec + data) and let
 
 **CRITICAL - RabbitMQ Secrets Backup:**
 
-⚠️ **IMPORTANT FOR EDPM/DATA PLANE DEPLOYMENTS**: If you have external data plane nodes (compute nodes, network nodes), backing up the RabbitMQ default user secrets is **absolutely critical**. Data plane nodes have RabbitMQ credentials configured locally and need immediate connectivity after restore.
-
-- The `rabbitmq-*-default-user` secrets contain the shared RabbitMQ credentials used by all services
-- **These MUST be backed up** - they are needed to restore the correct user credentials after creating a new cluster
-- During restore, you will manually add these user credentials to the new RabbitMQ cluster
-- The operator will automatically regenerate the `rabbitmq-transport-url-*` secrets when TransportURL CRs reconcile
-- **Without backing up default user secrets and manual restoration**: You would need to immediately reconfigure all dataplane nodes with new credentials
-- Data plane nodes will get updated credentials on their next EDPM deployment run
-
-**Key RabbitMQ clusters for data plane nodes:**
-- `rabbitmq-cell1-default-user` - Critical for nova-compute on compute nodes
-- `rabbitmq-notifications-default-user` - Critical for neutron agents on network nodes
+⚠️ **IMPORTANT FOR EDPM/DATA PLANE DEPLOYMENTS**: The `rabbitmq-*-default-user` secrets **MUST be backed up**. These credentials will be manually restored to the new RabbitMQ clusters during the restore procedure to ensure data plane node connectivity. See "RabbitMQ User Management" in the Scope section for details on why this is required.
 
 ### 5. Backup MariaDB Resources
 
@@ -1160,19 +1141,7 @@ oc get pods -n openstack | grep rabbitmq
 
 ⚠️ **CRITICAL FOR EDPM/DATA PLANE DEPLOYMENTS** ⚠️
 
-**IMPORTANT**: The new RabbitMQ clusters have been created with randomly generated credentials. You **MUST** now restore the original user credentials from the backup so that OpenStack services can connect.
-
-**Why this step is mandatory:**
-- **External data plane nodes** (compute nodes, network nodes) have RabbitMQ credentials configured in local config files
-- These nodes connect to **cell RabbitMQ** (nova-compute) and **notifications RabbitMQ** (neutron agents)
-- Without restoring the original credentials, **all data plane nodes will lose connectivity immediately after restore**
-- The alternative would be immediately reconfiguring **all dataplane nodes** - which is impractical during restore
-- This manual step provides **immediate continuity** - data plane nodes maintain connectivity
-- EDPM nodes will be updated with current credentials on their next deployment run
-
-**Critical clusters to restore:**
-- `rabbitmq-cell1` - **REQUIRED** for immediate compute node connectivity (nova-compute)
-- `rabbitmq-notifications` - **REQUIRED** for telemetry node connectivity (ceilometer-compute)
+The new RabbitMQ clusters have been created with randomly generated credentials. Restore the original user credentials from the backup to ensure data plane node connectivity. See "RabbitMQ User Management" in the Scope section for why this step is required.
 
 ```bash
 # For each RabbitMQ cluster, restore the user credentials
@@ -1220,17 +1189,6 @@ oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl list_users | grep "${RAB
 echo ""
 echo "RabbitMQ user credentials restored successfully!"
 ```
-
-**Why This Step is Critical (EDPM Context):**
-- New RabbitMQ clusters generate random default user credentials (different from backup)
-- **Data plane nodes** (compute/network) have the **original credentials** configured locally
-- Without restoring original credentials:
-  - ❌ **All compute nodes** cannot connect to cell RabbitMQ (nova-compute fails)
-  - ❌ **All network nodes** cannot connect to notifications RabbitMQ (neutron agents fail)
-  - ❌ Would require reconfiguring **all dataplane nodes**
-  - ❌ Extended downtime and operational complexity
-- This manual step preserves credentials that data plane nodes expect
-- Control plane services will also use these restored credentials via automatically regenerated TransportURL secrets
 
 #### 9. Verify Restoration
 
@@ -1298,10 +1256,7 @@ openstack network agent list
 - Check RabbitMQ user permissions: `oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl list_user_permissions <username>`
 
 **Post-Restore EDPM Updates:**
-- Data plane nodes are currently using the restored (backed-up) RabbitMQ credentials
-- On the next EDPM deployment run, nodes will be updated with current credentials
-- This allows you to update RabbitMQ credentials in the future through normal EDPM deployment cycles
-- The manual restoration provides immediate continuity; EDPM deployment handles long-term credential management
+Data plane nodes use the restored RabbitMQ credentials for immediate connectivity. Future EDPM deployment runs will update credentials as needed.
 
 ---
 
@@ -1593,26 +1548,12 @@ This procedure creates a **brand new RabbitMQ cluster** instead of restoring the
 **Impact:**
 - ✅ No stale messages or queue corruption
 - ✅ Clean start for message bus
-- ✅ Services use familiar credentials from backup (continuity)
+- ✅ Services use restored credentials from backup (continuity for EDPM nodes)
 - ❌ Any in-flight messages are lost (acceptable for stateless restore)
-- ⚠️ **Requires manual step** to restore user credentials (step 8 in restore procedure)
+- ⚠️ **Requires manual step** to restore user credentials (step 11 in restore procedure)
 
-**Shared User Model and EDPM Impact:**
-- All OpenStack services currently share the same RabbitMQ default user
-- TransportURL secrets reference this shared user credential
-- **EDPM/data plane nodes** (compute, network) have these credentials configured locally
-- Manual restoration ensures:
-  - **Data plane nodes maintain immediate connectivity** without emergency reconfiguration
-  - Normal EDPM deployment cycles will update credentials over time
-- This is especially critical for:
-  - **Cell RabbitMQ** - nova-compute on all compute nodes
-  - **Notifications RabbitMQ** - neutron agents on all network nodes
-
-**Credential Lifecycle:**
-- **Immediately after restore**: Data plane nodes use backed-up credentials (manually restored to RabbitMQ)
-- **Control plane**: Gets credentials via TransportURL secrets (automatically regenerated)
-- **Future EDPM deployments**: Data plane nodes get updated with current credentials
-- This approach separates immediate restore needs from long-term credential management
+**EDPM/Data Plane Impact:**
+For deployments with external data plane nodes, the manual user credential restoration step is critical to maintain immediate connectivity. See "RabbitMQ User Management" in the Scope section for details.
 
 ### Namespace Change Implications:
 When restoring to a different namespace:
