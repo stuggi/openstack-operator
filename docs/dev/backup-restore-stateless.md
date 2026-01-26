@@ -886,32 +886,9 @@ jq '.items |= map(
 
 **Why RabbitMQ-related resources are skipped:**
 
-When RabbitMQ-related resources (Secrets, ConfigMaps) are restored from backup and the rabbitmq-operator creates a new cluster and tries to reconcile, it attempts to set `ownerReferences` on the pre-existing resources. Kubernetes requires delete permissions to set ownerReferences (security feature). The error you might see in the rabbitmq-operator logs or the cluster CR looks like:
+RabbitMQ secrets and ConfigMaps are filtered out during restore to avoid RBAC/permission conflicts. When operators try to adopt pre-existing RabbitMQ resources by setting `ownerReferences`, Kubernetes permission checks fail because the operator doesn't have delete permissions on resources it didn't create.
 
-```
-# For Secrets:
-secrets "rabbitmq-default-user" is forbidden: cannot set an ownerRef on a resource you can't delete:
-RBAC: clusterrole.rbac.authorization.k8s.io "rabbitmq-cluster-operator-proxy-role" not found
-
-# For ConfigMaps:
-configmaps "rabbitmq-plugins-conf" is forbidden: cannot set an ownerRef on a resource you can't delete:
-RBAC: clusterrole.rbac.authorization.k8s.io "rabbitmq-cluster-operator-proxy-role" not found
-
-# In RabbitMQ cluster CR status:
-  - lastTransitionTime: "2026-01-20T16:32:08Z"
-  message: 'secrets "rabbitmq-default-user" is forbidden: cannot set an ownerRef on a resource you can't delete: RBAC: clusterrole.rbac.authorization.k8s.io "rabbitmq-cluster-operator-proxy-role" not found, <nil>'
-  reason: Error
-  status: "False"
-```
-
-This happens because:
-1. In a fresh deployment, operators **create** RabbitMQ-related secrets → own them from the start → no permission issues
-2. After restore, we **restore** the secrets first → operators try to **adopt** them by setting ownerReference → Kubernetes permission check fails
-
-**Solution**: Let the operators create fresh RabbitMQ-related secrets during reconciliation, then manually restore the original user credentials (Step 11). This provides:
-- ✅ No RBAC/permission conflicts
-- ✅ Fresh secrets created with proper ownership
-- ✅ Original user credentials preserved for EDPM/data plane node connectivity
+**Solution**: Let operators create fresh RabbitMQ-related secrets, then manually restore the original user credentials (Step 11). See "RabbitMQ User Management" in the Scope section for why preserving user credentials is critical for EDPM/data plane node connectivity.
 
 **What's restored (with smart filtering):**
 
@@ -1736,6 +1713,68 @@ telnet <rabbitmq-cell1-ip> 5672
 If credentials don't match, you may need to either:
 1. Re-run step 8 to restore the correct user credentials in RabbitMQ
 2. Or update data plane node configurations (not recommended - requires reconfiguring all nodes)
+
+### Issue: RabbitMQ RBAC/Ownership Errors
+
+**Symptoms:**
+- RabbitMQ cluster CR shows `status: False` with RBAC errors
+- RabbitMQ operator logs show "forbidden: cannot set an ownerRef" errors
+- RabbitMQ pods fail to reconcile properly
+
+**Diagnosis:**
+
+This happens when RabbitMQ-related secrets or ConfigMaps are accidentally restored from backup instead of being filtered out. Check RabbitMQ cluster status:
+
+```bash
+# Check RabbitMQ cluster status
+oc get rabbitmqcluster -n openstack
+oc describe rabbitmqcluster rabbitmq -n openstack
+
+# Look for errors like these in the status or operator logs:
+# For Secrets:
+# secrets "rabbitmq-default-user" is forbidden: cannot set an ownerRef on a resource you can't delete:
+# RBAC: clusterrole.rbac.authorization.k8s.io "rabbitmq-cluster-operator-proxy-role" not found
+
+# For ConfigMaps:
+# configmaps "rabbitmq-plugins-conf" is forbidden: cannot set an ownerRef on a resource you can't delete:
+# RBAC: clusterrole.rbac.authorization.k8s.io "rabbitmq-cluster-operator-proxy-role" not found
+
+# In RabbitMQ cluster CR status:
+#   - lastTransitionTime: "2026-01-20T16:32:08Z"
+#   message: 'secrets "rabbitmq-default-user" is forbidden: cannot set an ownerRef on a resource you can't delete: RBAC: clusterrole.rbac.authorization.k8s.io "rabbitmq-cluster-operator-proxy-role" not found, <nil>'
+#   reason: Error
+#   status: "False"
+```
+
+**Root Cause:**
+
+When operators create resources, they own them from the start with no permission issues. When pre-existing resources are restored first, operators try to adopt them by setting `ownerReferences`, but Kubernetes requires delete permissions to set ownerReferences. The operator doesn't have delete permissions on resources it didn't create, causing the RBAC error.
+
+**Solution:**
+
+Delete the pre-existing RabbitMQ secrets/ConfigMaps and let the operator recreate them:
+
+```bash
+# Delete RabbitMQ-related secrets
+oc delete secret -n openstack -l app.kubernetes.io/part-of=rabbitmq
+
+# Delete RabbitMQ-related ConfigMaps
+oc delete configmap -n openstack -l app.kubernetes.io/part-of=rabbitmq
+
+# Restart the RabbitMQ operator to trigger reconciliation
+oc delete pod -n openstack-operators -l control-plane=rabbitmq-cluster-operator
+
+# Wait for RabbitMQ clusters to reconcile and create fresh resources
+oc get rabbitmqcluster -n openstack --watch
+
+# After RabbitMQ clusters are ready, manually restore user credentials (step 11)
+# See "RabbitMQ User Management" in the Scope section for details
+```
+
+**Prevention:**
+- Always use the smart filtering approach in step 4 (Restore Secrets) which excludes RabbitMQ resources
+- Never restore secrets/ConfigMaps with `app.kubernetes.io/part-of=rabbitmq` label
+- Review the restore script output to ensure RabbitMQ resources were filtered
 
 ### Issue: Operator Not Reconciling
 
