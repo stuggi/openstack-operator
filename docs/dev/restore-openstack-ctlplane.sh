@@ -429,6 +429,10 @@ CTLPLANE_STAGED=$(mktemp)
 jq '.items[0].metadata.annotations["core.openstack.org/deployment-stage"] = "infrastructure-only"' \
   openstackcontrolplane-backup.json > ${CTLPLANE_STAGED}
 
+# Get the actual CR name from the backup
+CTLPLANE_NAME=$(jq -r '.items[0].metadata.name' openstackcontrolplane-backup.json)
+echo "OpenStackControlPlane CR name: ${CTLPLANE_NAME}"
+
 oc apply -f ${CTLPLANE_STAGED} -n ${NAMESPACE}
 rm -f ${CTLPLANE_STAGED}
 echo "✓ OpenStackControlPlane CR restored with staged deployment annotation"
@@ -438,13 +442,17 @@ echo "Waiting for infrastructure to be ready..."
 echo "This may take several minutes..."
 echo ""
 
+echo "Waiting for API server to register the resource..."
+sleep 10
+echo ""
+
 echo "Waiting for InfrastructureReady condition..."
-if oc wait --for=condition=InfrastructureReady openstackcontrolplane/openstack -n ${NAMESPACE} --timeout=20m; then
+if oc wait --for=condition=InfrastructureReady openstackcontrolplane/${CTLPLANE_NAME} -n ${NAMESPACE} --timeout=20m; then
     echo "✓ Infrastructure is ready!"
 else
     echo "Warning: Timeout waiting for InfrastructureReady condition"
     echo "Check status manually:"
-    echo "  oc get openstackcontrolplane openstack -n ${NAMESPACE} -o jsonpath='{.status.conditions}'"
+    echo "  oc get openstackcontrolplane ${CTLPLANE_NAME} -n ${NAMESPACE} -o jsonpath='{.status.conditions}'"
 fi
 echo ""
 
@@ -485,7 +493,7 @@ if [ "${DB_RESTORE_CONFIRM}" != "yes" ]; then
 
     if [ "${SKIP_DB_CONFIRM}" != "yes" ]; then
         echo "Aborting. Restore databases and then resume with:"
-        echo "  oc annotate openstackcontrolplane openstack -n ${NAMESPACE} core.openstack.org/deployment-stage-"
+        echo "  oc annotate openstackcontrolplane ${CTLPLANE_NAME} -n ${NAMESPACE} core.openstack.org/deployment-stage-"
         popd > /dev/null
         rm -rf ${WORK_DIR}
         exit 1
@@ -611,14 +619,14 @@ if [ "${RESUME_CONFIRM}" != "yes" ]; then
     echo ""
     echo "⚠️  Deployment is still paused with annotation."
     echo "To resume later, run:"
-    echo "  oc annotate openstackcontrolplane openstack -n ${NAMESPACE} core.openstack.org/deployment-stage-"
+    echo "  oc annotate openstackcontrolplane ${CTLPLANE_NAME} -n ${NAMESPACE} core.openstack.org/deployment-stage-"
     popd > /dev/null
     rm -rf ${WORK_DIR}
     exit 0
 fi
 
 echo "Removing deployment-stage annotation..."
-oc annotate openstackcontrolplane openstack -n ${NAMESPACE} \
+oc annotate openstackcontrolplane ${CTLPLANE_NAME} -n ${NAMESPACE} \
   core.openstack.org/deployment-stage-
 echo "✓ Annotation removed, deployment resuming"
 echo ""
@@ -629,17 +637,17 @@ echo ""
 sleep 5
 
 echo "Current OpenStackControlPlane status:"
-oc get openstackcontrolplane openstack -n ${NAMESPACE}
+oc get openstackcontrolplane ${CTLPLANE_NAME} -n ${NAMESPACE}
 echo ""
 
 echo "Waiting for OpenStackControlPlane to become Ready..."
 echo "This may take 10-30 minutes depending on the deployment size..."
-if oc wait --for=condition=Ready openstackcontrolplane/openstack -n ${NAMESPACE} --timeout=30m; then
+if oc wait --for=condition=Ready openstackcontrolplane/${CTLPLANE_NAME} -n ${NAMESPACE} --timeout=30m; then
     echo "✓ OpenStackControlPlane is Ready!"
 else
     echo "Warning: Timeout waiting for Ready condition"
     echo "Deployment may still be in progress. Check manually:"
-    echo "  oc get openstackcontrolplane openstack -n ${NAMESPACE} --watch"
+    echo "  oc get openstackcontrolplane ${CTLPLANE_NAME} -n ${NAMESPACE} --watch"
 fi
 echo ""
 
