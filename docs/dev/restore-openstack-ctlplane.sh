@@ -14,7 +14,7 @@ set -e
 # 6. MariaDBAccount CRs (needs MariaDBDatabase CRs)
 # 7. Related CRs (NetConfig, OpenStackVersion, Topology)
 # 8. OpenStackControlPlane CR with staged deployment annotation
-# 9. Wait for InfrastructureReady condition
+# 9. Wait for OpenStackControlPlaneInfrastructureReady condition
 # 10. Restore database contents (MariaDB and OVN)
 # 11. Restore RabbitMQ user credentials
 # 12. Resume deployment (remove annotation)
@@ -410,7 +410,7 @@ echo "  1. Create infrastructure: Galera, OVN, RabbitMQ, Memcached"
 echo "  2. Create Certificate CRs for infrastructure services"
 echo "  3. cert-manager issues fresh certificates from the restored CAs"
 echo "  4. PAUSE - OpenStack services (Keystone, Nova, etc.) are NOT created yet"
-echo "  5. Set InfrastructureReady condition to True"
+echo "  5. Set OpenStackControlPlaneInfrastructureReady condition to True"
 echo ""
 read -p "Ready to restore OpenStackControlPlane CR with staged deployment? (yes/no): " RESTORE_CONFIRM
 
@@ -446,11 +446,11 @@ echo "Waiting for API server to register the resource..."
 sleep 10
 echo ""
 
-echo "Waiting for InfrastructureReady condition..."
-if oc wait --for=condition=InfrastructureReady openstackcontrolplane/${CTLPLANE_NAME} -n ${NAMESPACE} --timeout=20m; then
+echo "Waiting for OpenStackControlPlaneInfrastructureReady condition..."
+if oc wait --for=condition=OpenStackControlPlaneInfrastructureReady openstackcontrolplane/${CTLPLANE_NAME} -n ${NAMESPACE} --timeout=20m; then
     echo "✓ Infrastructure is ready!"
 else
-    echo "Warning: Timeout waiting for InfrastructureReady condition"
+    echo "Warning: Timeout waiting for OpenStackControlPlaneInfrastructureReady condition"
     echo "Check status manually:"
     echo "  oc get openstackcontrolplane ${CTLPLANE_NAME} -n ${NAMESPACE} -o jsonpath='{.status.conditions}'"
 fi

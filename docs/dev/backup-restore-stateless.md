@@ -120,7 +120,7 @@ flowchart TD
     RestoreIssuers --> RestoreMariaDBCRs[Restore MariaDBDatabase &<br/>MariaDBAccount CRs]
     RestoreMariaDBCRs --> RestoreCtlPlane[Restore OpenStackControlPlane CR<br/>with annotation:<br/>deployment-stage=infrastructure-only]
 
-    RestoreCtlPlane --> WaitInfra{Wait for<br/>InfrastructureReady<br/>condition}
+    RestoreCtlPlane --> WaitInfra{Wait for<br/>OpenStackControlPlane<br/>InfrastructureReady<br/>condition}
     WaitInfra -->|Not Ready| WaitInfra
     WaitInfra -->|Ready| InfraReady[Infrastructure Ready:<br/>✓ Galera<br/>✓ OVN NB/SB<br/>✓ RabbitMQ<br/>✓ Memcached]
 
@@ -150,7 +150,7 @@ flowchart TD
 **Key Points:**
 - **Prerequisites**: Cluster infrastructure must exist first (StorageClass, NNCP, MetalLB) - either still present or restored separately
 - **Staged Deployment**: Infrastructure (databases, message queue) is created first with annotation `deployment-stage=infrastructure-only`
-- **InfrastructureReady Condition**: Single condition check validates all infrastructure components are ready
+- **OpenStackControlPlaneInfrastructureReady Condition**: Single condition check validates all infrastructure components are ready
 - **Database Restore**: Performed while OpenStack services are NOT yet created (clean restore)
 - **Resume Deployment**: Removing the `deployment-stage` annotation triggers creation of OpenStack services
 - **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases (no restarts needed)
@@ -1113,8 +1113,8 @@ oc apply -f openstackcontrolplane-staged.json
 # Watch the operator reconcile infrastructure components
 oc get openstackcontrolplane -n openstack --watch
 
-# Wait for InfrastructureReady condition
-oc wait --for=condition=InfrastructureReady openstackcontrolplane/openstack -n openstack --timeout=20m
+# Wait for OpenStackControlPlaneInfrastructureReady condition
+oc wait --for=condition=OpenStackControlPlaneInfrastructureReady openstackcontrolplane/openstack -n openstack --timeout=20m
 ```
 
 **What happens during this stage:**
@@ -1127,13 +1127,13 @@ oc wait --for=condition=InfrastructureReady openstackcontrolplane/openstack -n o
 3. Operators create Certificate CRs for infrastructure services
 4. cert-manager issues fresh TLS certificates from the restored CA
 5. **Deployment PAUSES** - OpenStack services (Keystone, Nova, etc.) are NOT created yet
-6. InfrastructureReady condition becomes True
+6. OpenStackControlPlaneInfrastructureReady condition becomes True
 
 **Verify infrastructure is ready:**
 
 ```bash
-# Check InfrastructureReady condition
-oc get openstackcontrolplane openstack -n openstack -o jsonpath='{.status.conditions[?(@.type=="InfrastructureReady")]}'
+# Check OpenStackControlPlaneInfrastructureReady condition
+oc get openstackcontrolplane openstack -n openstack -o jsonpath='{.status.conditions[?(@.type=="OpenStackControlPlaneInfrastructureReady")]}'
 
 # Verify infrastructure components
 oc get galera -n openstack
@@ -1557,8 +1557,8 @@ jq '.items[0].metadata.annotations["core.openstack.org/deployment-stage"] = "inf
 
 oc apply -f openstackcontrolplane-staged.json
 
-# Wait for InfrastructureReady condition
-oc wait --for=condition=InfrastructureReady openstackcontrolplane/openstack -n openstack --timeout=20m
+# Wait for OpenStackControlPlaneInfrastructureReady condition
+oc wait --for=condition=OpenStackControlPlaneInfrastructureReady openstackcontrolplane/openstack -n openstack --timeout=20m
 
 # 8. Restore Database Contents (MariaDB and OVN)
 # Follow separate database restore procedures while services are NOT running
