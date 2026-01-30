@@ -1177,7 +1177,7 @@ RABBITMQ_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user"
 echo "Restoring RabbitMQ user: ${RABBITMQ_USER}"
 
 # Restore user to main rabbitmq cluster
-oc rsh -n openstack rabbitmq-server-0 rabbitmqctl add_user "${RABBITMQ_USER}" "${RABBITMQ_PASS}" || echo "User may already exist"
+oc rsh -n openstack rabbitmq-server-0 rabbitmqctl add_user -- "${RABBITMQ_USER}" "${RABBITMQ_PASS}" || echo "User may already exist"
 oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_user_tags "${RABBITMQ_USER}" administrator
 oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_USER}" ".*" ".*" ".*"
 
@@ -1187,7 +1187,7 @@ RABBITMQ_CELL1_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-d
 
 echo "Restoring RabbitMQ Cell1 user: ${RABBITMQ_CELL1_USER}"
 
-oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl add_user "${RABBITMQ_CELL1_USER}" "${RABBITMQ_CELL1_PASS}" || echo "User may already exist"
+oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl add_user -- "${RABBITMQ_CELL1_USER}" "${RABBITMQ_CELL1_PASS}" || echo "User may already exist"
 oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl set_user_tags "${RABBITMQ_CELL1_USER}" administrator
 oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_CELL1_USER}" ".*" ".*" ".*"
 
@@ -1198,7 +1198,7 @@ if [ -n "${RABBITMQ_NOTIF_USER}" ]; then
 
   echo "Restoring RabbitMQ Notifications user: ${RABBITMQ_NOTIF_USER}"
 
-  oc rsh -n openstack rabbitmq-notifications-server-0 rabbitmqctl add_user "${RABBITMQ_NOTIF_USER}" "${RABBITMQ_NOTIF_PASS}" || echo "User may already exist"
+  oc rsh -n openstack rabbitmq-notifications-server-0 rabbitmqctl add_user -- "${RABBITMQ_NOTIF_USER}" "${RABBITMQ_NOTIF_PASS}" || echo "User may already exist"
   oc rsh -n openstack rabbitmq-notifications-server-0 rabbitmqctl set_user_tags "${RABBITMQ_NOTIF_USER}" administrator
   oc rsh -n openstack rabbitmq-notifications-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_NOTIF_USER}" ".*" ".*" ".*"
 fi
@@ -1568,7 +1568,7 @@ oc wait --for=condition=InfrastructureReady openstackcontrolplane/openstack -n o
 RABBITMQ_USER=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.username' secrets-all-backup.json | base64 -d)
 RABBITMQ_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.password' secrets-all-backup.json | base64 -d)
 
-oc rsh -n openstack rabbitmq-server-0 rabbitmqctl add_user "${RABBITMQ_USER}" "${RABBITMQ_PASS}" || echo "User may already exist"
+oc rsh -n openstack rabbitmq-server-0 rabbitmqctl add_user -- "${RABBITMQ_USER}" "${RABBITMQ_PASS}" || echo "User may already exist"
 oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_user_tags "${RABBITMQ_USER}" administrator
 oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_USER}" ".*" ".*" ".*"
 
@@ -1576,7 +1576,7 @@ oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_permissions -p / "${RABBIT
 RABBITMQ_CELL1_USER=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.username' secrets-all-backup.json | base64 -d)
 RABBITMQ_CELL1_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.password' secrets-all-backup.json | base64 -d)
 
-oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl add_user "${RABBITMQ_CELL1_USER}" "${RABBITMQ_CELL1_PASS}" || echo "User may already exist"
+oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl add_user -- "${RABBITMQ_CELL1_USER}" "${RABBITMQ_CELL1_PASS}" || echo "User may already exist"
 oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl set_user_tags "${RABBITMQ_CELL1_USER}" administrator
 oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_CELL1_USER}" ".*" ".*" ".*"
 
@@ -1829,7 +1829,7 @@ RABBITMQ_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user"
 oc rsh -n openstack rabbitmq-server-0 rabbitmqctl delete_user "${RABBITMQ_USER}" || echo "User doesn't exist"
 
 # Re-add the user
-oc rsh -n openstack rabbitmq-server-0 rabbitmqctl add_user "${RABBITMQ_USER}" "${RABBITMQ_PASS}"
+oc rsh -n openstack rabbitmq-server-0 rabbitmqctl add_user -- "${RABBITMQ_USER}" "${RABBITMQ_PASS}"
 oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_user_tags "${RABBITMQ_USER}" administrator
 oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_USER}" ".*" ".*" ".*"
 

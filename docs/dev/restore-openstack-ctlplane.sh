@@ -531,7 +531,7 @@ if [ "${SKIP_RABBITMQ_RESTORE}" != "true" ]; then
             echo "Main RabbitMQ user: ${RABBITMQ_USER}"
             echo "Restoring to rabbitmq cluster..."
 
-            oc rsh -n ${NAMESPACE} rabbitmq-server-0 rabbitmqctl add_user "${RABBITMQ_USER}" "${RABBITMQ_PASS}" 2>/dev/null || echo "  (user may already exist)"
+            oc rsh -n ${NAMESPACE} rabbitmq-server-0 rabbitmqctl add_user -- "${RABBITMQ_USER}" "${RABBITMQ_PASS}" 2>/dev/null || echo "  (user may already exist)"
             oc rsh -n ${NAMESPACE} rabbitmq-server-0 rabbitmqctl set_user_tags "${RABBITMQ_USER}" administrator
             oc rsh -n ${NAMESPACE} rabbitmq-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_USER}" ".*" ".*" ".*"
             echo "✓ Main RabbitMQ user restored"
@@ -548,7 +548,7 @@ if [ "${SKIP_RABBITMQ_RESTORE}" != "true" ]; then
             echo "Cell1 RabbitMQ user: ${RABBITMQ_CELL1_USER}"
             echo "Restoring to rabbitmq-cell1 cluster..."
 
-            oc rsh -n ${NAMESPACE} rabbitmq-cell1-server-0 rabbitmqctl add_user "${RABBITMQ_CELL1_USER}" "${RABBITMQ_CELL1_PASS}" 2>/dev/null || echo "  (user may already exist)"
+            oc rsh -n ${NAMESPACE} rabbitmq-cell1-server-0 rabbitmqctl add_user -- "${RABBITMQ_CELL1_USER}" "${RABBITMQ_CELL1_PASS}" 2>/dev/null || echo "  (user may already exist)"
             oc rsh -n ${NAMESPACE} rabbitmq-cell1-server-0 rabbitmqctl set_user_tags "${RABBITMQ_CELL1_USER}" administrator
             oc rsh -n ${NAMESPACE} rabbitmq-cell1-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_CELL1_USER}" ".*" ".*" ".*"
             echo "✓ Cell1 RabbitMQ user restored"
@@ -566,7 +566,7 @@ if [ "${SKIP_RABBITMQ_RESTORE}" != "true" ]; then
             echo "Notifications RabbitMQ user: ${RABBITMQ_NOTIF_USER}"
             echo "Restoring to rabbitmq-notifications cluster..."
 
-            oc rsh -n ${NAMESPACE} rabbitmq-notifications-server-0 rabbitmqctl add_user "${RABBITMQ_NOTIF_USER}" "${RABBITMQ_NOTIF_PASS}" 2>/dev/null || echo "  (user may already exist)"
+            oc rsh -n ${NAMESPACE} rabbitmq-notifications-server-0 rabbitmqctl add_user -- "${RABBITMQ_NOTIF_USER}" "${RABBITMQ_NOTIF_PASS}" 2>/dev/null || echo "  (user may already exist)"
             oc rsh -n ${NAMESPACE} rabbitmq-notifications-server-0 rabbitmqctl set_user_tags "${RABBITMQ_NOTIF_USER}" administrator
             oc rsh -n ${NAMESPACE} rabbitmq-notifications-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_NOTIF_USER}" ".*" ".*" ".*"
             echo "✓ Notifications RabbitMQ user restored"
@@ -631,13 +631,8 @@ oc annotate openstackcontrolplane ${CTLPLANE_NAME} -n ${NAMESPACE} \
 echo "✓ Annotation removed, deployment resuming"
 echo ""
 
-echo "Monitoring deployment progress..."
 echo "Services will be created and started with restored data"
-echo ""
-sleep 5
-
-echo "Current OpenStackControlPlane status:"
-oc get openstackcontrolplane ${CTLPLANE_NAME} -n ${NAMESPACE}
+echo "You can monitor progress with: oc get openstackcontrolplane -n ${NAMESPACE} --watch"
 echo ""
 
 echo "Waiting for OpenStackControlPlane to become Ready..."
