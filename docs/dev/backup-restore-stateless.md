@@ -862,8 +862,18 @@ oc get pods -n openstack --watch
 # Verify all operator-managed resources are gone
 oc get all -n openstack
 
-TODO - improve delete remaining objects:
-for i in $(oc get secret -o name |grep cert | grep -v edpm |grep -v compute-uyx | grep -v ceph); do oc delete $i; done
+# Delete remaining secrets, excluding EDPM/compute node certs and ceph certs
+# Get compute node prefixes from all data plane nodesets (first hostname from each nodeset)
+COMPUTE_PREFIXES=$(oc get openstackdataplanenodeset -o json | jq -r '[.items[].status.allHostnames // {} | keys[0] | sub("-[0-9]+$"; "")] | unique | join("|")')
+
+# Delete cert secrets, excluding edpm, compute nodes, and ceph
+if [ -n "$COMPUTE_PREFIXES" ]; then
+  for i in $(oc get secret -o name | grep cert | grep -v edpm | grep -vE "($COMPUTE_PREFIXES)" | grep -v ceph); do oc delete $i; done
+else
+  # Fallback if no nodesets found
+  for i in $(oc get secret -o name | grep cert | grep -v edpm | grep -v ceph); do oc delete $i; done
+fi
+
 oc delete secret -n openstack rootca-internal rootca-libvirt rootca-ovn rootca-public combined-ca-bundle
 ```
 
