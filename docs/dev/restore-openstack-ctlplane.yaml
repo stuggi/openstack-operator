@@ -1,0 +1,966 @@
+---
+# OpenStack Control Plane Restore Playbook
+# This playbook performs a restore of the stateless OpenStack control plane
+# following the documented procedure in backup-restore-stateless.md
+#
+# CRITICAL: This playbook follows the correct restore order:
+# 1. NetworkAttachmentDefinitions
+# 2. Secrets (CA secrets needed by Issuers, exclude rabbitmq-*)
+# 3. ConfigMaps (exclude rabbitmq-*)
+# 4. TLS Issuers (cert-manager authority, needs CA secrets)
+# 5. MariaDBDatabase CRs (needs database password secrets)
+# 6. MariaDBAccount CRs (needs MariaDBDatabase CRs)
+# 7. Related CRs (NetConfig, OpenStackVersion, Topology)
+# 8. OpenStackControlPlane CR with staged deployment annotation
+# 9. Wait for OpenStackControlPlaneInfrastructureReady condition
+# 10. Restore database contents (MariaDB and OVN)
+# 11. Restore RabbitMQ user credentials
+# 12. Resume deployment (remove annotation)
+# 13. Operators create Certificate CRs → cert-manager issues fresh certificates
+#
+# Usage:
+#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=openstack-ctlplane-backup-20260119-120000.tar.gz
+#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e namespace=my-openstack
+#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e skip_cleanup=true
+#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e skip_rabbitmq_restore=true
+
+- name: Restore OpenStack Control Plane
+  hosts: localhost
+  gather_facts: true
+  vars:
+    namespace: "{{ namespace | default('openstack') }}"
+    skip_cleanup: "{{ skip_cleanup | default(false) | bool }}"
+    skip_rabbitmq_restore: "{{ skip_rabbitmq_restore | default(false) | bool }}"
+    work_dir: ""
+
+  tasks:
+    - name: Check if backup_file is provided
+      ansible.builtin.fail:
+        msg: "backup_file parameter is required. Usage: ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz"
+      when: backup_file is not defined
+
+    - name: Check if backup file exists
+      ansible.builtin.stat:
+        path: "{{ backup_file }}"
+      register: backup_file_stat
+
+    - name: Fail if backup file does not exist
+      ansible.builtin.fail:
+        msg: "Backup file not found: {{ backup_file }}"
+      when: not backup_file_stat.stat.exists
+
+    - name: Print restore header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "OpenStack Control Plane Restore"
+          - "========================================"
+          - "Target Namespace: {{ namespace }}"
+          - "Backup File: {{ backup_file }}"
+          - "Skip Cleanup: {{ skip_cleanup }}"
+          - "Skip RabbitMQ Restore: {{ skip_rabbitmq_restore }}"
+
+    - name: Create temporary work directory
+      ansible.builtin.tempfile:
+        state: directory
+        suffix: restore
+      register: work_dir_result
+
+    - name: Set work_dir fact
+      ansible.builtin.set_fact:
+        work_dir: "{{ work_dir_result.path }}"
+
+    - name: Extract backup archive
+      ansible.builtin.unarchive:
+        src: "{{ backup_file }}"
+        dest: "{{ work_dir }}"
+        remote_src: false
+
+    - name: Find backup directory
+      ansible.builtin.find:
+        paths: "{{ work_dir }}"
+        file_type: directory
+        patterns: "openstack-ctlplane-backup-*"
+      register: backup_dir_find
+
+    - name: Fail if backup directory not found
+      ansible.builtin.fail:
+        msg: "Could not find backup directory in archive"
+      when: backup_dir_find.files | length == 0
+
+    - name: Set backup_dir fact
+      ansible.builtin.set_fact:
+        backup_dir: "{{ backup_dir_find.files[0].path }}"
+
+    - name: Print working directory
+      ansible.builtin.debug:
+        msg: "Working directory: {{ backup_dir }}"
+
+    # Step 1: Verify Operator Versions
+    - name: Print Step 1 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 1: Verify Operator Versions"
+          - "========================================"
+
+    - name: Display required operator versions from backup
+      ansible.builtin.shell: |
+        cat {{ backup_dir }}/operator-versions.txt | grep -A 5 "Installed Operators" || true
+      register: required_versions
+      changed_when: false
+
+    - name: Display required versions
+      ansible.builtin.debug:
+        msg: "{{ required_versions.stdout_lines }}"
+
+    - name: Get current OpenStack operator version
+      ansible.builtin.shell: |
+        oc get deployment openstack-operator-controller-manager -n openstack-operators -o jsonpath='{.spec.template.spec.containers[0].image}'
+      register: current_operator_version
+      changed_when: false
+      failed_when: false
+
+    - name: Display current operator version
+      ansible.builtin.debug:
+        msg:
+          - "Current operator versions (on target cluster):"
+          - "OpenStack Operator: {{ current_operator_version.stdout | default('Not found') }}"
+
+    - name: Confirm operator versions match
+      ansible.builtin.pause:
+        prompt: |
+
+          ⚠️  CRITICAL: Operator versions MUST match!
+          Review the versions above and compare with operator-versions.txt
+
+          Do the operator versions match? (yes/no)
+      register: versions_match
+
+    - name: Fail if versions don't match
+      ansible.builtin.fail:
+        msg: |
+          Operator versions do not match. Aborting restore.
+          Install matching operator versions before proceeding.
+      when: versions_match.user_input != "yes"
+
+    # Check/Create namespace
+    - name: Check if namespace exists
+      ansible.builtin.shell: |
+        oc get namespace {{ namespace }}
+      register: namespace_check
+      changed_when: false
+      failed_when: false
+
+    - name: Create namespace if it doesn't exist
+      ansible.builtin.shell: |
+        oc create namespace {{ namespace }}
+        oc label namespace {{ namespace }} openstack.org/name={{ namespace }}
+      when: namespace_check.rc != 0
+      changed_when: true
+
+    - name: Print namespace status
+      ansible.builtin.debug:
+        msg: "✓ Namespace {{ namespace }} exists"
+
+    # Step 2: Cleanup
+    - name: Print Step 2 header (if not skipping cleanup)
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 2: Clean Up Existing Resources"
+          - "========================================"
+      when: not skip_cleanup
+
+    - name: Check for existing OpenStackControlPlane resources
+      ansible.builtin.shell: |
+        oc get openstackcontrolplane -n {{ namespace }} --no-headers 2>/dev/null | wc -l
+      register: ctlplane_count
+      changed_when: false
+      failed_when: false
+      when: not skip_cleanup
+
+    - name: Confirm deletion of existing resources
+      ansible.builtin.pause:
+        prompt: |
+
+          Found {{ ctlplane_count.stdout }} OpenStackControlPlane CR(s) in namespace {{ namespace }}
+          Delete existing OpenStackControlPlane resources? (yes/no)
+      register: delete_confirm
+      when: not skip_cleanup and ctlplane_count.stdout|int > 0
+
+    - name: Delete existing OpenStackControlPlane resources
+      ansible.builtin.shell: |
+        oc delete openstackcontrolplane --all -n {{ namespace }}
+      when: not skip_cleanup and ctlplane_count.stdout|int > 0 and delete_confirm.user_input == "yes"
+      changed_when: true
+
+    - name: Wait for cleanup to complete
+      ansible.builtin.shell: |
+        oc get pods -n {{ namespace }} --no-headers 2>/dev/null | wc -l
+      register: pod_count
+      until: pod_count.stdout|int == 0
+      retries: 120
+      delay: 10
+      changed_when: false
+      when: not skip_cleanup and ctlplane_count.stdout|int > 0 and delete_confirm.user_input == "yes"
+
+    - name: Print cleanup completion
+      ansible.builtin.debug:
+        msg: "✓ Cleanup complete"
+      when: not skip_cleanup and ctlplane_count.stdout|int > 0 and delete_confirm.user_input == "yes"
+
+    - name: Print cleanup skipped message
+      ansible.builtin.debug:
+        msg: "Skipping cleanup (skip_cleanup=true)"
+      when: skip_cleanup
+
+    # Critical restore order message
+    - name: Print restore order message
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "RESTORE ORDER IS CRITICAL!"
+          - "========================================"
+          - "Following the correct order to ensure:"
+          - "  1. CA secrets exist before Issuers"
+          - "  2. Issuers exist before operators trigger Certificate creation"
+          - "  3. cert-manager issues fresh certificates from the same CA"
+
+    # Step 3: NetworkAttachmentDefinitions
+    - name: Print Step 3 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 3: Restore NetworkAttachmentDefinitions"
+          - "========================================"
+
+    - name: Restore NetworkAttachmentDefinitions
+      ansible.builtin.shell: |
+        oc apply -f {{ backup_dir }}/network-attachment-definitions-backup.json -n {{ namespace }}
+      changed_when: true
+
+    - name: Print Step 3 completion
+      ansible.builtin.debug:
+        msg: "✓ NetworkAttachmentDefinitions restored"
+
+    - name: Verify NetworkAttachmentDefinitions
+      ansible.builtin.shell: |
+        oc get network-attachment-definition -n {{ namespace }}
+      register: nad_list
+      changed_when: false
+
+    - name: Display NetworkAttachmentDefinitions
+      ansible.builtin.debug:
+        msg: "{{ nad_list.stdout_lines }}"
+
+    # Step 4: Restore Secrets
+    - name: Print Step 4 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 4: Restore Secrets"
+          - "========================================"
+          - "CRITICAL: CA secrets must exist BEFORE Issuers"
+          - "         - Issuers reference CA secrets (e.g., rootca-internal, rootca-public)"
+          - "         - cert-manager will issue fresh certificates from these CAs"
+          - ""
+          - "Filtering secrets to restore only:"
+          - "  1. User-provided secrets (no ownerReferences, no service-cert label)"
+          - "  2. CA secrets (rootca-*) - preserves trust chain"
+          - "  3. Database password secrets (*-db-password) - maintains DB access"
+          - ""
+          - "Excluding from restore:"
+          - "  - RabbitMQ-related secrets (rabbitmq-*) - RBAC conflicts"
+          - "  - Certificate secrets (service-cert label) - cert-manager recreates them"
+          - "  - Other operator-managed secrets (with ownerReferences)"
+
+    - name: Filter secrets for restore
+      ansible.builtin.shell: |
+        jq '.items |= map(
+          select((.metadata.name | startswith("rabbitmq-")) | not) |
+          select(.metadata.labels."service-cert" | not) |
+          select(
+            (.metadata.ownerReferences == null) or
+            (.metadata.name | startswith("rootca-")) or
+            (.metadata.name | contains("-db-password")) or
+            (.metadata.name | contains("-dbpassword"))
+          )
+        ) | del(.metadata)' {{ backup_dir }}/secrets-all-backup.json > {{ work_dir }}/secrets-filtered.json
+      changed_when: true
+
+    - name: Count filtered secrets
+      ansible.builtin.shell: |
+        jq '.items | length' {{ work_dir }}/secrets-filtered.json
+      register: filtered_secrets_count
+      changed_when: false
+
+    - name: Print filtered secrets count
+      ansible.builtin.debug:
+        msg: "Filtered secrets to restore: {{ filtered_secrets_count.stdout }}"
+
+    - name: Apply filtered secrets (using helper script)
+      ansible.builtin.shell: |
+        item_count=$(jq '.items | length' {{ work_dir }}/secrets-filtered.json)
+
+        for i in $(seq 0 $((item_count - 1))); do
+          item_name=$(jq -r ".items[${i}].metadata.name" {{ work_dir }}/secrets-filtered.json)
+          item_kind=$(jq -r ".items[${i}].kind" {{ work_dir }}/secrets-filtered.json)
+          has_annotation=$(jq -r ".items[${i}].metadata.annotations.\"kubectl.kubernetes.io/last-applied-configuration\" // empty" {{ work_dir }}/secrets-filtered.json)
+
+          temp_file=$(mktemp)
+          jq ".items[${i}]" {{ work_dir }}/secrets-filtered.json > "${temp_file}"
+
+          echo "  Applying: ${item_kind}/${item_name}"
+          if [ -n "${has_annotation}" ]; then
+            oc apply -f "${temp_file}" -n {{ namespace }} 2>&1 | grep -v "Warning: resource" || true
+          else
+            oc apply --server-side=true -f "${temp_file}" -n {{ namespace }} 2>&1 | grep -v "Warning: resource" || true
+          fi
+
+          rm -f "${temp_file}"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Print Step 4 completion
+      ansible.builtin.debug:
+        msg: "✓ Secrets restored (user-provided + CAs + database passwords)"
+
+    - name: Count total secrets in namespace
+      ansible.builtin.shell: |
+        oc get secrets -n {{ namespace }} --no-headers | wc -l
+      register: total_secrets
+      changed_when: false
+
+    - name: Display total secrets
+      ansible.builtin.debug:
+        msg: "Total secrets in namespace: {{ total_secrets.stdout }}"
+
+    # Step 5: Restore ConfigMaps
+    - name: Print Step 5 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 5: Restore ConfigMaps"
+          - "========================================"
+          - "Filtering ConfigMaps to restore only:"
+          - "  1. User-provided ConfigMaps (no ownerReferences)"
+          - ""
+          - "Operator-created ConfigMaps (including RabbitMQ) will be recreated by operators."
+
+    - name: Filter ConfigMaps for restore
+      ansible.builtin.shell: |
+        jq '.items |= map(
+          select(.metadata.ownerReferences == null)
+        ) | del(.metadata)' {{ backup_dir }}/configmaps-all-backup.json > {{ work_dir }}/configmaps-filtered.json
+      changed_when: true
+
+    - name: Count filtered ConfigMaps
+      ansible.builtin.shell: |
+        jq '.items | length' {{ work_dir }}/configmaps-filtered.json
+      register: filtered_configmaps_count
+      changed_when: false
+
+    - name: Print filtered ConfigMaps count
+      ansible.builtin.debug:
+        msg: "Filtered ConfigMaps to restore: {{ filtered_configmaps_count.stdout }}"
+
+    - name: Apply filtered ConfigMaps
+      ansible.builtin.shell: |
+        item_count=$(jq '.items | length' {{ work_dir }}/configmaps-filtered.json)
+
+        for i in $(seq 0 $((item_count - 1))); do
+          item_name=$(jq -r ".items[${i}].metadata.name" {{ work_dir }}/configmaps-filtered.json)
+          item_kind=$(jq -r ".items[${i}].kind" {{ work_dir }}/configmaps-filtered.json)
+          has_annotation=$(jq -r ".items[${i}].metadata.annotations.\"kubectl.kubernetes.io/last-applied-configuration\" // empty" {{ work_dir }}/configmaps-filtered.json)
+
+          temp_file=$(mktemp)
+          jq ".items[${i}]" {{ work_dir }}/configmaps-filtered.json > "${temp_file}"
+
+          echo "  Applying: ${item_kind}/${item_name}"
+          if [ -n "${has_annotation}" ]; then
+            oc apply -f "${temp_file}" -n {{ namespace }} 2>&1 | grep -v "Warning: resource" || true
+          else
+            oc apply --server-side=true -f "${temp_file}" -n {{ namespace }} 2>&1 | grep -v "Warning: resource" || true
+          fi
+
+          rm -f "${temp_file}"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Print Step 5 completion
+      ansible.builtin.debug:
+        msg: "✓ ConfigMaps restored (user-provided only)"
+
+    # Step 6: Restore TLS Issuers
+    - name: Print Step 6 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 6: Restore TLS Issuers"
+          - "========================================"
+          - "CRITICAL: Issuers restored AFTER secrets (need CA secrets to exist)"
+          - ""
+          - "Restoring both operator-managed Issuers (rootca-*) and custom Issuers:"
+          - "  - Operator-managed Issuers will be reconciled by the operator"
+          - "  - Custom Issuers (if any) are preserved for custom CA configuration"
+          - ""
+          - "NOTE: Certificate CRs are NOT restored. Operators will create them during"
+          - "      reconciliation. cert-manager will adopt CA secrets and issue fresh"
+          - "      service certificates."
+
+    - name: Apply Issuers
+      ansible.builtin.shell: |
+        item_count=$(jq '.items | length' {{ backup_dir }}/issuer-backup.json)
+
+        for i in $(seq 0 $((item_count - 1))); do
+          item_name=$(jq -r ".items[${i}].metadata.name" {{ backup_dir }}/issuer-backup.json)
+          item_kind=$(jq -r ".items[${i}].kind" {{ backup_dir }}/issuer-backup.json)
+          has_annotation=$(jq -r ".items[${i}].metadata.annotations.\"kubectl.kubernetes.io/last-applied-configuration\" // empty" {{ backup_dir }}/issuer-backup.json)
+
+          temp_file=$(mktemp)
+          jq ".items[${i}]" {{ backup_dir }}/issuer-backup.json > "${temp_file}"
+
+          echo "  Applying: ${item_kind}/${item_name}"
+          if [ -n "${has_annotation}" ]; then
+            oc apply -f "${temp_file}" -n {{ namespace }} 2>&1 | grep -v "Warning: resource" || true
+          else
+            oc apply --server-side=true -f "${temp_file}" -n {{ namespace }} 2>&1 | grep -v "Warning: resource" || true
+          fi
+
+          rm -f "${temp_file}"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Print Step 6 completion
+      ansible.builtin.debug:
+        msg: "✓ Issuers restored"
+
+    - name: Verify Issuers
+      ansible.builtin.shell: |
+        oc get issuer -n {{ namespace }}
+      register: issuer_list
+      changed_when: false
+
+    - name: Display Issuers
+      ansible.builtin.debug:
+        msg: "{{ issuer_list.stdout_lines }}"
+
+    - name: Wait for Issuers to become ready
+      ansible.builtin.shell: |
+        sleep 5
+        oc wait --for=condition=Ready issuer --all -n {{ namespace }} --timeout=60s
+      changed_when: false
+      failed_when: false
+
+    # Step 7: Restore MariaDBDatabase CRs
+    - name: Print Step 7 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 7: Restore MariaDBDatabase CRs"
+          - "========================================"
+          - "CRITICAL: MariaDBDatabase CRs restored AFTER secrets (database password secrets are needed)"
+
+    - name: Apply MariaDBDatabase CRs
+      ansible.builtin.shell: |
+        item_count=$(jq '.items | length' {{ backup_dir }}/mariadbdatabase-backup.json)
+
+        for i in $(seq 0 $((item_count - 1))); do
+          item_name=$(jq -r ".items[${i}].metadata.name" {{ backup_dir }}/mariadbdatabase-backup.json)
+          item_kind=$(jq -r ".items[${i}].kind" {{ backup_dir }}/mariadbdatabase-backup.json)
+          has_annotation=$(jq -r ".items[${i}].metadata.annotations.\"kubectl.kubernetes.io/last-applied-configuration\" // empty" {{ backup_dir }}/mariadbdatabase-backup.json)
+
+          temp_file=$(mktemp)
+          jq ".items[${i}]" {{ backup_dir }}/mariadbdatabase-backup.json > "${temp_file}"
+
+          echo "  Applying: ${item_kind}/${item_name}"
+          if [ -n "${has_annotation}" ]; then
+            oc apply -f "${temp_file}" -n {{ namespace }} 2>&1 | grep -v "Warning: resource" || true
+          else
+            oc apply --server-side=true -f "${temp_file}" -n {{ namespace }} 2>&1 | grep -v "Warning: resource" || true
+          fi
+
+          rm -f "${temp_file}"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Print Step 7 completion
+      ansible.builtin.debug:
+        msg: "✓ MariaDBDatabase CRs restored"
+
+    # Step 8: Restore MariaDBAccount CRs
+    - name: Print Step 8 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 8: Restore MariaDBAccount CRs"
+          - "========================================"
+          - "CRITICAL: MariaDBAccount CRs restored AFTER databases (accounts depend on databases)"
+
+    - name: Apply MariaDBAccount CRs
+      ansible.builtin.shell: |
+        item_count=$(jq '.items | length' {{ backup_dir }}/mariadbaccount-backup.json)
+
+        for i in $(seq 0 $((item_count - 1))); do
+          item_name=$(jq -r ".items[${i}].metadata.name" {{ backup_dir }}/mariadbaccount-backup.json)
+          item_kind=$(jq -r ".items[${i}].kind" {{ backup_dir }}/mariadbaccount-backup.json)
+          has_annotation=$(jq -r ".items[${i}].metadata.annotations.\"kubectl.kubernetes.io/last-applied-configuration\" // empty" {{ backup_dir }}/mariadbaccount-backup.json)
+
+          temp_file=$(mktemp)
+          jq ".items[${i}]" {{ backup_dir }}/mariadbaccount-backup.json > "${temp_file}"
+
+          echo "  Applying: ${item_kind}/${item_name}"
+          if [ -n "${has_annotation}" ]; then
+            oc apply -f "${temp_file}" -n {{ namespace }} 2>&1 | grep -v "Warning: resource" || true
+          else
+            oc apply --server-side=true -f "${temp_file}" -n {{ namespace }} 2>&1 | grep -v "Warning: resource" || true
+          fi
+
+          rm -f "${temp_file}"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Print Step 8 completion
+      ansible.builtin.debug:
+        msg: "✓ MariaDBAccount CRs restored"
+
+    # Step 9: Restore Related CRs
+    - name: Print Step 9 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 9: Restore Related CRs"
+          - "========================================"
+
+    - name: Check if OpenStackVersion exists in backup
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/openstackversion-backup.json"
+      register: openstackversion_file
+
+    - name: Count OpenStackVersion items
+      ansible.builtin.shell: |
+        jq '.items | length' {{ backup_dir }}/openstackversion-backup.json
+      register: openstackversion_count
+      changed_when: false
+      when: openstackversion_file.stat.exists
+
+    - name: Restore OpenStackVersion
+      ansible.builtin.shell: |
+        oc apply -f {{ backup_dir }}/openstackversion-backup.json -n {{ namespace }}
+      changed_when: true
+      when: openstackversion_file.stat.exists and openstackversion_count.stdout|int > 0
+
+    - name: Print OpenStackVersion status
+      ansible.builtin.debug:
+        msg: "✓ OpenStackVersion restored"
+      when: openstackversion_file.stat.exists and openstackversion_count.stdout|int > 0
+
+    - name: Restore NetConfig
+      ansible.builtin.shell: |
+        oc apply -f {{ backup_dir }}/netconfig-backup.json -n {{ namespace }}
+      changed_when: true
+
+    - name: Print NetConfig status
+      ansible.builtin.debug:
+        msg: "✓ NetConfig restored (CRITICAL)"
+
+    - name: Check if Topology exists in backup
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/topology-backup.json"
+      register: topology_file
+
+    - name: Count Topology items
+      ansible.builtin.shell: |
+        jq '.items | length' {{ backup_dir }}/topology-backup.json
+      register: topology_count
+      changed_when: false
+      when: topology_file.stat.exists
+
+    - name: Restore Topology
+      ansible.builtin.shell: |
+        oc apply -f {{ backup_dir }}/topology-backup.json -n {{ namespace }}
+      changed_when: true
+      when: topology_file.stat.exists and topology_count.stdout|int > 0
+
+    - name: Print Topology status
+      ansible.builtin.debug:
+        msg: "✓ Topology restored"
+      when: topology_file.stat.exists and topology_count.stdout|int > 0
+
+    # Step 10: Restore OpenStackControlPlane CR with Staged Deployment
+    - name: Print Step 10 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 10: Restore OpenStackControlPlane CR with Staged Deployment"
+          - "========================================"
+          - ""
+          - "CRITICAL: Using staged deployment annotation to pause after infrastructure creation."
+          - "This allows database restore before OpenStack services start."
+          - ""
+          - "When the OpenStackControlPlane CR is restored with annotation, operators will:"
+          - "  1. Create infrastructure: Galera, OVN, RabbitMQ, Memcached"
+          - "  2. Create Certificate CRs for infrastructure services"
+          - "  3. cert-manager issues fresh certificates from the restored CAs"
+          - "  4. PAUSE - OpenStack services (Keystone, Nova, etc.) are NOT created yet"
+          - "  5. Set OpenStackControlPlaneInfrastructureReady condition to True"
+
+    - name: Confirm OpenStackControlPlane restore
+      ansible.builtin.pause:
+        prompt: |
+
+          Ready to restore OpenStackControlPlane CR with staged deployment? (yes/no)
+      register: restore_confirm
+
+    - name: Fail if user doesn't confirm
+      ansible.builtin.fail:
+        msg: |
+          Aborting. You can manually restore later with:
+            cd {{ backup_dir }}
+            jq '.items[0].metadata.annotations["core.openstack.org/deployment-stage"] = "infrastructure-only"' openstackcontrolplane-backup.json > openstackcontrolplane-staged.json
+            oc apply -f openstackcontrolplane-staged.json -n {{ namespace }}
+      when: restore_confirm.user_input != "yes"
+
+    - name: Get OpenStackControlPlane CR name from backup
+      ansible.builtin.shell: |
+        jq -r '.items[0].metadata.name' {{ backup_dir }}/openstackcontrolplane-backup.json
+      register: ctlplane_name_result
+      changed_when: false
+
+    - name: Set ctlplane_name fact
+      ansible.builtin.set_fact:
+        ctlplane_name: "{{ ctlplane_name_result.stdout }}"
+
+    - name: Print OpenStackControlPlane name
+      ansible.builtin.debug:
+        msg: "OpenStackControlPlane CR name: {{ ctlplane_name }}"
+
+    - name: Add staged deployment annotation
+      ansible.builtin.shell: |
+        jq '.items[0].metadata.annotations["core.openstack.org/deployment-stage"] = "infrastructure-only"' \
+          {{ backup_dir }}/openstackcontrolplane-backup.json > {{ work_dir }}/openstackcontrolplane-staged.json
+      changed_when: true
+
+    - name: Apply OpenStackControlPlane CR with staged deployment
+      ansible.builtin.shell: |
+        oc apply -f {{ work_dir }}/openstackcontrolplane-staged.json -n {{ namespace }}
+      changed_when: true
+
+    - name: Print Step 10 completion
+      ansible.builtin.debug:
+        msg:
+          - "✓ OpenStackControlPlane CR restored with staged deployment annotation"
+          - ""
+          - "Waiting for infrastructure to be ready..."
+          - "This may take several minutes..."
+
+    - name: Wait for API server to register the resource
+      ansible.builtin.pause:
+        seconds: 10
+
+    - name: Wait for OpenStackControlPlaneInfrastructureReady condition
+      ansible.builtin.shell: |
+        oc wait --for=condition=OpenStackControlPlaneInfrastructureReady openstackcontrolplane/{{ ctlplane_name }} -n {{ namespace }} --timeout=20m
+      register: infra_ready
+      changed_when: false
+      failed_when: false
+
+    - name: Print infrastructure ready status
+      ansible.builtin.debug:
+        msg: "✓ Infrastructure is ready!"
+      when: infra_ready.rc == 0
+
+    - name: Print infrastructure warning
+      ansible.builtin.debug:
+        msg: |
+          Warning: Timeout waiting for OpenStackControlPlaneInfrastructureReady condition
+          Check status manually:
+            oc get openstackcontrolplane {{ ctlplane_name }} -n {{ namespace }} -o jsonpath='{.status.conditions}'
+      when: infra_ready.rc != 0
+
+    - name: Verify infrastructure components
+      ansible.builtin.shell: |
+        echo "Galera clusters:"
+        oc get galera -n {{ namespace }} || echo "  No Galera clusters found"
+        echo ""
+        echo "OVN database clusters:"
+        oc get ovndbcluster -n {{ namespace }} || echo "  No OVN database clusters found"
+        echo ""
+        echo "RabbitMQ clusters:"
+        oc get rabbitmq -n {{ namespace }} || echo "  No RabbitMQ clusters found"
+        echo ""
+        echo "Memcached instances:"
+        oc get memcached -n {{ namespace }} || echo "  No Memcached instances found"
+      register: infra_components
+      changed_when: false
+
+    - name: Display infrastructure components
+      ansible.builtin.debug:
+        msg: "{{ infra_components.stdout_lines }}"
+
+    # Step 11: Database Restore
+    - name: Print Step 11 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 11: Restore Database Contents"
+          - "========================================"
+          - ""
+          - "CRITICAL: Restore database contents while services are NOT running."
+          - "This is only possible because of the staged deployment pause."
+          - ""
+          - "You must restore databases using separate procedures:"
+          - "  - MariaDB: Use backup-mariadb.sh and restore-mariadb.sh"
+          - "  - OVN Databases: Use OVN database backup/restore procedures"
+
+    - name: Confirm database restore completion
+      ansible.builtin.pause:
+        prompt: |
+
+          Have you completed database restore? (yes/no)
+      register: db_restore_confirm
+
+    - name: Warn about missing database restore
+      ansible.builtin.pause:
+        prompt: |
+
+          ⚠️  WARNING: Database restore is required before continuing!
+          Without database restore, OpenStack services will initialize fresh schemas.
+
+          Continue anyway without database restore? (yes/no)
+      register: skip_db_confirm
+      when: db_restore_confirm.user_input != "yes"
+
+    - name: Fail if database restore not completed
+      ansible.builtin.fail:
+        msg: |
+          Aborting. Restore databases and then resume with:
+            oc annotate openstackcontrolplane {{ ctlplane_name }} -n {{ namespace }} core.openstack.org/deployment-stage-
+      when: db_restore_confirm.user_input != "yes" and skip_db_confirm.user_input != "yes"
+
+    - name: Print database restore status
+      ansible.builtin.debug:
+        msg: "✓ Database restore completed"
+      when: db_restore_confirm.user_input == "yes"
+
+    # Step 12: RabbitMQ User Restoration
+    - name: Print Step 12 header (if not skipping)
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 12: Restore RabbitMQ User Credentials"
+          - "========================================"
+          - ""
+          - "⚠️  CRITICAL FOR EDPM/DATA PLANE DEPLOYMENTS ⚠️"
+          - ""
+          - "The new RabbitMQ clusters have random credentials."
+          - "You MUST restore the original user credentials so that:"
+          - "  - Control plane services can authenticate"
+          - "  - EDPM data plane nodes maintain connectivity"
+      when: not skip_rabbitmq_restore
+
+    - name: Confirm RabbitMQ user restore
+      ansible.builtin.pause:
+        prompt: |
+
+          Restore RabbitMQ user credentials now? (yes/no)
+      register: rabbitmq_confirm
+      when: not skip_rabbitmq_restore
+
+    - name: Extract main RabbitMQ credentials
+      ansible.builtin.shell: |
+        jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.username' {{ backup_dir }}/secrets-all-backup.json | base64 -d
+      register: rabbitmq_user
+      changed_when: false
+      failed_when: false
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+
+    - name: Extract main RabbitMQ password
+      ansible.builtin.shell: |
+        jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.password' {{ backup_dir }}/secrets-all-backup.json | base64 -d
+      register: rabbitmq_pass
+      changed_when: false
+      failed_when: false
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+
+    - name: Restore main RabbitMQ user
+      ansible.builtin.shell: |
+        oc rsh -n {{ namespace }} rabbitmq-server-0 rabbitmqctl add_user -- "{{ rabbitmq_user.stdout }}" "{{ rabbitmq_pass.stdout }}" 2>/dev/null || echo "  (user may already exist)"
+        oc rsh -n {{ namespace }} rabbitmq-server-0 rabbitmqctl set_user_tags "{{ rabbitmq_user.stdout }}" administrator
+        oc rsh -n {{ namespace }} rabbitmq-server-0 rabbitmqctl set_permissions -p / "{{ rabbitmq_user.stdout }}" ".*" ".*" ".*"
+      changed_when: true
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes" and rabbitmq_user.stdout != ""
+
+    - name: Print main RabbitMQ restore status
+      ansible.builtin.debug:
+        msg: "✓ Main RabbitMQ user restored: {{ rabbitmq_user.stdout }}"
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes" and rabbitmq_user.stdout != ""
+
+    - name: Extract cell1 RabbitMQ credentials
+      ansible.builtin.shell: |
+        jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.username' {{ backup_dir }}/secrets-all-backup.json | base64 -d
+      register: rabbitmq_cell1_user
+      changed_when: false
+      failed_when: false
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+
+    - name: Extract cell1 RabbitMQ password
+      ansible.builtin.shell: |
+        jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.password' {{ backup_dir }}/secrets-all-backup.json | base64 -d
+      register: rabbitmq_cell1_pass
+      changed_when: false
+      failed_when: false
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+
+    - name: Restore cell1 RabbitMQ user
+      ansible.builtin.shell: |
+        oc rsh -n {{ namespace }} rabbitmq-cell1-server-0 rabbitmqctl add_user -- "{{ rabbitmq_cell1_user.stdout }}" "{{ rabbitmq_cell1_pass.stdout }}" 2>/dev/null || echo "  (user may already exist)"
+        oc rsh -n {{ namespace }} rabbitmq-cell1-server-0 rabbitmqctl set_user_tags "{{ rabbitmq_cell1_user.stdout }}" administrator
+        oc rsh -n {{ namespace }} rabbitmq-cell1-server-0 rabbitmqctl set_permissions -p / "{{ rabbitmq_cell1_user.stdout }}" ".*" ".*" ".*"
+      changed_when: true
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes" and rabbitmq_cell1_user.stdout != ""
+
+    - name: Print cell1 RabbitMQ restore status
+      ansible.builtin.debug:
+        msg: "✓ Cell1 RabbitMQ user restored: {{ rabbitmq_cell1_user.stdout }}"
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes" and rabbitmq_cell1_user.stdout != ""
+
+    - name: Print RabbitMQ completion
+      ansible.builtin.debug:
+        msg:
+          - "✓ RabbitMQ user credentials restored successfully!"
+          - ""
+          - "IMPORTANT: Data plane nodes will get updated credentials on their next EDPM deployment run."
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+
+    - name: Print RabbitMQ skip warning
+      ansible.builtin.debug:
+        msg:
+          - "⚠️  WARNING: Skipping RabbitMQ user restoration!"
+          - "You must manually restore RabbitMQ users or data plane nodes will lose connectivity."
+          - "See the documentation for manual restoration steps."
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input != "yes"
+
+    - name: Print RabbitMQ skip message
+      ansible.builtin.debug:
+        msg: "Skipping RabbitMQ user restoration (skip_rabbitmq_restore=true)"
+      when: skip_rabbitmq_restore
+
+    # Step 13: Resume Deployment
+    - name: Print Step 13 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 13: Resume Deployment"
+          - "========================================"
+          - ""
+          - "Now that databases and RabbitMQ credentials are restored,"
+          - "remove the staged deployment annotation to resume deployment."
+          - ""
+          - "This will:"
+          - "  1. Create all OpenStack services (Keystone, Nova, Neutron, Glance, etc.)"
+          - "  2. Services start and connect to the already-restored databases"
+          - "  3. Services connect to RabbitMQ using the restored credentials"
+          - "  4. No database initialization or db_sync needed (data already restored)"
+
+    - name: Confirm resume deployment
+      ansible.builtin.pause:
+        prompt: |
+
+          Ready to resume deployment? (yes/no)
+      register: resume_confirm
+
+    - name: Print pause instructions if not resuming
+      ansible.builtin.debug:
+        msg: |
+          ⚠️  Deployment is still paused with annotation.
+          To resume later, run:
+            oc annotate openstackcontrolplane {{ ctlplane_name }} -n {{ namespace }} core.openstack.org/deployment-stage-
+      when: resume_confirm.user_input != "yes"
+
+    - name: Cleanup work directory if not resuming
+      ansible.builtin.file:
+        path: "{{ work_dir }}"
+        state: absent
+      when: resume_confirm.user_input != "yes"
+
+    - name: End playbook if not resuming
+      ansible.builtin.meta: end_play
+      when: resume_confirm.user_input != "yes"
+
+    - name: Remove deployment-stage annotation
+      ansible.builtin.shell: |
+        oc annotate openstackcontrolplane {{ ctlplane_name }} -n {{ namespace }} core.openstack.org/deployment-stage-
+      changed_when: true
+
+    - name: Print annotation removal status
+      ansible.builtin.debug:
+        msg:
+          - "✓ Annotation removed, deployment resuming"
+          - ""
+          - "Services will be created and started with restored data"
+          - "You can monitor progress with: oc get openstackcontrolplane -n {{ namespace }} --watch"
+
+    - name: Wait for OpenStackControlPlane to become Ready
+      ansible.builtin.shell: |
+        oc wait --for=condition=Ready openstackcontrolplane/{{ ctlplane_name }} -n {{ namespace }} --timeout=30m
+      register: ctlplane_ready
+      changed_when: false
+      failed_when: false
+
+    - name: Print Ready status
+      ansible.builtin.debug:
+        msg: "✓ OpenStackControlPlane is Ready!"
+      when: ctlplane_ready.rc == 0
+
+    - name: Print Ready warning
+      ansible.builtin.debug:
+        msg: |
+          Warning: Timeout waiting for Ready condition
+          Deployment may still be in progress. Check manually:
+            oc get openstackcontrolplane {{ ctlplane_name }} -n {{ namespace }} --watch
+      when: ctlplane_ready.rc != 0
+
+    # Cleanup
+    - name: Cleanup work directory
+      ansible.builtin.file:
+        path: "{{ work_dir }}"
+        state: absent
+
+    # Final summary
+    - name: Print final summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Restore Completed!"
+          - "========================================"
+          - ""
+          - "Next steps:"
+          - "1. Monitor control plane status:"
+          - "   oc get openstackcontrolplane -n {{ namespace }} --watch"
+          - ""
+          - "2. Check service endpoints:"
+          - "   oc get svc -n {{ namespace }}"
+          - ""
+          - "3. Verify all pods are running:"
+          - "   oc get pods -n {{ namespace }}"
+          - ""
+          - "4. Check for any errors in operator logs:"
+          - "   oc logs -n openstack-operators deployment/openstack-operator-controller-manager --tail=50"
+          - ""
+          - "5. Verify EDPM nodes can connect (if applicable):"
+          - "   - Check nova-compute logs on compute nodes"
+          - "   - Check neutron agent logs on network nodes"
+          - ""
+          - "For detailed verification steps, see docs/dev/backup-restore-stateless.md"
