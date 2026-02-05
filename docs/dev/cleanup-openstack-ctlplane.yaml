@@ -1,0 +1,228 @@
+---
+# OpenStack Control Plane Cleanup Playbook
+# This playbook performs cleanup of OpenStack control plane resources
+# following the documented procedure in backup-restore-stateless.md
+#
+# IMPORTANT: This will delete all OpenStack control plane resources!
+# Use this before restoring from backup or when completely removing OpenStack.
+#
+# Usage:
+#   ansible-playbook cleanup-openstack-ctlplane.yaml
+#   ansible-playbook cleanup-openstack-ctlplane.yaml -e openstack_namespace=my-openstack
+#   ansible-playbook cleanup-openstack-ctlplane.yaml -e skip_confirmation=true
+
+- name: Cleanup OpenStack Control Plane
+  hosts: localhost
+  gather_facts: false
+  vars:
+    skip_confirmation: "{{ skip_confirmation | default(false) | bool }}"
+
+  tasks:
+    - name: Set default namespace
+      ansible.builtin.set_fact:
+        openstack_namespace: "{{ openstack_namespace | default('openstack') }}"
+
+    - name: Print cleanup header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "OpenStack Control Plane Cleanup"
+          - "========================================"
+          - "Namespace: {{ openstack_namespace }}"
+          - ""
+          - "WARNING: This will delete all OpenStack control plane resources!"
+
+    - name: Check if namespace exists
+      ansible.builtin.shell: |
+        oc get namespace {{ openstack_namespace }}
+      register: namespace_check
+      changed_when: false
+      failed_when: false
+
+    - name: Exit if namespace doesn't exist
+      ansible.builtin.debug:
+        msg: "Namespace {{ openstack_namespace }} does not exist. Nothing to clean up."
+      when: namespace_check.rc != 0
+
+    - name: End playbook if namespace doesn't exist
+      ansible.builtin.meta: end_play
+      when: namespace_check.rc != 0
+
+    - name: Check for existing OpenStackControlPlane resources
+      ansible.builtin.shell: |
+        oc get openstackcontrolplane -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l
+      register: ctlplane_count
+      changed_when: false
+      failed_when: false
+
+    - name: Display found resources
+      ansible.builtin.debug:
+        msg: "Found {{ ctlplane_count.stdout }} OpenStackControlPlane CR(s)"
+
+    - name: Confirm deletion
+      ansible.builtin.pause:
+        prompt: |
+
+          Found {{ ctlplane_count.stdout }} OpenStackControlPlane CR(s) in namespace {{ openstack_namespace }}
+
+          This will DELETE:
+          - OpenStackControlPlane CR
+          - All operator-managed pods and services
+          - Certificates and secrets (excluding EDPM/compute certs and Ceph)
+          - CA bundles
+
+          Continue with cleanup? (yes/no)
+      register: delete_confirm
+      when: not skip_confirmation and ctlplane_count.stdout|int > 0
+
+    - name: Fail if not confirmed
+      ansible.builtin.fail:
+        msg: "Cleanup cancelled by user"
+      when: not skip_confirmation and ctlplane_count.stdout|int > 0 and delete_confirm.user_input != "yes"
+
+    - name: Step 1 - Delete OpenStackControlPlane CR
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 1: Deleting OpenStackControlPlane CR"
+          - "========================================"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Delete OpenStackControlPlane resources
+      ansible.builtin.shell: |
+        oc delete openstackcontrolplane --all -n {{ openstack_namespace }}
+      changed_when: true
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Wait for initial cleanup (30 seconds)
+      ansible.builtin.pause:
+        seconds: 30
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Step 2 - Wait for pods to terminate
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 2: Waiting for pods to terminate"
+          - "========================================"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Wait for cleanup to complete
+      ansible.builtin.shell: |
+        oc get pods -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l
+      register: pod_count
+      until: pod_count.stdout|int == 0
+      retries: 60
+      delay: 10
+      changed_when: false
+      failed_when: false
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Check for stuck pods
+      ansible.builtin.shell: |
+        oc get pods -n {{ openstack_namespace }} --field-selector=status.phase=Terminating -o name
+      register: stuck_pods
+      changed_when: false
+      failed_when: false
+      when: ctlplane_count.stdout|int > 0 and pod_count.stdout|int > 0
+
+    - name: Force delete stuck pods
+      ansible.builtin.shell: |
+        oc delete {{ stuck_pods.stdout_lines | join(' ') }} -n {{ openstack_namespace }} --force --grace-period=0
+      changed_when: true
+      when: ctlplane_count.stdout|int > 0 and pod_count.stdout|int > 0 and stuck_pods.stdout != ""
+
+    - name: Print stuck pods status
+      ansible.builtin.debug:
+        msg: "✓ Force deleted {{ stuck_pods.stdout_lines | length }} stuck pod(s)"
+      when: ctlplane_count.stdout|int > 0 and pod_count.stdout|int > 0 and stuck_pods.stdout != ""
+
+    - name: Wait again after force delete
+      ansible.builtin.shell: |
+        oc get pods -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l
+      register: pod_count_final
+      until: pod_count_final.stdout|int == 0
+      retries: 30
+      delay: 5
+      changed_when: false
+      failed_when: false
+      when: ctlplane_count.stdout|int > 0 and pod_count.stdout|int > 0 and stuck_pods.stdout != ""
+
+    - name: Print pod cleanup status
+      ansible.builtin.debug:
+        msg: "✓ All pods terminated"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Step 3 - Delete certificate secrets
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 3: Deleting certificate secrets"
+          - "========================================"
+          - "(Excluding EDPM, compute node, and Ceph certs)"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Get compute node prefixes from dataplanes
+      ansible.builtin.shell: |
+        oc get openstackdataplanenodeset -o json 2>/dev/null | jq -r '[.items[].status.allHostnames // {} | keys[0] | sub("-[0-9]+$"; "")] | unique | join("|")'
+      register: compute_prefixes
+      changed_when: false
+      failed_when: false
+
+    - name: Delete cert secrets (with compute prefix exclusion)
+      ansible.builtin.shell: |
+        for i in $(oc get secret -n {{ openstack_namespace }} -o name | grep cert | grep -v edpm | grep -vE "({{ compute_prefixes.stdout }})" | grep -v ceph); do
+          oc delete -n {{ openstack_namespace }} $i
+        done
+      changed_when: true
+      when: ctlplane_count.stdout|int > 0 and compute_prefixes.stdout != ""
+
+    - name: Delete cert secrets (fallback without compute prefix)
+      ansible.builtin.shell: |
+        for i in $(oc get secret -n {{ openstack_namespace }} -o name | grep cert | grep -v edpm | grep -v ceph); do
+          oc delete -n {{ openstack_namespace }} $i
+        done
+      changed_when: true
+      when: ctlplane_count.stdout|int > 0 and compute_prefixes.stdout == ""
+
+    - name: Delete CA bundle secrets
+      ansible.builtin.shell: |
+        oc delete secret -n {{ openstack_namespace }} rootca-internal rootca-libvirt rootca-ovn rootca-public combined-ca-bundle 2>/dev/null || true
+      changed_when: true
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Print certificate cleanup status
+      ansible.builtin.debug:
+        msg: "✓ Certificate secrets deleted"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Verify cleanup
+      ansible.builtin.shell: |
+        oc get all -n {{ openstack_namespace }}
+      register: remaining_resources
+      changed_when: false
+      failed_when: false
+
+    - name: Display remaining resources
+      ansible.builtin.debug:
+        msg: "{{ remaining_resources.stdout_lines }}"
+
+    - name: Print completion summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Cleanup completed!"
+          - "========================================"
+          - ""
+          - "Namespace {{ openstack_namespace }} is now clean and ready for:"
+          - "- Fresh OpenStack deployment"
+          - "- Restore from backup"
+          - ""
+          - "To restore from backup, run:"
+          - "  ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e openstack_namespace={{ openstack_namespace }}"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Print no cleanup needed message
+      ansible.builtin.debug:
+        msg: "No OpenStackControlPlane resources found. Namespace is already clean."
+      when: ctlplane_count.stdout|int == 0

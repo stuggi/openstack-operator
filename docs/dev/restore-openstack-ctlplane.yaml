@@ -19,16 +19,18 @@
 # 13. Operators create Certificate CRs → cert-manager issues fresh certificates
 #
 # Usage:
+#   # First, cleanup existing resources (if needed):
+#   ansible-playbook cleanup-openstack-ctlplane.yaml -e openstack_namespace=openstack
+#
+#   # Then restore from backup:
 #   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=openstack-ctlplane-backup-20260119-120000.tar.gz
 #   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e openstack_namespace=my-openstack
-#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e skip_cleanup=true
 #   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e skip_rabbitmq_restore=true
 
 - name: Restore OpenStack Control Plane
   hosts: localhost
   gather_facts: true
   vars:
-    skip_cleanup: "{{ skip_cleanup | default(false) | bool }}"
     skip_rabbitmq_restore: "{{ skip_rabbitmq_restore | default(false) | bool }}"
     work_dir: ""
 
@@ -60,8 +62,10 @@
           - "========================================"
           - "Target Namespace: {{ openstack_namespace }}"
           - "Backup File: {{ backup_file }}"
-          - "Skip Cleanup: {{ skip_cleanup }}"
           - "Skip RabbitMQ Restore: {{ skip_rabbitmq_restore }}"
+          - ""
+          - "NOTE: This playbook assumes cleanup was already done."
+          - "If not, run cleanup-openstack-ctlplane.yaml first."
 
     - name: Create temporary work directory
       ansible.builtin.tempfile:
@@ -166,58 +170,6 @@
       ansible.builtin.debug:
         msg: "✓ Namespace {{ openstack_namespace }} exists"
 
-    # Step 2: Cleanup
-    - name: Print Step 2 header (if not skipping cleanup)
-      ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 2: Clean Up Existing Resources"
-          - "========================================"
-      when: not skip_cleanup
-
-    - name: Check for existing OpenStackControlPlane resources
-      ansible.builtin.shell: |
-        oc get openstackcontrolplane -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l
-      register: ctlplane_count
-      changed_when: false
-      failed_when: false
-      when: not skip_cleanup
-
-    - name: Confirm deletion of existing resources
-      ansible.builtin.pause:
-        prompt: |
-
-          Found {{ ctlplane_count.stdout }} OpenStackControlPlane CR(s) in namespace {{ openstack_namespace }}
-          Delete existing OpenStackControlPlane resources? (yes/no)
-      register: delete_confirm
-      when: not skip_cleanup and ctlplane_count.stdout|int > 0
-
-    - name: Delete existing OpenStackControlPlane resources
-      ansible.builtin.shell: |
-        oc delete openstackcontrolplane --all -n {{ openstack_namespace }}
-      when: not skip_cleanup and ctlplane_count.stdout|int > 0 and delete_confirm.user_input == "yes"
-      changed_when: true
-
-    - name: Wait for cleanup to complete
-      ansible.builtin.shell: |
-        oc get pods -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l
-      register: pod_count
-      until: pod_count.stdout|int == 0
-      retries: 120
-      delay: 10
-      changed_when: false
-      when: not skip_cleanup and ctlplane_count.stdout|int > 0 and delete_confirm.user_input == "yes"
-
-    - name: Print cleanup completion
-      ansible.builtin.debug:
-        msg: "✓ Cleanup complete"
-      when: not skip_cleanup and ctlplane_count.stdout|int > 0 and delete_confirm.user_input == "yes"
-
-    - name: Print cleanup skipped message
-      ansible.builtin.debug:
-        msg: "Skipping cleanup (skip_cleanup=true)"
-      when: skip_cleanup
-
     # Critical restore order message
     - name: Print restore order message
       ansible.builtin.debug:
@@ -230,12 +182,12 @@
           - "  2. Issuers exist before operators trigger Certificate creation"
           - "  3. cert-manager issues fresh certificates from the same CA"
 
-    # Step 3: NetworkAttachmentDefinitions
-    - name: Print Step 3 header
+    # Step 2: NetworkAttachmentDefinitions
+    - name: Print Step 2 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 3: Restore NetworkAttachmentDefinitions"
+          - "Step 2: Restore NetworkAttachmentDefinitions"
           - "========================================"
 
     - name: Restore NetworkAttachmentDefinitions
@@ -257,12 +209,12 @@
       ansible.builtin.debug:
         msg: "{{ nad_list.stdout_lines }}"
 
-    # Step 4: Restore Secrets
-    - name: Print Step 4 header
+    # Step 3: Restore Secrets
+    - name: Print Step 3 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 4: Restore Secrets"
+          - "Step 3: Restore Secrets"
           - "========================================"
           - "CRITICAL: CA secrets must exist BEFORE Issuers"
           - "         - Issuers reference CA secrets (e.g., rootca-internal, rootca-public)"
@@ -341,12 +293,12 @@
       ansible.builtin.debug:
         msg: "Total secrets in namespace: {{ total_secrets.stdout }}"
 
-    # Step 5: Restore ConfigMaps
-    - name: Print Step 5 header
+    # Step 4: Restore ConfigMaps
+    - name: Print Step 4 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 5: Restore ConfigMaps"
+          - "Step 4: Restore ConfigMaps"
           - "========================================"
           - "Filtering ConfigMaps to restore only:"
           - "  1. User-provided ConfigMaps (no ownerReferences)"
@@ -399,12 +351,12 @@
       ansible.builtin.debug:
         msg: "✓ ConfigMaps restored (user-provided only)"
 
-    # Step 6: Restore TLS Issuers
-    - name: Print Step 6 header
+    # Step 5: Restore TLS Issuers
+    - name: Print Step 5 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 6: Restore TLS Issuers"
+          - "Step 5: Restore TLS Issuers"
           - "========================================"
           - "CRITICAL: Issuers restored AFTER secrets (need CA secrets to exist)"
           - ""
@@ -462,12 +414,12 @@
       changed_when: false
       failed_when: false
 
-    # Step 7: Restore MariaDBDatabase CRs
-    - name: Print Step 7 header
+    # Step 6: Restore MariaDBDatabase CRs
+    - name: Print Step 6 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 7: Restore MariaDBDatabase CRs"
+          - "Step 6: Restore MariaDBDatabase CRs"
           - "========================================"
           - "CRITICAL: MariaDBDatabase CRs restored AFTER secrets (database password secrets are needed)"
 
@@ -500,12 +452,12 @@
       ansible.builtin.debug:
         msg: "✓ MariaDBDatabase CRs restored"
 
-    # Step 8: Restore MariaDBAccount CRs
-    - name: Print Step 8 header
+    # Step 7: Restore MariaDBAccount CRs
+    - name: Print Step 7 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 8: Restore MariaDBAccount CRs"
+          - "Step 7: Restore MariaDBAccount CRs"
           - "========================================"
           - "CRITICAL: MariaDBAccount CRs restored AFTER databases (accounts depend on databases)"
 
@@ -538,12 +490,12 @@
       ansible.builtin.debug:
         msg: "✓ MariaDBAccount CRs restored"
 
-    # Step 9: Restore Related CRs
-    - name: Print Step 9 header
+    # Step 8: Restore Related CRs
+    - name: Print Step 8 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 9: Restore Related CRs"
+          - "Step 8: Restore Related CRs"
           - "========================================"
 
     - name: Check if OpenStackVersion exists in backup
@@ -601,12 +553,12 @@
         msg: "✓ Topology restored"
       when: topology_file.stat.exists and topology_count.stdout|int > 0
 
-    # Step 10: Restore OpenStackControlPlane CR with Staged Deployment
-    - name: Print Step 10 header
+    # Step 9: Restore OpenStackControlPlane CR with Staged Deployment
+    - name: Print Step 9 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 10: Restore OpenStackControlPlane CR with Staged Deployment"
+          - "Step 9: Restore OpenStackControlPlane CR with Staged Deployment"
           - "========================================"
           - ""
           - "CRITICAL: Using staged deployment annotation to pause after infrastructure creation."
@@ -712,12 +664,12 @@
       ansible.builtin.debug:
         msg: "{{ infra_components.stdout_lines }}"
 
-    # Step 11: Database Restore
-    - name: Print Step 11 header
+    # Step 10: Database Restore
+    - name: Print Step 10 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 11: Restore Database Contents"
+          - "Step 10: Restore Database Contents"
           - "========================================"
           - ""
           - "CRITICAL: Restore database contents while services are NOT running."
@@ -757,12 +709,12 @@
         msg: "✓ Database restore completed"
       when: db_restore_confirm.user_input == "yes"
 
-    # Step 12: RabbitMQ User Restoration
-    - name: Print Step 12 header (if not skipping)
+    # Step 11: RabbitMQ User Restoration
+    - name: Print Step 11 header (if not skipping)
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 12: Restore RabbitMQ User Credentials"
+          - "Step 11: Restore RabbitMQ User Credentials"
           - "========================================"
           - ""
           - "⚠️  CRITICAL FOR EDPM/DATA PLANE DEPLOYMENTS ⚠️"
@@ -860,12 +812,12 @@
         msg: "Skipping RabbitMQ user restoration (skip_rabbitmq_restore=true)"
       when: skip_rabbitmq_restore
 
-    # Step 13: Resume Deployment
-    - name: Print Step 13 header
+    # Step 12: Resume Deployment
+    - name: Print Step 12 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 13: Resume Deployment"
+          - "Step 12: Resume Deployment"
           - "========================================"
           - ""
           - "Now that databases and RabbitMQ credentials are restored,"
