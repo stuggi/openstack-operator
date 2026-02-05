@@ -31,28 +31,33 @@
   hosts: localhost
   gather_facts: true
   vars:
-    skip_rabbitmq_restore: "{{ skip_rabbitmq_restore | default(false) | bool }}"
     work_dir: ""
 
   tasks:
-    - name: Set default namespace
+    - name: Set default variables
       ansible.builtin.set_fact:
         openstack_namespace: "{{ openstack_namespace | default('openstack') }}"
+        skip_rabbitmq_restore: "{{ skip_rabbitmq_restore | default(false) | bool }}"
 
     - name: Check if backup_file is provided
       ansible.builtin.fail:
         msg: "backup_file parameter is required. Usage: ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz"
       when: backup_file is not defined
 
+    - name: Resolve absolute backup file path
+      ansible.builtin.set_fact:
+        backup_file_abs: "{{ backup_file if backup_file.startswith('/') else (lookup('env', 'PWD') + '/' + backup_file) }}"
+
     - name: Check if backup file exists
-      ansible.builtin.stat:
-        path: "{{ backup_file }}"
-      register: backup_file_stat
+      ansible.builtin.shell: test -f "{{ backup_file_abs }}"
+      register: backup_file_check
+      changed_when: false
+      failed_when: false
 
     - name: Fail if backup file does not exist
       ansible.builtin.fail:
-        msg: "Backup file not found: {{ backup_file }}"
-      when: not backup_file_stat.stat.exists
+        msg: "Backup file not found: {{ backup_file_abs }}"
+      when: backup_file_check.rc != 0
 
     - name: Print restore header
       ansible.builtin.debug:
@@ -61,7 +66,7 @@
           - "OpenStack Control Plane Restore"
           - "========================================"
           - "Target Namespace: {{ openstack_namespace }}"
-          - "Backup File: {{ backup_file }}"
+          - "Backup File: {{ backup_file_abs }}"
           - "Skip RabbitMQ Restore: {{ skip_rabbitmq_restore }}"
           - ""
           - "NOTE: This playbook assumes cleanup was already done."
@@ -79,7 +84,7 @@
 
     - name: Extract backup archive
       ansible.builtin.unarchive:
-        src: "{{ backup_file }}"
+        src: "{{ backup_file_abs }}"
         dest: "{{ work_dir }}"
         remote_src: false
 
