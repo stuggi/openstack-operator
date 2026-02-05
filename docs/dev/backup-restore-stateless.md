@@ -859,6 +859,14 @@ oc delete openstackcontrolplane --all -n openstack
 # Wait for all resources to be cleaned up (may take several minutes)
 oc get pods -n openstack --watch
 
+# If pods are stuck in Terminating state, force delete them
+# Common with OVN dbserver pods (ovsdbserver-nb-*, ovsdbserver-sb-*)
+STUCK_PODS=$(oc get pods -n openstack --field-selector=status.phase=Terminating -o name)
+if [ -n "$STUCK_PODS" ]; then
+  echo "Force deleting stuck pods..."
+  oc delete $STUCK_PODS -n openstack --force --grace-period=0
+fi
+
 # Verify all operator-managed resources are gone
 oc get all -n openstack
 

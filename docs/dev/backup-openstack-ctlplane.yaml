@@ -5,38 +5,57 @@
 #
 # Usage:
 #   ansible-playbook backup-openstack-ctlplane.yaml
-#   ansible-playbook backup-openstack-ctlplane.yaml -e namespace=my-openstack
+#   ansible-playbook backup-openstack-ctlplane.yaml -e openstack_namespace=my-openstack
 #   ansible-playbook backup-openstack-ctlplane.yaml -e backup_dir_base=/custom/backup/path
 
 - name: Backup OpenStack Control Plane
   hosts: localhost
   gather_facts: false
-  vars:
-    namespace: "{{ namespace | default('openstack') }}"
-    backup_dir_base: "{{ backup_dir_base | default('./backups') }}"
-    backup_date: "{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
-    backup_dir: "{{ backup_dir_base }}/openstack-ctlplane-backup-{{ backup_date }}"
 
   tasks:
+    - name: Set backup timestamp (evaluate once)
+      ansible.builtin.shell: date +%Y%m%d-%H%M%S
+      register: backup_date_result
+      changed_when: false
+
+    - name: Set default variables
+      ansible.builtin.set_fact:
+        backup_date: "{{ backup_date_result.stdout }}"
+        openstack_namespace: "{{ openstack_namespace | default('openstack') }}"
+        backup_dir_base_input: "{{ backup_dir_base | default('./backups') }}"
+
+    - name: Resolve absolute backup directory path
+      ansible.builtin.set_fact:
+        backup_dir_base: "{{ backup_dir_base_input if backup_dir_base_input.startswith('/') else (lookup('env', 'PWD') + '/' + backup_dir_base_input) }}"
+
+    - name: Set backup directory
+      ansible.builtin.set_fact:
+        backup_dir: "{{ backup_dir_base }}/openstack-ctlplane-backup-{{ backup_date }}"
+
+    - name: Get current timestamp in ISO8601 format
+      ansible.builtin.shell: date -u +"%Y-%m-%dT%H:%M:%SZ"
+      register: backup_timestamp
+      changed_when: false
+
     - name: Print backup header
       ansible.builtin.debug:
         msg:
           - "========================================"
           - "OpenStack Control Plane Backup"
           - "========================================"
-          - "Namespace: {{ namespace }}"
+          - "Namespace: {{ openstack_namespace }}"
           - "Backup base directory: {{ backup_dir_base }}"
           - "Backup directory: {{ backup_dir }}"
 
     - name: Create backup directory
-      ansible.builtin.file:
-        path: "{{ backup_dir }}"
-        state: directory
-        mode: '0755'
+      ansible.builtin.shell: mkdir -p "{{ backup_dir }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
 
     - name: Step 1 - Backup OpenStackControlPlane CR
       ansible.builtin.shell: |
-        oc get openstackcontrolplane -n {{ namespace }} -o json | \
+        oc get openstackcontrolplane -n {{ openstack_namespace }} -o json | \
           jq 'del(.items[].metadata.uid,
                   .items[].metadata.resourceVersion,
                   .items[].metadata.creationTimestamp,
@@ -53,7 +72,7 @@
 
     - name: Step 2 - Backup OpenStackVersion
       ansible.builtin.shell: |
-        oc get openstackversion -n {{ namespace }} -o json | \
+        oc get openstackversion -n {{ openstack_namespace }} -o json | \
           jq 'del(.items[].metadata.ownerReferences,
                   .items[].metadata.uid,
                   .items[].metadata.resourceVersion,
@@ -68,7 +87,7 @@
 
     - name: Step 2 - Backup NetConfig (CRITICAL)
       ansible.builtin.shell: |
-        oc get netconfig -n {{ namespace }} -o json | \
+        oc get netconfig -n {{ openstack_namespace }} -o json | \
           jq 'del(.items[].metadata.uid,
                   .items[].metadata.resourceVersion,
                   .items[].metadata.creationTimestamp,
@@ -81,7 +100,7 @@
 
     - name: Step 2 - Backup Topology
       ansible.builtin.shell: |
-        oc get topology -n {{ namespace }} -o json | \
+        oc get topology -n {{ openstack_namespace }} -o json | \
           jq 'del(.items[].metadata.ownerReferences,
                   .items[].metadata.uid,
                   .items[].metadata.resourceVersion,
@@ -100,7 +119,7 @@
 
     - name: Step 3 - Backup NetworkAttachmentDefinitions
       ansible.builtin.shell: |
-        oc get network-attachment-definition -n {{ namespace }} -o json | \
+        oc get network-attachment-definition -n {{ openstack_namespace }} -o json | \
           jq 'del(.items[].metadata.uid,
                   .items[].metadata.resourceVersion,
                   .items[].metadata.creationTimestamp,
@@ -117,7 +136,7 @@
 
     - name: Step 4 - Backup Secrets (excluding auto-generated)
       ansible.builtin.shell: |
-        oc get secrets -n {{ namespace }} -o json | \
+        oc get secrets -n {{ openstack_namespace }} -o json | \
           jq '.items |= map(select(.type != "kubernetes.io/dockercfg" and .type != "kubernetes.io/service-account-token")) |
               del(.items[].metadata.uid,
                   .items[].metadata.resourceVersion,
@@ -143,7 +162,7 @@
 
     - name: Step 5 - Backup MariaDBDatabase CRs
       ansible.builtin.shell: |
-        oc get mariadbdatabase -n {{ namespace }} -o json | \
+        oc get mariadbdatabase -n {{ openstack_namespace }} -o json | \
           jq 'del(.items[].metadata.ownerReferences,
                   .items[].metadata.uid,
                   .items[].metadata.resourceVersion,
@@ -157,7 +176,7 @@
 
     - name: Step 5 - Backup MariaDBAccount CRs
       ansible.builtin.shell: |
-        oc get mariadbaccount -n {{ namespace }} -o json | \
+        oc get mariadbaccount -n {{ openstack_namespace }} -o json | \
           jq 'del(.items[].metadata.ownerReferences,
                   .items[].metadata.uid,
                   .items[].metadata.resourceVersion,
@@ -175,7 +194,7 @@
 
     - name: Step 6 - Backup Issuer CRs
       ansible.builtin.shell: |
-        oc get issuer -n {{ namespace }} -o json | \
+        oc get issuer -n {{ openstack_namespace }} -o json | \
           jq 'del(.items[].metadata.ownerReferences,
                   .items[].metadata.uid,
                   .items[].metadata.resourceVersion,
@@ -189,7 +208,7 @@
 
     - name: Step 6 - Backup Certificate CRs
       ansible.builtin.shell: |
-        oc get certificate -n {{ namespace }} -o json | \
+        oc get certificate -n {{ openstack_namespace }} -o json | \
           jq 'del(.items[].metadata.ownerReferences,
                   .items[].metadata.uid,
                   .items[].metadata.resourceVersion,
@@ -207,7 +226,7 @@
 
     - name: Step 7 - Backup ConfigMaps
       ansible.builtin.shell: |
-        oc get configmaps -n {{ namespace }} -o json | \
+        oc get configmaps -n {{ openstack_namespace }} -o json | \
           jq 'del(.items[].metadata.uid,
                   .items[].metadata.resourceVersion,
                   .items[].metadata.creationTimestamp,
@@ -253,7 +272,7 @@
 
     - name: Step 8 - Get global storageClass
       ansible.builtin.shell: |
-        oc get openstackcontrolplane -n {{ namespace }} -o jsonpath='{.items[0].spec.storageClass}'
+        oc get openstackcontrolplane -n {{ openstack_namespace }} -o jsonpath='{.items[0].spec.storageClass}'
       register: global_storage_class
       changed_when: false
       failed_when: false
@@ -283,37 +302,39 @@
       changed_when: false
 
     - name: Step 8 - Create operator-versions.txt
-      ansible.builtin.copy:
-        dest: "{{ backup_dir }}/operator-versions.txt"
-        content: |
-          ========================================
-          OpenStack Control Plane Backup Metadata
-          ========================================
-          Backup Date: {{ ansible_date_time.iso8601 }}
-          Backup Created By: {{ current_user.stdout }}
+      ansible.builtin.shell: |
+        cat > "{{ backup_dir }}/operator-versions.txt" << 'EOF'
+        ========================================
+        OpenStack Control Plane Backup Metadata
+        ========================================
+        Backup Date: {{ backup_timestamp.stdout }}
+        Backup Created By: {{ current_user.stdout }}
 
-          OpenShift Cluster Information:
-          - Cluster Version: {{ openshift_version.stdout | default('N/A') }}
-          - Kubernetes Version: {{ k8s_version.stdout | default('N/A') }}
-          - Console URL: {{ console_url.stdout | default('N/A') }}
+        OpenShift Cluster Information:
+        - Cluster Version: {{ openshift_version.stdout | default('N/A') }}
+        - Kubernetes Version: {{ k8s_version.stdout | default('N/A') }}
+        - Console URL: {{ console_url.stdout | default('N/A') }}
 
-          Namespace: {{ namespace }}
+        Namespace: {{ openstack_namespace }}
 
-          Installed Operators (ClusterServiceVersions):
-          {{ csv_list.stdout }}
+        Installed Operators (ClusterServiceVersions):
+        {{ csv_list.stdout }}
 
-          Operator Subscriptions:
-          {{ subscription_list.stdout }}
+        Operator Subscriptions:
+        {{ subscription_list.stdout }}
 
-          Install Plans:
-          {{ installplan_list.stdout }}
+        Install Plans:
+        {{ installplan_list.stdout }}
 
-          Storage Configuration:
-          Note: Services can override the global storageClass with service-specific parameters
-          - Global StorageClass: {{ global_storage_class.stdout | default('N/A') }}
-          - Available StorageClasses in cluster:
-          {{ storage_classes.stdout }}
-        mode: '0644'
+        Storage Configuration:
+        Note: Services can override the global storageClass with service-specific parameters
+        - Global StorageClass: {{ global_storage_class.stdout | default('N/A') }}
+        - Available StorageClasses in cluster:
+        {{ storage_classes.stdout }}
+        EOF
+      args:
+        executable: /bin/bash
+      changed_when: true
 
     - name: Step 8 - Backup CSV details
       ansible.builtin.shell: |
@@ -362,53 +383,55 @@
         msg: "✓ Operator versions documented"
 
     - name: Create README.md
-      ansible.builtin.copy:
-        dest: "{{ backup_dir }}/README.md"
-        content: |
-          # OpenStack Control Plane Backup
+      ansible.builtin.shell: |
+        cat > "{{ backup_dir }}/README.md" << 'EOF'
+        # OpenStack Control Plane Backup
 
-          Created: {{ ansible_date_time.iso8601 }}
-          Source Cluster: {{ console_url.stdout | default('N/A') }}
-          Namespace: {{ namespace }}
+        Created: {{ backup_timestamp.stdout }}
+        Source Cluster: {{ console_url.stdout | default('N/A') }}
+        Namespace: {{ openstack_namespace }}
 
-          ## Contents
+        ## Contents
 
-          All backup files are in JSON format for consistency.
+        All backup files are in JSON format for consistency.
 
-          ### Control Plane CRs
-          - openstackcontrolplane-backup.json: Main control plane CR
-          - openstackversion-backup.json: OpenStack version and container images
-          - netconfig-backup.json: Network configuration (CRITICAL)
-          - topology-backup.json: Topology configuration (if used)
+        ### Control Plane CRs
+        - openstackcontrolplane-backup.json: Main control plane CR
+        - openstackversion-backup.json: OpenStack version and container images
+        - netconfig-backup.json: Network configuration (CRITICAL)
+        - topology-backup.json: Topology configuration (if used)
 
-          ### Network Resources (ownerReferences removed)
-          - network-attachment-definitions-backup.json: NetworkAttachmentDefinitions (CRITICAL)
+        ### Network Resources (ownerReferences removed)
+        - network-attachment-definitions-backup.json: NetworkAttachmentDefinitions (CRITICAL)
 
-          ### Secrets and ConfigMaps (ownerReferences removed)
-          - secrets-all-backup.json: All secrets (includes OpenStack secrets, RabbitMQ, TLS CAs, certificates, database passwords)
-          - configmaps-all-backup.json: All ConfigMaps
+        ### Secrets and ConfigMaps (ownerReferences removed)
+        - secrets-all-backup.json: All secrets (includes OpenStack secrets, RabbitMQ, TLS CAs, certificates, database passwords)
+        - configmaps-all-backup.json: All ConfigMaps
 
-          ### MariaDB Resources (ownerReferences removed)
-          - mariadbdatabase-backup.json: MariaDBDatabase CRs (database definitions)
-          - mariadbaccount-backup.json: MariaDBAccount CRs (database account definitions, reference secrets for passwords)
+        ### MariaDB Resources (ownerReferences removed)
+        - mariadbdatabase-backup.json: MariaDBDatabase CRs (database definitions)
+        - mariadbaccount-backup.json: MariaDBAccount CRs (database account definitions, reference secrets for passwords)
 
-          ### TLS Infrastructure (ownerReferences removed)
-          - issuer-backup.json: cert-manager Issuer CRs
-          - certificates-backup.json: cert-manager Certificate CRs
+        ### TLS Infrastructure (ownerReferences removed)
+        - issuer-backup.json: cert-manager Issuer CRs
+        - certificates-backup.json: cert-manager Certificate CRs
 
-          ### Operator Version Information
-          - operator-versions.txt: Operator and platform versions (human-readable summary)
-          - csv-backup.json: ClusterServiceVersion details
-          - subscription-backup.json: Subscription details
-          - installplan-backup.json: InstallPlan details
+        ### Operator Version Information
+        - operator-versions.txt: Operator and platform versions (human-readable summary)
+        - csv-backup.json: ClusterServiceVersion details
+        - subscription-backup.json: Subscription details
+        - installplan-backup.json: InstallPlan details
 
-          ## Restore Instructions
+        ## Restore Instructions
 
-          See: docs/dev/backup-restore-stateless.md
+        See: docs/dev/backup-restore-stateless.md
 
-          **IMPORTANT**: Target cluster must have matching operator versions!
-          Check operator-versions.txt for required versions.
-        mode: '0644'
+        **IMPORTANT**: Target cluster must have matching operator versions!
+        Check operator-versions.txt for required versions.
+        EOF
+      args:
+        executable: /bin/bash
+      changed_when: true
 
     - name: Print README completion
       ansible.builtin.debug:
@@ -416,10 +439,10 @@
 
     - name: Create backup archive
       ansible.builtin.shell: |
-        cd {{ backup_dir_base }} && \
         tar -czf openstack-ctlplane-backup-{{ backup_date }}.tar.gz openstack-ctlplane-backup-{{ backup_date }}
       args:
         executable: /bin/bash
+        chdir: "{{ backup_dir_base }}"
       changed_when: true
 
     - name: Get archive size
