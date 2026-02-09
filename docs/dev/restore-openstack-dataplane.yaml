@@ -1,0 +1,291 @@
+---
+# OpenStack DataPlane Restore Playbook
+# This playbook performs a restore of the OpenStack DataPlane configuration
+# following the documented procedure in backup-restore-dataplane.md
+#
+# NOTE: This procedure is for DataPlaneNodeSets with preProvisioned: true
+#       For EDPM nodes provisioned via OpenStackBaremetalSet and Metal3, there is
+#       an additional procedure required to restore those objects.
+#
+# PREREQUISITES:
+#   - ControlPlane must be restored first (see backup-restore-stateless.md)
+#   - Target cluster must have matching operator versions
+#   - Namespace must exist
+#
+# Usage:
+#   ansible-playbook restore-openstack-dataplane.yaml -e backup_file=backup.tar.gz
+#   ansible-playbook restore-openstack-dataplane.yaml -e backup_file=backup.tar.gz -e openstack_namespace=my-openstack
+
+- name: Restore OpenStack DataPlane
+  hosts: localhost
+  gather_facts: false
+  vars:
+    skip_confirmation: "{{ skip_confirmation | default(false) | bool }}"
+
+  tasks:
+    - name: Set default namespace
+      ansible.builtin.set_fact:
+        openstack_namespace: "{{ openstack_namespace | default('openstack') }}"
+
+    - name: Check required backup_file parameter
+      ansible.builtin.fail:
+        msg: "ERROR: backup_file parameter is required. Usage: ansible-playbook restore-openstack-dataplane.yaml -e backup_file=/path/to/backup.tar.gz"
+      when: backup_file is not defined
+
+    - name: Resolve absolute backup file path
+      ansible.builtin.set_fact:
+        backup_file_abs: "{{ backup_file if backup_file.startswith('/') else (lookup('env', 'PWD') + '/' + backup_file) }}"
+
+    - name: Check if backup file exists
+      ansible.builtin.stat:
+        path: "{{ backup_file_abs }}"
+      register: backup_stat
+
+    - name: Fail if backup file doesn't exist
+      ansible.builtin.fail:
+        msg: "ERROR: Backup file not found: {{ backup_file_abs }}"
+      when: not backup_stat.stat.exists
+
+    - name: Print restore header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "OpenStack DataPlane Restore"
+          - "========================================"
+          - "Backup file: {{ backup_file_abs }}"
+          - "Target namespace: {{ openstack_namespace }}"
+          - ""
+          - "PREREQUISITES CHECKLIST:"
+          - "  [ ] ControlPlane restored (see backup-restore-stateless.md)"
+          - "  [ ] Target cluster has matching operator versions"
+          - "  [ ] Namespace exists and is ready for DataPlane"
+
+    - name: Check if namespace exists
+      ansible.builtin.shell: oc get namespace {{ openstack_namespace }}
+      register: namespace_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if namespace doesn't exist
+      ansible.builtin.fail:
+        msg: "ERROR: Namespace {{ openstack_namespace }} does not exist. Create it first."
+      when: namespace_check.rc != 0
+
+    - name: Check for existing DataPlane resources
+      ansible.builtin.shell: |
+        NODESETS=$(oc get openstackdataplanenodeset -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)
+        SERVICES=$(oc get openstackdataplaneservice -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)
+        IPSETS=$(oc get ipset -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)
+        RESERVATIONS=$(oc get reservation -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)
+        echo "$NODESETS $SERVICES $IPSETS $RESERVATIONS"
+      register: existing_resources
+      changed_when: false
+      failed_when: false
+
+    - name: Parse existing resources
+      ansible.builtin.set_fact:
+        existing_nodesets: "{{ existing_resources.stdout.split()[0] }}"
+        existing_services: "{{ existing_resources.stdout.split()[1] }}"
+        existing_ipsets: "{{ existing_resources.stdout.split()[2] }}"
+        existing_reservations: "{{ existing_resources.stdout.split()[3] }}"
+
+    - name: Display existing resources warning
+      ansible.builtin.debug:
+        msg:
+          - "WARNING: Found existing DataPlane resources:"
+          - "  - DataPlaneNodeSets: {{ existing_nodesets }}"
+          - "  - DataPlaneServices: {{ existing_services }}"
+          - "  - IPSets: {{ existing_ipsets }}"
+          - "  - Reservations: {{ existing_reservations }}"
+          - ""
+          - "Restoring may cause conflicts or duplicates."
+      when: (existing_nodesets|int + existing_services|int + existing_ipsets|int + existing_reservations|int) > 0
+
+    - name: Confirm restore with existing resources
+      ansible.builtin.pause:
+        prompt: |
+
+          Found {{ existing_nodesets }} NodeSet(s), {{ existing_services }} Service(s),
+          {{ existing_ipsets }} IPSet(s), {{ existing_reservations }} Reservation(s)
+
+          Continue with restore? (yes/no)
+      register: restore_confirm
+      when: not skip_confirmation and (existing_nodesets|int + existing_services|int + existing_ipsets|int + existing_reservations|int) > 0
+
+    - name: Fail if not confirmed
+      ansible.builtin.fail:
+        msg: "Restore cancelled by user"
+      when: not skip_confirmation and (existing_nodesets|int + existing_services|int + existing_ipsets|int + existing_reservations|int) > 0 and restore_confirm.user_input != "yes"
+
+    - name: Create temporary extraction directory
+      ansible.builtin.shell: mktemp -d
+      register: temp_dir
+      changed_when: false
+
+    - name: Extract backup archive
+      ansible.builtin.shell: |
+        tar -xzf "{{ backup_file_abs }}" -C "{{ temp_dir.stdout }}" --strip-components=1
+      changed_when: false
+
+    - name: Find backup directory
+      ansible.builtin.shell: ls -1 {{ temp_dir.stdout }}
+      register: backup_contents
+      changed_when: false
+
+    - name: Print extraction confirmation
+      ansible.builtin.debug:
+        msg: "✓ Backup extracted to {{ temp_dir.stdout }}"
+
+    - name: Step 1 - Restore NetConfig (FIRST - defines network topology)
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 1: Restoring NetConfig"
+          - "========================================"
+          - "Note: Restored FIRST (required by Reservations/IPSets)"
+
+    - name: Apply NetConfig
+      ansible.builtin.shell: |
+        if [ -f "{{ temp_dir.stdout }}/netconfig-backup.json" ]; then
+          oc apply -f "{{ temp_dir.stdout }}/netconfig-backup.json"
+        else
+          echo "No NetConfig backup found"
+        fi
+      register: netconfig_restore
+      changed_when: "'created' in netconfig_restore.stdout or 'configured' in netconfig_restore.stdout"
+
+    - name: Print Step 1 completion
+      ansible.builtin.debug:
+        msg: "✓ NetConfig restored"
+
+    - name: Step 2 - Restore Reservations (SECOND - no ownerReferences)
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 2: Restoring Reservations"
+          - "========================================"
+          - "Note: Restored SECOND (no ownerReferences)"
+
+    - name: Apply Reservations
+      ansible.builtin.shell: |
+        if [ -f "{{ temp_dir.stdout }}/reservation-backup.json" ]; then
+          oc apply -f "{{ temp_dir.stdout }}/reservation-backup.json"
+        else
+          echo "No Reservation backup found"
+        fi
+      register: reservation_restore
+      changed_when: "'created' in reservation_restore.stdout or 'configured' in reservation_restore.stdout"
+
+    - name: Print Step 2 completion
+      ansible.builtin.debug:
+        msg: "✓ Reservations restored"
+
+    - name: Step 3 - Restore IPSets (THIRD - no ownerReferences)
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 3: Restoring IPSets"
+          - "========================================"
+          - "Note: Restored THIRD (no ownerReferences)"
+
+    - name: Apply IPSets
+      ansible.builtin.shell: |
+        if [ -f "{{ temp_dir.stdout }}/ipset-backup.json" ]; then
+          oc apply -f "{{ temp_dir.stdout }}/ipset-backup.json"
+        else
+          echo "No IPSet backup found"
+        fi
+      register: ipset_restore
+      changed_when: "'created' in ipset_restore.stdout or 'configured' in ipset_restore.stdout"
+
+    - name: Print Step 3 completion
+      ansible.builtin.debug:
+        msg: "✓ IPSets restored"
+
+    - name: Step 4 - Restore DataPlaneServices (FOURTH - NodeSets may reference them)
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 4: Restoring DataPlaneServices"
+          - "========================================"
+
+    - name: Apply DataPlaneServices
+      ansible.builtin.shell: |
+        if [ -f "{{ temp_dir.stdout }}/dataplaneservice-backup.json" ]; then
+          oc apply -f "{{ temp_dir.stdout }}/dataplaneservice-backup.json"
+        else
+          echo "No DataPlaneService backup found"
+        fi
+      register: service_restore
+      changed_when: "'created' in service_restore.stdout or 'configured' in service_restore.stdout"
+
+    - name: Print Step 4 completion
+      ansible.builtin.debug:
+        msg: "✓ DataPlaneServices restored"
+
+    - name: Step 5 - Restore DataPlaneNodeSets (LAST)
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 5: Restoring DataPlaneNodeSets"
+          - "========================================"
+
+    - name: Apply DataPlaneNodeSets
+      ansible.builtin.shell: |
+        if [ -f "{{ temp_dir.stdout }}/dataplanenodeset-backup.json" ]; then
+          oc apply -f "{{ temp_dir.stdout }}/dataplanenodeset-backup.json"
+        else
+          echo "No DataPlaneNodeSet backup found"
+        fi
+      register: nodeset_restore
+      changed_when: "'created' in nodeset_restore.stdout or 'configured' in nodeset_restore.stdout"
+
+    - name: Print Step 5 completion
+      ansible.builtin.debug:
+        msg: "✓ DataPlaneNodeSets restored"
+
+    - name: Verify restoration
+      ansible.builtin.shell: |
+        echo "NetConfig:"
+        oc get netconfig -n {{ openstack_namespace }}
+        echo ""
+        echo "Reservations:"
+        oc get reservation -n {{ openstack_namespace }}
+        echo ""
+        echo "IPSets:"
+        oc get ipset -n {{ openstack_namespace }}
+        echo ""
+        echo "DataPlaneServices:"
+        oc get openstackdataplaneservice -n {{ openstack_namespace }}
+        echo ""
+        echo "DataPlaneNodeSets:"
+        oc get openstackdataplanenodeset -n {{ openstack_namespace }}
+      register: verify_resources
+      changed_when: false
+      failed_when: false
+
+    - name: Display verification results
+      ansible.builtin.debug:
+        msg: "{{ verify_resources.stdout_lines }}"
+
+    - name: Cleanup temporary directory
+      ansible.builtin.shell: rm -rf "{{ temp_dir.stdout }}"
+      changed_when: false
+
+    - name: Print completion summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Restore completed!"
+          - "========================================"
+          - ""
+          - "Restored to namespace: {{ openstack_namespace }}"
+          - ""
+          - "IMPORTANT: DataPlaneDeployments were NOT restored (ephemeral)"
+          - "If you need to deploy services, create a new OpenStackDataPlaneDeployment"
+          - ""
+          - "Next steps:"
+          - "1. Verify SSH access to compute nodes"
+          - "2. Check that referenced secrets/configmaps exist"
+          - "3. Review NodeSet status: oc get openstackdataplanenodeset -n {{ openstack_namespace }}"
+          - "4. Create DataPlaneDeployment if needed (will trigger deployment)"

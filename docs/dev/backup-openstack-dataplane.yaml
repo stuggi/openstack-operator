@@ -1,0 +1,322 @@
+---
+# OpenStack DataPlane Backup Playbook
+# This playbook performs a backup of the OpenStack DataPlane configuration
+# following the documented procedure in backup-restore-dataplane.md
+#
+# NOTE: This procedure is for DataPlaneNodeSets with preProvisioned: true
+#       For EDPM nodes provisioned via OpenStackBaremetalSet and Metal3, there is
+#       an additional procedure required to restore those objects.
+#
+# Usage:
+#   ansible-playbook backup-openstack-dataplane.yaml
+#   ansible-playbook backup-openstack-dataplane.yaml -e openstack_namespace=my-openstack
+#   ansible-playbook backup-openstack-dataplane.yaml -e backup_dir_base=/custom/backup/path
+
+- name: Backup OpenStack DataPlane
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Set backup timestamp (evaluate once)
+      ansible.builtin.shell: date +%Y%m%d-%H%M%S
+      register: backup_date_result
+      changed_when: false
+
+    - name: Set default variables
+      ansible.builtin.set_fact:
+        backup_date: "{{ backup_date_result.stdout }}"
+        openstack_namespace: "{{ openstack_namespace | default('openstack') }}"
+        backup_dir_base_input: "{{ backup_dir_base | default('./backups') }}"
+
+    - name: Resolve absolute backup directory path
+      ansible.builtin.set_fact:
+        backup_dir_base: "{{ backup_dir_base_input if backup_dir_base_input.startswith('/') else (lookup('env', 'PWD') + '/' + backup_dir_base_input) }}"
+
+    - name: Set backup directory
+      ansible.builtin.set_fact:
+        backup_dir: "{{ backup_dir_base }}/openstack-dataplane-backup-{{ backup_date }}"
+
+    - name: Get current timestamp in ISO8601 format
+      ansible.builtin.shell: date -u +"%Y-%m-%dT%H:%M:%SZ"
+      register: backup_timestamp
+      changed_when: false
+
+    - name: Print backup header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "OpenStack DataPlane Backup"
+          - "========================================"
+          - "Namespace: {{ openstack_namespace }}"
+          - "Backup base directory: {{ backup_dir_base }}"
+          - "Backup directory: {{ backup_dir }}"
+
+    - name: Create backup directory
+      ansible.builtin.shell: mkdir -p "{{ backup_dir }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Step 1 - Backup NetConfig (CRITICAL - defines network topology)
+      ansible.builtin.shell: |
+        oc get netconfig -n {{ openstack_namespace }} -o json | \
+          jq 'del(.items[].metadata.uid,
+                  .items[].metadata.resourceVersion,
+                  .items[].metadata.creationTimestamp,
+                  .items[].metadata.managedFields,
+                  .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+                  .metadata)' > {{ backup_dir }}/netconfig-backup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Count backed up NetConfigs
+      ansible.builtin.shell: |
+        jq '.items | length' {{ backup_dir }}/netconfig-backup.json
+      register: netconfig_count
+      changed_when: false
+
+    - name: Print Step 1 completion
+      ansible.builtin.debug:
+        msg: "✓ {{ netconfig_count.stdout }} NetConfig(s) backed up"
+
+    - name: Step 2 - Backup OpenStackDataPlaneNodeSet CRs
+      ansible.builtin.shell: |
+        oc get openstackdataplanenodeset -n {{ openstack_namespace }} -o json | \
+          jq 'del(.items[].metadata.ownerReferences,
+                  .items[].metadata.uid,
+                  .items[].metadata.resourceVersion,
+                  .items[].metadata.creationTimestamp,
+                  .items[].metadata.managedFields,
+                  .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+                  .metadata)' > {{ backup_dir }}/dataplanenodeset-backup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Count backed up NodeSets
+      ansible.builtin.shell: |
+        jq '.items | length' {{ backup_dir }}/dataplanenodeset-backup.json
+      register: nodeset_count
+      changed_when: false
+
+    - name: Print Step 2 completion
+      ansible.builtin.debug:
+        msg: "✓ {{ nodeset_count.stdout }} DataPlaneNodeSet(s) backed up"
+
+    - name: Step 3 - Backup OpenStackDataPlaneService CRs
+      ansible.builtin.shell: |
+        oc get openstackdataplaneservice -n {{ openstack_namespace }} -o json | \
+          jq 'del(.items[].metadata.ownerReferences,
+                  .items[].metadata.uid,
+                  .items[].metadata.resourceVersion,
+                  .items[].metadata.creationTimestamp,
+                  .items[].metadata.managedFields,
+                  .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+                  .metadata)' > {{ backup_dir }}/dataplaneservice-backup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Count backed up Services
+      ansible.builtin.shell: |
+        jq '.items | length' {{ backup_dir }}/dataplaneservice-backup.json
+      register: service_count
+      changed_when: false
+
+    - name: Print Step 3 completion
+      ansible.builtin.debug:
+        msg: "✓ {{ service_count.stdout }} DataPlaneService(s) backed up"
+
+    - name: Step 4 - Backup OpenStackDataPlaneDeployment CRs (for reference, NOT restored)
+      ansible.builtin.shell: |
+        oc get openstackdataplanedeployment -n {{ openstack_namespace }} -o json | \
+          jq 'del(.items[].metadata.ownerReferences,
+                  .items[].metadata.uid,
+                  .items[].metadata.resourceVersion,
+                  .items[].metadata.creationTimestamp,
+                  .items[].metadata.managedFields,
+                  .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+                  .metadata)' > {{ backup_dir }}/dataplanedeployment-backup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Count backed up Deployments
+      ansible.builtin.shell: |
+        jq '.items | length' {{ backup_dir }}/dataplanedeployment-backup.json
+      register: deployment_count
+      changed_when: false
+
+    - name: Print Step 4 completion
+      ansible.builtin.debug:
+        msg:
+          - "✓ {{ deployment_count.stdout }} DataPlaneDeployment(s) backed up"
+          - "  Note: for reference only, NOT restored"
+
+    - name: Step 5 - Backup Reservation resources (CRITICAL - remove ownerReferences)
+      ansible.builtin.shell: |
+        oc get reservation -n {{ openstack_namespace }} -o json | \
+          jq 'del(.items[].metadata.ownerReferences,
+                  .items[].metadata.uid,
+                  .items[].metadata.resourceVersion,
+                  .items[].metadata.creationTimestamp,
+                  .items[].metadata.managedFields,
+                  .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+                  .metadata)' > {{ backup_dir }}/reservation-backup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Count backed up Reservations
+      ansible.builtin.shell: |
+        jq '.items | length' {{ backup_dir }}/reservation-backup.json
+      register: reservation_count
+      changed_when: false
+
+    - name: Print Step 5 completion
+      ansible.builtin.debug:
+        msg:
+          - "✓ {{ reservation_count.stdout }} Reservation(s) backed up"
+          - "  Note: ownerReferences removed for independent restore"
+
+    - name: Step 6 - Backup IPSet resources (CRITICAL - remove ownerReferences)
+      ansible.builtin.shell: |
+        oc get ipset -n {{ openstack_namespace }} -o json | \
+          jq 'del(.items[].metadata.ownerReferences,
+                  .items[].metadata.uid,
+                  .items[].metadata.resourceVersion,
+                  .items[].metadata.creationTimestamp,
+                  .items[].metadata.managedFields,
+                  .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+                  .metadata)' > {{ backup_dir }}/ipset-backup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Count backed up IPSets
+      ansible.builtin.shell: |
+        jq '.items | length' {{ backup_dir }}/ipset-backup.json
+      register: ipset_count
+      changed_when: false
+
+    - name: Print Step 6 completion
+      ansible.builtin.debug:
+        msg:
+          - "✓ {{ ipset_count.stdout }} IPSet(s) backed up"
+          - "  Note: ownerReferences removed for independent restore"
+
+    - name: Create README.md
+      ansible.builtin.shell: |
+        cat > "{{ backup_dir }}/README.md" << 'EOF'
+        # OpenStack DataPlane Backup
+
+        Created: {{ backup_timestamp.stdout }}
+        Namespace: {{ openstack_namespace }}
+
+        **Note:** This backup is for DataPlaneNodeSets with preProvisioned: true.
+        For EDPM nodes provisioned via OpenStackBaremetalSet and Metal3, there is
+        an additional procedure required to restore those objects.
+
+        ## Contents
+
+        All backup files are in JSON format.
+
+        ### Network Configuration
+        - netconfig-backup.json: NetConfig CR (network topology, subnets, IP pools)
+
+        ### DataPlane Custom Resources
+        - dataplanenodeset-backup.json: OpenStackDataPlaneNodeSet CRs (compute node definitions)
+        - dataplaneservice-backup.json: OpenStackDataPlaneService CRs (service definitions)
+        - dataplanedeployment-backup.json: OpenStackDataPlaneDeployment CRs (for reference only, NOT restored)
+
+        ### IP Allocation Resources (ownerReferences removed)
+        - reservation-backup.json: Reservation resources (IP reservations for interfaces)
+        - ipset-backup.json: IPSet resources (IP allocations for dataplane nodes)
+
+        **IMPORTANT:** Reservations and IPSets are backed up WITHOUT ownerReferences
+        to allow restoration before recreating the DataPlaneNodeSets.
+
+        ## Restore Instructions
+
+        See: docs/dev/backup-restore-dataplane.md
+
+        **Prerequisites:**
+        - ControlPlane must be restored first (see backup-restore-stateless.md)
+        - Target cluster must have matching operator versions
+
+        **Restore Order:**
+        1. NetConfig (FIRST - defines network topology)
+        2. Reservations (SECOND - no ownerReferences)
+        3. IPSets (THIRD - no ownerReferences)
+        4. DataPlaneServices (FOURTH - NodeSets may reference them)
+        5. DataPlaneNodeSets (LAST)
+
+        **Note:** DataPlaneDeployments are backed up for reference but NOT restored
+        as they are ephemeral. Re-creating them would trigger a new deployment.
+
+        ## Not Included in Restore
+
+        - OpenStackDataPlaneDeployment: Ephemeral, re-creating triggers deployment
+
+        ## Dependencies from ControlPlane Backup
+
+        The following are restored as part of the ControlPlane backup/restore:
+        - Secrets: SSH keys, certificates referenced by NodeSets
+        - ConfigMaps: Custom configuration referenced by NodeSets
+        - Operators: OpenStack operators must be running to reconcile DataPlane resources
+
+        ## Statistics
+
+        - NetConfigs: {{ netconfig_count.stdout }}
+        - DataPlaneNodeSets: {{ nodeset_count.stdout }}
+        - DataPlaneServices: {{ service_count.stdout }}
+        - DataPlaneDeployments: {{ deployment_count.stdout }} (reference only)
+        - Reservations: {{ reservation_count.stdout }}
+        - IPSets: {{ ipset_count.stdout }}
+        EOF
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Print README completion
+      ansible.builtin.debug:
+        msg: "✓ README.md created"
+
+    - name: Create backup archive
+      ansible.builtin.shell: |
+        tar -czf openstack-dataplane-backup-{{ backup_date }}.tar.gz openstack-dataplane-backup-{{ backup_date }}
+      args:
+        executable: /bin/bash
+        chdir: "{{ backup_dir_base }}"
+      changed_when: true
+
+    - name: Get archive size
+      ansible.builtin.shell: |
+        du -h {{ backup_dir_base }}/openstack-dataplane-backup-{{ backup_date }}.tar.gz | cut -f1
+      register: archive_size
+      changed_when: false
+
+    - name: Print backup completion summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Backup completed successfully!"
+          - "========================================"
+          - "Backup directory: {{ backup_dir }}"
+          - "Archive created: {{ backup_dir_base }}/openstack-dataplane-backup-{{ backup_date }}.tar.gz"
+          - "Archive size: {{ archive_size.stdout }}"
+          - ""
+          - "Statistics:"
+          - "  - NetConfigs: {{ netconfig_count.stdout }}"
+          - "  - DataPlaneNodeSets: {{ nodeset_count.stdout }}"
+          - "  - DataPlaneServices: {{ service_count.stdout }}"
+          - "  - DataPlaneDeployments: {{ deployment_count.stdout }} (reference only, NOT restored)"
+          - "  - Reservations: {{ reservation_count.stdout }}"
+          - "  - IPSets: {{ ipset_count.stdout }}"
+          - ""
+          - "Next steps:"
+          - "1. Store backup archive securely alongside ControlPlane backup"
+          - "2. Test restore on a test cluster"
+          - ""
+          - "IMPORTANT: DataPlane restore requires ControlPlane to be restored first!"
