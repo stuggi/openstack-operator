@@ -19,10 +19,11 @@
 - name: Restore OpenStack DataPlane
   hosts: localhost
   gather_facts: false
-  vars:
-    skip_confirmation: "{{ skip_confirmation | default(false) | bool }}"
 
   tasks:
+    - name: Set skip_confirmation default
+      ansible.builtin.set_fact:
+        skip_confirmation: "{{ skip_confirmation | default(false) }}"
     - name: Set default namespace
       ansible.builtin.set_fact:
         openstack_namespace: "{{ openstack_namespace | default('openstack') }}"
