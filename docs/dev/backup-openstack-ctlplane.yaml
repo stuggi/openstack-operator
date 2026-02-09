@@ -3,6 +3,14 @@
 # This playbook performs a backup of the stateless OpenStack control plane
 # following the documented procedure in backup-restore-stateless.md
 #
+# IMPORTANT: Only backup fully updated environments!
+#            Backup/restore is NOT supported for partially updated environments
+#            (e.g., operators updated but ControlPlane minor update not completed).
+#            Ensure all operators and services are at the same version before backup.
+#
+#            See: https://issues.redhat.com/browse/OSPRH-26244
+#                 https://issues.redhat.com/browse/OSPRH-26246
+#
 # Usage:
 #   ansible-playbook backup-openstack-ctlplane.yaml
 #   ansible-playbook backup-openstack-ctlplane.yaml -e openstack_namespace=my-openstack
@@ -85,19 +93,6 @@
       changed_when: true
       failed_when: false
 
-    - name: Step 2 - Backup NetConfig (CRITICAL)
-      ansible.builtin.shell: |
-        oc get netconfig -n {{ openstack_namespace }} -o json | \
-          jq 'del(.items[].metadata.uid,
-                  .items[].metadata.resourceVersion,
-                  .items[].metadata.creationTimestamp,
-                  .items[].metadata.managedFields,
-                  .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
-                  .metadata)' > {{ backup_dir }}/netconfig-backup.json
-      args:
-        executable: /bin/bash
-      changed_when: true
-
     - name: Step 2 - Backup Topology
       ansible.builtin.shell: |
         oc get topology -n {{ openstack_namespace }} -o json | \
@@ -113,9 +108,54 @@
       changed_when: true
       failed_when: false
 
+    - name: Step 2 - Backup BGPConfiguration (user customization)
+      ansible.builtin.shell: |
+        oc get bgpconfiguration -n {{ openstack_namespace }} -o json | \
+          jq 'del(.items[].metadata.ownerReferences,
+                  .items[].metadata.uid,
+                  .items[].metadata.resourceVersion,
+                  .items[].metadata.creationTimestamp,
+                  .items[].metadata.managedFields,
+                  .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+                  .metadata)' > {{ backup_dir }}/bgpconfiguration-backup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+      failed_when: false
+
+    - name: Step 2 - Backup DNSData without ownerReferences (user-created only)
+      ansible.builtin.shell: |
+        oc get dnsdata -n {{ openstack_namespace }} -o json | \
+          jq '.items |= map(select(.metadata.ownerReferences == null or (.metadata.ownerReferences | length) == 0)) |
+              del(.items[].metadata.uid,
+                  .items[].metadata.resourceVersion,
+                  .items[].metadata.creationTimestamp,
+                  .items[].metadata.managedFields,
+                  .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+                  .metadata)' > {{ backup_dir }}/dnsdata-backup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+      failed_when: false
+
+    - name: Step 2 - Backup InstanceHa (user customization)
+      ansible.builtin.shell: |
+        oc get instanceha -n {{ openstack_namespace }} -o json | \
+          jq 'del(.items[].metadata.ownerReferences,
+                  .items[].metadata.uid,
+                  .items[].metadata.resourceVersion,
+                  .items[].metadata.creationTimestamp,
+                  .items[].metadata.managedFields,
+                  .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+                  .metadata)' > {{ backup_dir }}/instanceha-backup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+      failed_when: false
+
     - name: Print Step 2 completion
       ansible.builtin.debug:
-        msg: "✓ Related Custom Resources backed up"
+        msg: "✓ Related Custom Resources backed up (Topology, BGPConfiguration, DNSData [user-created only], InstanceHa)"
 
     - name: Step 3 - Backup NetworkAttachmentDefinitions
       ansible.builtin.shell: |
@@ -391,6 +431,10 @@
         Source Cluster: {{ console_url.stdout | default('N/A') }}
         Namespace: {{ openstack_namespace }}
 
+        **IMPORTANT:** This backup is only valid for fully updated environments.
+        Restore is NOT supported for partially updated environments (e.g., operators
+        updated but ControlPlane minor update not completed).
+
         ## Contents
 
         All backup files are in JSON format for consistency.
@@ -398,8 +442,10 @@
         ### Control Plane CRs
         - openstackcontrolplane-backup.json: Main control plane CR
         - openstackversion-backup.json: OpenStack version and container images
-        - netconfig-backup.json: Network configuration (CRITICAL)
         - topology-backup.json: Topology configuration (if used)
+        - bgpconfiguration-backup.json: BGP configuration (user customization, if used)
+        - dnsdata-backup.json: DNS data without ownerReferences (user-created only)
+        - instanceha-backup.json: Instance HA configuration (user customization, if used)
 
         ### Network Resources (ownerReferences removed)
         - network-attachment-definitions-backup.json: NetworkAttachmentDefinitions (CRITICAL)

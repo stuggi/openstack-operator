@@ -3,6 +3,14 @@
 # This playbook performs a restore of the stateless OpenStack control plane
 # following the documented procedure in backup-restore-stateless.md
 #
+# IMPORTANT: Only restore from backups of fully updated environments!
+#            Restore is NOT supported for partially updated environments
+#            (e.g., operators updated but ControlPlane minor update not completed).
+#            Target cluster operators should match the backup operator versions.
+#
+#            See: https://issues.redhat.com/browse/OSPRH-26244
+#                 https://issues.redhat.com/browse/OSPRH-26246
+#
 # CRITICAL: This playbook follows the correct restore order:
 # 1. NetworkAttachmentDefinitions
 # 2. Secrets (CA secrets needed by Issuers, exclude rabbitmq-*)
@@ -10,7 +18,7 @@
 # 4. TLS Issuers (cert-manager authority, needs CA secrets)
 # 5. MariaDBDatabase CRs (needs database password secrets)
 # 6. MariaDBAccount CRs (needs MariaDBDatabase CRs)
-# 7. Related CRs (NetConfig, OpenStackVersion, Topology)
+# 7. Related CRs (OpenStackVersion, Topology, BGPConfiguration, DNSData without ownerRefs, InstanceHa)
 # 8. OpenStackControlPlane CR with staged deployment annotation
 # 9. Wait for OpenStackControlPlaneInfrastructureReady condition
 # 10. Restore database contents (MariaDB and OVN)
@@ -526,15 +534,6 @@
         msg: "✓ OpenStackVersion restored"
       when: openstackversion_file.stat.exists and openstackversion_count.stdout|int > 0
 
-    - name: Restore NetConfig
-      ansible.builtin.shell: |
-        oc apply -f {{ backup_dir }}/netconfig-backup.json -n {{ openstack_namespace }}
-      changed_when: true
-
-    - name: Print NetConfig status
-      ansible.builtin.debug:
-        msg: "✓ NetConfig restored (CRITICAL)"
-
     - name: Check if Topology exists in backup
       ansible.builtin.stat:
         path: "{{ backup_dir }}/topology-backup.json"
@@ -557,6 +556,75 @@
       ansible.builtin.debug:
         msg: "✓ Topology restored"
       when: topology_file.stat.exists and topology_count.stdout|int > 0
+
+    - name: Check if BGPConfiguration exists in backup
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/bgpconfiguration-backup.json"
+      register: bgpconfig_file
+
+    - name: Count BGPConfiguration items
+      ansible.builtin.shell: |
+        jq '.items | length' {{ backup_dir }}/bgpconfiguration-backup.json
+      register: bgpconfig_count
+      changed_when: false
+      when: bgpconfig_file.stat.exists
+
+    - name: Restore BGPConfiguration
+      ansible.builtin.shell: |
+        oc apply -f {{ backup_dir }}/bgpconfiguration-backup.json -n {{ openstack_namespace }}
+      changed_when: true
+      when: bgpconfig_file.stat.exists and bgpconfig_count.stdout|int > 0
+
+    - name: Print BGPConfiguration status
+      ansible.builtin.debug:
+        msg: "✓ BGPConfiguration restored"
+      when: bgpconfig_file.stat.exists and bgpconfig_count.stdout|int > 0
+
+    - name: Check if DNSData exists in backup
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/dnsdata-backup.json"
+      register: dnsdata_file
+
+    - name: Count DNSData items
+      ansible.builtin.shell: |
+        jq '.items | length' {{ backup_dir }}/dnsdata-backup.json
+      register: dnsdata_count
+      changed_when: false
+      when: dnsdata_file.stat.exists
+
+    - name: Restore DNSData
+      ansible.builtin.shell: |
+        oc apply -f {{ backup_dir }}/dnsdata-backup.json -n {{ openstack_namespace }}
+      changed_when: true
+      when: dnsdata_file.stat.exists and dnsdata_count.stdout|int > 0
+
+    - name: Print DNSData status
+      ansible.builtin.debug:
+        msg: "✓ DNSData restored"
+      when: dnsdata_file.stat.exists and dnsdata_count.stdout|int > 0
+
+    - name: Check if InstanceHa exists in backup
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/instanceha-backup.json"
+      register: instanceha_file
+
+    - name: Count InstanceHa items
+      ansible.builtin.shell: |
+        jq '.items | length' {{ backup_dir }}/instanceha-backup.json
+      register: instanceha_count
+      changed_when: false
+      when: instanceha_file.stat.exists
+
+    - name: Restore InstanceHa
+      ansible.builtin.shell: |
+        oc apply -f {{ backup_dir }}/instanceha-backup.json -n {{ openstack_namespace }}
+      changed_when: true
+      when: instanceha_file.stat.exists and instanceha_count.stdout|int > 0
+
+    - name: Print InstanceHa status
+      ansible.builtin.debug:
+        msg: "✓ InstanceHa restored"
+      when: instanceha_file.stat.exists and instanceha_count.stdout|int > 0
 
     # Step 9: Restore OpenStackControlPlane CR with Staged Deployment
     - name: Print Step 9 header

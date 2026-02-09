@@ -17,6 +17,29 @@ This procedure covers backup and restore of the OpenStack Control Plane focusing
 - **Control Services**: Nova Conductor, Nova Scheduler, Cinder Scheduler, Heat Engine
 - **Caching**: Memcached, Redis (non-persistent)
 
+### Important Limitation: Fully Updated Environments Only
+
+⚠️ **This procedure is only supported for environments that are fully updated.**
+
+Backup and restore is **NOT supported** for environments in a partial update state. For example:
+- ❌ Operators have been updated to the next version, but the minor update has NOT been performed on the ControlPlane services themselves
+- ❌ Some services are running one version while others are running a different version
+- ✅ All operators and services are at the same consistent version (fully updated)
+
+**Before performing a backup**, ensure that:
+1. All operator updates are complete
+2. Any in-progress ControlPlane minor updates have finished
+3. All services are running at the same version
+
+Attempting to restore from a partially updated environment may result in version mismatches and unpredictable behavior.
+
+**Related Issues:**
+- [OSPRH-26244](https://issues.redhat.com/browse/OSPRH-26244)
+- [OSPRH-26246](https://issues.redhat.com/browse/OSPRH-26246)
+
+### Relationship to DataPlane Backup
+This ControlPlane backup includes **all Secrets and ConfigMaps** from the namespace, including those used by DataPlane resources (SSH keys, certificates for compute nodes, etc.). This is because there is no reliable way to separate ControlPlane vs DataPlane secrets/configmaps, and some may be shared between both. See [backup-restore-dataplane.md](backup-restore-dataplane.md) for DataPlane-specific backup (NetConfig, NodeSets, IPSets, etc.).
+
 ### Important: EDPM/Data Plane Node Dependencies
 
 ⚠️ **This procedure includes critical steps for EDPM deployments**
@@ -394,14 +417,6 @@ oc get openstackversion -n openstack -o json | \
           .items[].metadata.managedFields,
           .metadata)' > openstackversion-backup.json
 
-# Backup NetConfig (CRITICAL - defines network topology, subnets, IP allocation)
-oc get netconfig -n openstack -o json | \
-  jq 'del(.items[].metadata.uid,
-          .items[].metadata.resourceVersion,
-          .items[].metadata.creationTimestamp,
-          .items[].metadata.managedFields,
-          .metadata)' > netconfig-backup.json
-
 # Backup any Topology CRs
 oc get topology -n openstack -o json | \
   jq 'del(.items[].metadata.ownerReferences,
@@ -410,6 +425,33 @@ oc get topology -n openstack -o json | \
           .items[].metadata.creationTimestamp,
           .items[].metadata.managedFields,
           .metadata)' > topology-backup.json 2>/dev/null || echo "No topology found"
+
+# Backup BGPConfiguration CRs (user customization)
+oc get bgpconfiguration -n openstack -o json | \
+  jq 'del(.items[].metadata.ownerReferences,
+          .items[].metadata.uid,
+          .items[].metadata.resourceVersion,
+          .items[].metadata.creationTimestamp,
+          .items[].metadata.managedFields,
+          .metadata)' > bgpconfiguration-backup.json 2>/dev/null || echo "No bgpconfiguration found"
+
+# Backup DNSData CRs without ownerReferences (user-created only)
+oc get dnsdata -n openstack -o json | \
+  jq '.items |= map(select(.metadata.ownerReferences == null or (.metadata.ownerReferences | length) == 0)) |
+      del(.items[].metadata.uid,
+          .items[].metadata.resourceVersion,
+          .items[].metadata.creationTimestamp,
+          .items[].metadata.managedFields,
+          .metadata)' > dnsdata-backup.json 2>/dev/null || echo "No dnsdata found"
+
+# Backup InstanceHa CRs (user customization)
+oc get instanceha -n openstack -o json | \
+  jq 'del(.items[].metadata.ownerReferences,
+          .items[].metadata.uid,
+          .items[].metadata.resourceVersion,
+          .items[].metadata.creationTimestamp,
+          .items[].metadata.managedFields,
+          .metadata)' > instanceha-backup.json 2>/dev/null || echo "No instanceha found"
 ```
 
 **Note**: We do NOT backup operator-created service CRs (KeystoneAPI, PlacementAPI, Nova, Neutron, etc.) as they are automatically recreated by the operator when the OpenStackControlPlane CR reconciles. The control plane CR spec contains all the configuration needed to recreate these resources.
@@ -722,8 +764,10 @@ All backup files are in JSON format for consistency.
 ### Control Plane CRs
 - openstackcontrolplane-backup.json: Main control plane CR
 - openstackversion-backup.json: OpenStack version and container images
-- netconfig-backup.json: Network configuration (CRITICAL)
 - topology-backup.json: Topology configuration (if used)
+- bgpconfiguration-backup.json: BGP configuration (user customization, if used)
+- dnsdata-backup.json: DNS data without ownerReferences (user-created only)
+- instanceha-backup.json: Instance HA configuration (user customization, if used)
 
 ### Network Resources (ownerReferences removed)
 - network-attachment-definitions-backup.json: NetworkAttachmentDefinitions (CRITICAL)
@@ -731,6 +775,8 @@ All backup files are in JSON format for consistency.
 ### Secrets and ConfigMaps (ownerReferences removed)
 - secrets-all-backup.json: All secrets (includes OpenStack secrets, RabbitMQ, TLS CAs, certificates)
 - configmaps-all-backup.json: All ConfigMaps
+
+**Note:** Secrets and ConfigMaps are backed up as part of the ControlPlane backup, even though some may be referenced by DataPlane resources (SSH keys, certificates for compute nodes, etc.). This is because there is no reliable way to distinguish which secrets/configmaps belong to ControlPlane vs DataPlane, and some may be shared between both.
 
 ### TLS Infrastructure
 - issuer-backup.json: cert-manager Issuer CRs (RESTORED - define certificate authorities)
@@ -775,7 +821,7 @@ The restore procedure **must** follow a specific order to ensure cert-manager is
 4. **TLS Issuers** - Establish cert-manager authority (needs CA secrets from step 2). Includes operator-managed and custom Issuers
 5. **MariaDBDatabase CRs** - Define databases, restored AFTER secrets (database operations use `CREATE IF NOT EXISTS`)
 6. **MariaDBAccount CRs** - Define database accounts, restored AFTER databases (needs database passwords, uses `CREATE IF NOT EXISTS` + `ALTER USER`)
-7. **Related CRs** (NetConfig, OpenStackVersion, Topology) - Required before OpenStackControlPlane
+7. **Related CRs** (OpenStackVersion, Topology, BGPConfiguration, DNSData without ownerReferences, InstanceHa) - User customization CRs, required before OpenStackControlPlane
 8. **OpenStackControlPlane CR** - Triggers operator reconciliation (operators create Certificate CRs, cert-manager issues fresh certificates)
 9. **RabbitMQ User Credentials** - Manual restoration AFTER RabbitMQ clusters are created (extracts credentials from backup and applies them to fresh clusters)
 
@@ -789,7 +835,7 @@ The restore procedure **must** follow a specific order to ensure cert-manager is
 - ❌ **Operator-managed ConfigMaps** - Have ownerReferences. Service configurations, RabbitMQ ConfigMaps, etc. Operators recreate them.
 
 **What IS restored:**
-- ✅ **User-provided resources** - No ownerReferences (Secrets, ConfigMaps, NetworkAttachmentDefinitions, NetConfig, etc.)
+- ✅ **User-provided resources** - No ownerReferences (Secrets, ConfigMaps, NetworkAttachmentDefinitions, etc.)
 - ✅ **CA secrets** - Exception: preserves trust chain (cert-manager adopts them)
 - ✅ **Database password secrets** - Exception: maintains access to existing database data
 - ✅ **All Issuers** - Includes both operator-managed (reconciled) and custom Issuers (preserved)
@@ -802,7 +848,7 @@ The restore procedure **must** follow a specific order to ensure cert-manager is
 - **Secrets → MariaDB CRs**: Database password secrets must exist before MariaDBAccount CRs reference them
 - **MariaDBDatabase → MariaDBAccount**: Account CRs depend on database CRs being ready
 - **MariaDB operations are idempotent**: Existing databases/accounts are safely adopted without data loss
-- **NetworkAttachmentDefinitions, NetConfig before OpenStackControlPlane**: Required infrastructure for services to start
+- **NetworkAttachmentDefinitions before OpenStackControlPlane**: Required infrastructure for services to start
 - **Smart filtering**: Prevents RBAC/ownership conflicts, cleaner restore aligned with operator patterns
 
 ### Scenario 1: Restore to Same Namespace (Same Cluster)
@@ -1095,11 +1141,17 @@ oc wait --for=condition=Ready mariadbaccount --all -n openstack --timeout=300s |
 # Restore OpenStackVersion first (if used)
 oc apply -f openstackversion-backup.json 2>/dev/null || true
 
-# Restore NetConfig (CRITICAL - must be restored before OpenStackControlPlane)
-oc apply -f netconfig-backup.json
-
 # Restore Topology (if used)
 oc apply -f topology-backup.json 2>/dev/null || true
+
+# Restore BGPConfiguration (user customization)
+oc apply -f bgpconfiguration-backup.json 2>/dev/null || true
+
+# Restore DNSData (user-created only, no ownerReferences)
+oc apply -f dnsdata-backup.json 2>/dev/null || true
+
+# Restore InstanceHa (user customization)
+oc apply -f instanceha-backup.json 2>/dev/null || true
 ```
 
 **Note**: We do NOT restore operator-created service CRs (KeystoneAPI, PlacementAPI, Nova, Neutron, etc.). These will be automatically recreated by the operator when the OpenStackControlPlane CR reconciles in the next step.
@@ -2017,11 +2069,12 @@ vi openstackcontrolplane-backup.json
 The [openstack-must-gather](https://github.com/openstack-k8s-operators/openstack-must-gather) tool provides a comprehensive alternative for backing up the OpenStack control plane.
 
 **What must-gather captures:**
-- All Custom Resources (OpenStackControlPlane, NetConfig, OpenStackVersion, and all operator-created service CRs)
+- All Custom Resources (OpenStackControlPlane, OpenStackVersion, and all operator-created service CRs)
 - All ConfigMaps and Secrets (including service configs)
 - Operator information (CSVs, Subscriptions, InstallPlans, OperatorGroups)
 - Pod logs, events, and status
-- Network configuration (NetConfig, IPSets, etc.)
+- Network configuration (NetworkAttachmentDefinitions, etc.)
+- DataPlane resources (NetConfig, IPSets, DataPlaneNodeSets, etc.)
 - Optional: Database dumps (via `OPENSTACK_DATABASES` environment variable)
 - Optional: SOS reports from OpenShift nodes and EDPM nodes
 
