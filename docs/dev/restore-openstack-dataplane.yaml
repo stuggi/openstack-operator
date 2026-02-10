@@ -157,7 +157,7 @@
 
     - name: Print Step 1 completion
       ansible.builtin.debug:
-        msg: "✓ NetConfig restored"
+        msg: "{{ netconfig_restore.stdout_lines }}"
 
     - name: Step 2 - Restore Reservations (SECOND - no ownerReferences)
       ansible.builtin.debug:
@@ -179,7 +179,7 @@
 
     - name: Print Step 2 completion
       ansible.builtin.debug:
-        msg: "✓ Reservations restored"
+        msg: "{{ reservation_restore.stdout_lines }}"
 
     - name: Step 3 - Restore IPSets (THIRD - no ownerReferences)
       ansible.builtin.debug:
@@ -201,7 +201,7 @@
 
     - name: Print Step 3 completion
       ansible.builtin.debug:
-        msg: "✓ IPSets restored"
+        msg: "{{ ipset_restore.stdout_lines }}"
 
     - name: Step 4 - Restore DataPlaneServices (FOURTH - NodeSets may reference them)
       ansible.builtin.debug:
@@ -222,7 +222,7 @@
 
     - name: Print Step 4 completion
       ansible.builtin.debug:
-        msg: "✓ DataPlaneServices restored"
+        msg: "{{ service_restore.stdout_lines }}"
 
     - name: Step 5 - Restore DataPlaneNodeSets (LAST)
       ansible.builtin.debug:
@@ -243,7 +243,7 @@
 
     - name: Print Step 5 completion
       ansible.builtin.debug:
-        msg: "✓ DataPlaneNodeSets restored"
+        msg: "{{ nodeset_restore.stdout_lines }}"
 
     - name: Verify restoration
       ansible.builtin.shell: |
