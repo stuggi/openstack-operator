@@ -31,10 +31,10 @@ For a complete OpenStack backup and restore:
 
 ```bash
 # 1. Backup ControlPlane (OpenStackControlPlane CR, secrets, configmaps)
-ansible-playbook backup-openstack-ctlplane.yaml
+ansible-playbook backup-openstack-ctlplane.yaml -e openstack_namespace=openstack
 
 # 2. Backup DataPlane (NodeSets, NetConfig, IP allocations)
-ansible-playbook backup-openstack-dataplane.yaml
+ansible-playbook backup-openstack-dataplane.yaml -e openstack_namespace=openstack
 ```
 
 ### Full Restore Procedure
@@ -43,10 +43,14 @@ ansible-playbook backup-openstack-dataplane.yaml
 # 1. Ensure operators are installed in target cluster
 
 # 2. Restore ControlPlane (OpenStackControlPlane CR, secrets, configmaps)
-ansible-playbook restore-openstack-ctlplane.yaml
+ansible-playbook restore-openstack-ctlplane.yaml \
+  -e openstack_namespace=openstack \
+  -e backup_file=backups/openstack-ctlplane-backup-20260209-162223.tar.gz
 
 # 3. Restore DataPlane (NodeSets, NetConfig, IP allocations)
-ansible-playbook restore-openstack-dataplane.yaml
+ansible-playbook restore-openstack-dataplane.yaml \
+  -e openstack_namespace=openstack \
+  -e backup_file=backups/openstack-dataplane-backup-20260209-162223.tar.gz
 ```
 
 ## Features Added for Backup/Restore
