@@ -73,8 +73,8 @@ The following enhancements were implemented to enable reliable backup and restor
 
 | Component | What's Backed Up | What's NOT Backed Up |
 |-----------|------------------|---------------------|
-| ControlPlane | OpenStackControlPlane CR, Secrets, ConfigMaps | Individual service CRs (recreated by controller), Running pods |
-| DataPlane | NodeSets, Services, NetConfig, IP allocations | Deployment history (ephemeral) |
+| ControlPlane | OpenStackControlPlane CR, OpenStackVersion CR, NetworkAttachmentDefinitions, Secrets (all application secrets), ConfigMaps (user-provided only), MariaDBDatabase/MariaDBAccount CRs, Issuer CRs (TLS), Topology, BGPConfiguration, DNSData, InstanceHa | Individual service CRs (Keystone, Nova, etc. - recreated by controller), Certificate CRs (recreated by operators), Running pods, Database contents, OVN database contents, RabbitMQ messages |
+| DataPlane | NetConfig (network topology), OpenStackDataPlaneNodeSet, OpenStackDataPlaneService, Reservation (IP reservations), IPSet (IP allocations), OpenStackDataPlaneDeployment (reference only) | OpenStackDataPlaneDeployment status (not restored to avoid triggering new deployments) |
 
 ### Restore Order
 
