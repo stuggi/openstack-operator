@@ -116,7 +116,7 @@ tar -czf openstack-dataplane-backup-$(date +%Y%m%d-%H%M%S).tar.gz $BACKUP_DIR
 1. **OpenStack operators must be running** to reconcile DataPlane resources
 
 2. **Required secrets and configmaps must exist** (SSH keys, certificates, etc. referenced by NodeSets)
-   - Typically satisfied by restoring the ControlPlane first (see [backup-restore-stateless.md](backup-restore-stateless.md))
+   - Typically satisfied by restoring the ControlPlane first (see [backup-restore-ctlplane.md](backup-restore-ctlplane.md))
    - Can also be satisfied by ensuring these resources exist in the target cluster by other means
 
 3. The target cluster should have the same OpenStack operator versions as the source cluster (check `operator-versions.txt` from ControlPlane backup)
@@ -191,19 +191,19 @@ These prerequisites can be satisfied by restoring the ControlPlane (typical case
 - **ControlPlane**: Stateless services, MariaDB/RabbitMQ definitions, Secrets/ConfigMaps (all)
 - **DataPlane**: Network topology (NetConfig), compute nodes (NodeSets), IP allocations (IPSets/Reservations)
 
-See [backup-restore-stateless.md](backup-restore-stateless.md) for ControlPlane backup/restore procedures.
+See [backup-restore-ctlplane.md](backup-restore-ctlplane.md) for ControlPlane backup/restore procedures.
 
 ## Complete Backup/Restore Workflow
 
 For a full OpenStack backup and restore:
 
 ### Backup Order
-1. **Backup ControlPlane** - see [backup-restore-stateless.md](backup-restore-stateless.md)
+1. **Backup ControlPlane** - see [backup-restore-ctlplane.md](backup-restore-ctlplane.md)
 2. **Backup DataPlane** (includes NetConfig) - follow the backup procedure above
 
 ### Restore Order
 1. **Cleanup target cluster** (if needed) - see [cleanup-openstack-ctlplane.yaml](cleanup-openstack-ctlplane.yaml)
-2. **Restore ControlPlane** - see [backup-restore-stateless.md](backup-restore-stateless.md)
+2. **Restore ControlPlane** - see [backup-restore-ctlplane.md](backup-restore-ctlplane.md)
 3. **Restore DataPlane** (includes NetConfig) - follow the restore procedure above
 
 **Note:** Typically the ControlPlane is restored before the DataPlane to ensure operators are running and required secrets/configmaps exist. However, DataPlane can be restored independently if these prerequisites are already in place.
@@ -311,5 +311,5 @@ After restore, you may need to:
 
 ## References
 
-- [ControlPlane Backup/Restore](backup-restore-stateless.md) - Must be done first
+- [ControlPlane Backup/Restore](backup-restore-ctlplane.md) - Must be done first
 - [Cleanup Playbook](cleanup-openstack-ctlplane.yaml) - Clean before restore
