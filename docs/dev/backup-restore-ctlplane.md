@@ -38,7 +38,7 @@ Attempting to restore from a partially updated environment may result in version
 - [OSPRH-26246](https://issues.redhat.com/browse/OSPRH-26246)
 
 ### Relationship to DataPlane Backup
-This ControlPlane backup includes **all Secrets and ConfigMaps** from the namespace, including those used by DataPlane resources (SSH keys, certificates for compute nodes, etc.). This is because there is no reliable way to separate ControlPlane vs DataPlane secrets/configmaps, and some may be shared between both. See [backup-restore-dataplane.md](backup-restore-dataplane.md) for DataPlane-specific backup (NetConfig, NodeSets, IPSets, etc.).
+This ControlPlane backup includes **all Secrets and ConfigMaps** from the namespace, including those used by DataPlane resources (SSH keys, certificates for compute nodes, etc.). This is because there is today no reliable way to separate ControlPlane vs DataPlane secrets/configmaps, and some may be shared between both. See [backup-restore-dataplane.md](backup-restore-dataplane.md) for DataPlane-specific backup (NetConfig, NodeSets, IPSets, etc.).
 
 ### Important: EDPM/Data Plane Node Dependencies
 

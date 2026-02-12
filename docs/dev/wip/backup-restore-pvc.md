@@ -7,7 +7,7 @@ This procedure covers backup and restore of **Persistent Volume Claims (PVCs)** 
 - **Glance image storage** - VM images and snapshots
 - **Other persistent data** - Service-specific storage
 
-**IMPORTANT**: PVC backup should be performed **in addition to** the stateless control plane backup and OVN database backup documented in `backup-restore-ctlplane.md` and `backup-restore-ovn.md`.
+**IMPORTANT**: PVC backup should be performed **in addition to** the stateless control plane backup and OVN database backup documented in `../backup-restore-ctlplane.md` and `backup-restore-ovn.md`.
 
 ## Backup Strategy Overview
 
@@ -891,7 +891,7 @@ oc exec -n openstack pvc-backup-helper -- \
 
 ## See Also
 
-- [Stateless Control Plane Backup/Restore](backup-restore-ctlplane.md)
+- [Stateless Control Plane Backup/Restore](../backup-restore-ctlplane.md)
 - [OVN Database Backup/Restore](backup-restore-ovn.md)
 - [CSI Volume Snapshots Documentation](https://kubernetes.io/docs/concepts/storage/volume-snapshots/)
 - [MariaDB Backup Documentation](https://mariadb.com/kb/en/backup-and-restore-overview/)

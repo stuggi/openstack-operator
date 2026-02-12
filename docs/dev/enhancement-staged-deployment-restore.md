@@ -8,8 +8,6 @@
 - **Implemented**: 2026-02-10 via [PR #1785](https://github.com/openstack-k8s-operators/openstack-operator/pull/1785)
 - **Related Documentation**:
   - [backup-restore-ctlplane.md](backup-restore-ctlplane.md)
-  - [backup-restore-ovn.md](backup-restore-ovn.md)
-  - [backup-restore-pvc.md](backup-restore-pvc.md)
 
 **Note**: This document is kept as historical reference and context for the staged deployment feature. The feature is now part of the main codebase.
 

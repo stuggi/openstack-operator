@@ -10,7 +10,7 @@ This procedure covers backup and restore of **OVN (Open Virtual Network) databas
 - DHCP options
 - And other network configurations
 
-**IMPORTANT**: OVN backup should be performed **in addition to** the stateless control plane backup documented in `backup-restore-ctlplane.md`.
+**IMPORTANT**: OVN backup should be performed **in addition to** the stateless control plane backup documented in `../backup-restore-ctlplane.md`.
 
 ## OVN Architecture
 
@@ -334,7 +334,7 @@ oc exec -n openstack ovsdbserver-sb-0 -c sb-ovsdb -- ovn-sbctl chassis-list
 
 For a complete OpenStack control plane backup:
 
-1. **Stateless Services Backup** (see `backup-restore-ctlplane.md`)
+1. **Stateless Services Backup** (see `../backup-restore-ctlplane.md`)
    - Custom Resources (OpenStackControlPlane, etc.)
    - Secrets (user-provided, CA certs, DB passwords)
    - ConfigMaps
@@ -575,6 +575,6 @@ oc exec -n openstack ovsdbserver-sb-0 -c sb-ovsdb -- ovn-sbctl chassis-list
 
 ## See Also
 
-- [Stateless Control Plane Backup/Restore](backup-restore-ctlplane.md) - Main backup/restore procedure
+- [Stateless Control Plane Backup/Restore](../backup-restore-ctlplane.md) - Main backup/restore procedure
 - [OVN Documentation](https://docs.ovn.org/) - Upstream OVN documentation
 - [OVSDB Tools](http://www.openvswitch.org/support/dist-docs/ovsdb-client.1.html) - ovsdb-client reference
