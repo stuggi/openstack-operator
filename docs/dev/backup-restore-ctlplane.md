@@ -429,6 +429,8 @@ oc get openstackcontrolplane -n openstack -o json | \
 
 **TODO**: Review and expand this list of CRs to backup. There may be additional Custom Resources that need to be included in the backup procedure.
 
+**Open Question**: How do we handle new CRDs added in future operator versions? Currently, the backup procedure has a hardcoded list of CRs. See [Future Enhancements](README.md#future-enhancements) for discussion on automatic CR discovery using CRD labels/annotations.
+
 ```bash
 # Backup OpenStackVersion
 oc get openstackversion -n openstack -o json | \

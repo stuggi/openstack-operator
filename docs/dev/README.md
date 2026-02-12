@@ -138,3 +138,45 @@ Operators could label all resources they create or reference (including user-pro
 - Allow restoring only DataPlane resources without ControlPlane
 - Clearer resource ownership and dependency tracking
 - Smaller, more focused backups
+
+### Automatic CR Discovery for Backup
+
+**Current Limitation:**
+The backup procedures use a hardcoded list of Custom Resources (OpenStackVersion, Topology, BGPConfiguration, DNSData, InstanceHa, etc.). When new CRDs are introduced in operator upgrades, the backup procedure must be manually updated to include them.
+
+**Proposed Enhancement:**
+Add labels or annotations to CRD definitions to enable automatic discovery of resources that should be backed up:
+
+```yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: topologies.topology.openstack.org
+  labels:
+    openstack.org/backup: "true"
+    openstack.org/backup-category: "controlplane"  # or "dataplane"
+```
+
+Backup procedures could then automatically discover all CRs to backup:
+
+```bash
+# Get all CRDs marked for backup
+BACKUP_CRDS=$(oc get crd -l openstack.org/backup=true,openstack.org/backup-category=controlplane \
+  -o jsonpath='{.items[*].spec.names.plural}')
+
+# Backup each CRD's resources
+for crd in $BACKUP_CRDS; do
+  oc get $crd -n openstack -o json | jq '...' > backup/${crd}-backup.json
+done
+```
+
+**Benefits:**
+- Automatic discovery of new CRs when operators are upgraded
+- No manual backup procedure updates needed
+- Clear declaration of which CRs are user-facing vs operator-managed
+- Separation of ControlPlane vs DataPlane resources at the CRD level
+
+**Considerations:**
+- Requires changes to all operator CRD definitions
+- Need to define backup categories and filtering strategies
+- May need additional labels (e.g., `openstack.org/backup-filter: "no-owner"` for user-created resources only)
