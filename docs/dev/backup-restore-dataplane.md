@@ -171,11 +171,13 @@ oc get openstackdataplanenodeset -n $NAMESPACE
 
 ## Relationship to ControlPlane Backup
 
-The DataPlane backup is **separate** from the ControlPlane backup but depends on the ControlPlane being restored first.
+The DataPlane backup is **separate** from the ControlPlane backup but has certain prerequisites that are typically satisfied by restoring the ControlPlane first.
 
-**Dependencies:**
-- **Secrets/ConfigMaps**: SSH keys, certificates, and configurations referenced by NodeSets are restored with the ControlPlane backup. While these are logically DataPlane resources, they are backed up with ControlPlane because there is no reliable way to distinguish which secrets/configmaps belong to ControlPlane vs DataPlane (some may be shared between both).
-- **Operators**: OpenStack operators must be running (restored with ControlPlane) to reconcile DataPlane resources
+**Prerequisites for DataPlane Restore:**
+- **Secrets/ConfigMaps**: SSH keys, certificates, and configurations referenced by NodeSets must exist. While these are logically DataPlane resources, they are backed up with ControlPlane because there is no reliable way to distinguish which secrets/configmaps belong to ControlPlane vs DataPlane (some may be shared between both).
+- **Operators**: OpenStack operators must be running to reconcile DataPlane resources
+
+These prerequisites can be satisfied by restoring the ControlPlane (typical case) or by ensuring operators are installed and required secrets/configmaps exist in the target cluster.
 
 **NetConfig** is included in the **DataPlane** backup (not ControlPlane) because:
 - NetConfig defines network topology consumed by DataPlane resources (IPSets, Reservations)
@@ -200,7 +202,7 @@ For a full OpenStack backup and restore:
 2. **Restore ControlPlane** - see [backup-restore-stateless.md](backup-restore-stateless.md)
 3. **Restore DataPlane** (includes NetConfig) - follow the restore procedure above
 
-The ControlPlane must be restored before the DataPlane because the DataPlane depends on secrets, configmaps, and operators from the ControlPlane.
+**Note:** Typically the ControlPlane is restored before the DataPlane to ensure operators are running and required secrets/configmaps exist. However, DataPlane can be restored independently if these prerequisites are already in place.
 
 ## Limitations
 
