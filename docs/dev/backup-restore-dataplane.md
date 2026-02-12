@@ -208,8 +208,65 @@ The ControlPlane must be restored before the DataPlane because the DataPlane dep
 - This procedure is designed for **DataPlaneNodeSets with `preProvisioned: true`**
 - For EDPM nodes provisioned via **OpenStackBaremetalSet and Metal3**, there is an additional procedure required to restore those objects (OpenStackBaremetalSet, BareMetalHost, etc.)
 
+### Deployment History Lost After Restore
+
+**Current Behavior:**
+When restoring only the NodeSets (without Deployments), the deployment history is lost and NodeSets enter a "Requested" state:
+
+```bash
+$ oc get openstackdataplanenodeset
+NAME             STATUS   MESSAGE
+openstack-edpm   False    NodeSet setup ready, waiting for OpenStackDataPlaneDeployment...
+```
+
+```yaml
+conditions:
+  - lastTransitionTime: "2026-02-11T11:13:22Z"
+    message: NodeSet setup ready, waiting for OpenStackDataPlaneDeployment...
+    reason: Requested
+    severity: Info
+    status: "False"
+    type: Ready
+```
+
+This is a **safe state** - the NodeSet is ready but waiting for a deployment to be created. The actual dataplane nodes are running correctly; this only affects the Kubernetes CR status.
+
+**Root Cause:**
+We cannot restore the OpenStackDataPlaneDeployment with its previous state. The default behavior is to not restore the status subresource. If we wanted to restore the status to reflect the completed deployment state (`status.deployed = true`), it would require a second API call. The problem is that the first API call to restore the deployment spec would trigger a new deployment run instead of restoring the old status.
+
+The deployment controller starts reconciling when it sees a deployment with `status.deployed == false` (the default for newly created resources). The controller checks this at openstackdataplanedeployment_controller.go:106-110:
+
+```go
+if instance.Status.Deployed {
+    return ctrl.Result{}, nil  // Skip processing if already deployed
+}
+```
+
+Between the first API call (creating the deployment) and the second call (patching the status), the controller would already start processing, potentially triggering unwanted ansible job execution.
+
+**Potential Solution (Under Discussion):**
+Add an annotation-based mechanism to prevent controller reconciliation during restore:
+
+1. Modify the deployment controller to check for a restore annotation before processing:
+   ```go
+   if restoring, ok := instance.Annotations["dataplane.openstack.org/restore-in-progress"]; ok && restoring == "true" {
+       Log.Info("Deployment restore in progress, skipping reconciliation")
+       return ctrl.Result{}, nil
+   }
+   ```
+
+2. Restore workflow would be:
+   - Restore NodeSets first (controller dependency: deployments check that nodesets exist)
+   - Create deployment with spec + annotation `dataplane.openstack.org/restore-in-progress: "true"`
+   - Update status subresource with `status.deployed = true`
+   - Remove the annotation to resume normal reconciliation
+
+This approach follows the existing pattern used in ControlPlane's `deployment-stage` annotation mechanism.
+
+**Status:** This will be addressed in a future update after team discussion.
+
 ### Not Backed Up
-- **OpenStackDataPlaneDeployment**: These are ephemeral and represent deployment runs. Restoring them would trigger unwanted deployments.
+- **OpenStackDataPlaneDeployment status**: Currently not restored to avoid triggering new deployments (see "Deployment History Lost After Restore" above).
 
 ### Dependencies from ControlPlane Backup
 The following are restored as part of the ControlPlane backup/restore procedure:
