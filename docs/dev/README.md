@@ -95,3 +95,42 @@ This is a **safe state** - the actual dataplane nodes are running correctly; onl
 ### Pre-Provisioned Nodes Only
 
 The current DataPlane backup/restore procedure is designed for **NodeSets with `preProvisioned: true`**. For nodes provisioned via OpenStackBaremetalSet and Metal3, additional procedures are required.
+
+## Future Enhancements
+
+The following features are under consideration for future implementation:
+
+### Backup/Restore During Partial Updates
+
+**Current Limitation:**
+Backup/restore does **not work** when the environment is in a partially updated state. If a minor update is in progress (e.g., operators updated but ControlPlane or DataPlane CRs not yet updated), the OpenStackVersion CR does not correctly restore the in-flight update state. This results in loss of service container images from older releases.
+
+**Impact:**
+- **Must complete updates fully** before backup (operators + ControlPlane + DataPlane all at the same version)
+- Backup during partial update will lose version tracking information
+- Restore will fail or result in incorrect service image versions
+
+**Proposed Enhancement:**
+- Properly handle OpenStackVersion CR in-flight state during backup/restore
+- Preserve service image information across all release versions involved in the update
+- Detect and warn when attempting backup during partial update
+
+**Related Issues:**
+- [OSPRH-26244](https://issues.redhat.com/browse/OSPRH-26244) - Backup/restore support
+- [OSPRH-26246](https://issues.redhat.com/browse/OSPRH-26246) - Backup only possible for fully updated environments
+
+### Resource Labeling for ControlPlane vs DataPlane Separation
+
+**Current Limitation:**
+All Secrets and ConfigMaps are backed up together in the ControlPlane backup because there is today no reliable way to distinguish which resources belong to ControlPlane vs DataPlane. Some resources may be shared between both.
+
+**Proposed Enhancement:**
+Operators could label all resources they create or reference (including user-provided Secrets/ConfigMaps) with component labels such as:
+- `openstack.org/component: controlplane`
+- `openstack.org/component: dataplane`
+
+**Benefits:**
+- Enable complete separation of ControlPlane and DataPlane backup/restore procedures
+- Allow restoring only DataPlane resources without ControlPlane
+- Clearer resource ownership and dependency tracking
+- Smaller, more focused backups
