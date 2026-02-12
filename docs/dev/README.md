@@ -73,8 +73,8 @@ The following enhancements were implemented to enable reliable backup and restor
 
 | Component | What's Backed Up | What's NOT Backed Up |
 |-----------|------------------|---------------------|
-| ControlPlane | OpenStackControlPlane CR, OpenStackVersion CR, NetworkAttachmentDefinitions, Secrets (all application secrets), ConfigMaps (user-provided only), MariaDBDatabase/MariaDBAccount CRs, Issuer CRs (TLS), Topology, BGPConfiguration, DNSData, InstanceHa | Individual service CRs (Keystone, Nova, etc. - recreated by controller), Certificate CRs (recreated by operators), Running pods, Database contents, OVN database contents, RabbitMQ messages |
-| DataPlane | NetConfig (network topology), OpenStackDataPlaneNodeSet, OpenStackDataPlaneService, Reservation (IP reservations), IPSet (IP allocations), OpenStackDataPlaneDeployment (reference only) | OpenStackDataPlaneDeployment status (not restored to avoid triggering new deployments) |
+| ControlPlane | OpenStackControlPlane CR<br>OpenStackVersion CR<br>NetworkAttachmentDefinitions<br>Secrets (all application secrets)<br>ConfigMaps (user-provided only)<br>MariaDBDatabase/MariaDBAccount CRs<br>Issuer CRs (TLS)<br>Topology<br>BGPConfiguration<br>DNSData<br>InstanceHa | Individual service CRs (Keystone, Nova, etc. - recreated by controller)<br>Certificate CRs (recreated by operators)<br>Running pods<br>Database contents<br>OVN database contents<br>RabbitMQ messages |
+| DataPlane | NetConfig (network topology)<br>OpenStackDataPlaneNodeSet<br>OpenStackDataPlaneService<br>Reservation (IP reservations)<br>IPSet (IP allocations)<br>OpenStackDataPlaneDeployment (reference only) | OpenStackDataPlaneDeployment status (not restored to avoid triggering new deployments) |
 
 ### Restore Order
 
