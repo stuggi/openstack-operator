@@ -342,52 +342,72 @@ oc get openstackcontrolplane -n openstack -o jsonpath='{.items[0].spec.storageCl
 
 ---
 
-## Automated Backup and Restore Scripts
+## Ansible Playbooks
 
-For automated testing, two bash scripts are provided that implement the exact procedures documented below:
+Ansible playbooks are provided that automate the backup and restore procedures documented below.
 
-### Backup Script
+### Backup Playbook
 
 ```bash
-# Basic usage
-./backup-openstack-ctlplane.sh
+# Basic usage (uses default namespace: openstack)
+ansible-playbook backup-openstack-ctlplane.yaml
 
 # With custom namespace
-NAMESPACE=openstack-prod ./backup-openstack-ctlplane.sh
+ansible-playbook backup-openstack-ctlplane.yaml -e openstack_namespace=openstack-prod
 
 # With custom backup directory
-BACKUP_DIR_BASE=/mnt/backups ./backup-openstack-ctlplane.sh
+ansible-playbook backup-openstack-ctlplane.yaml -e backup_dir_base=/mnt/backups
 ```
 
-The script creates a timestamped backup archive following all steps in the backup procedure.
+The playbook creates a timestamped backup archive following all steps in the backup procedure.
 
-**Script location**: `docs/dev/backup-openstack-ctlplane.sh`
+**Playbook location**: `docs/dev/backup-openstack-ctlplane.yaml`
 
-### Restore Script
+**Variables**:
+- `openstack_namespace`: Target namespace (default: `openstack`)
+- `backup_dir_base`: Backup directory base path (default: `./backups`)
+
+### Cleanup Playbook
+
+Before restoring, you may need to clean up existing resources:
+
+```bash
+# Cleanup existing ControlPlane resources
+ansible-playbook cleanup-openstack-ctlplane.yaml -e openstack_namespace=openstack
+```
+
+**Playbook location**: `docs/dev/cleanup-openstack-ctlplane.yaml`
+
+### Restore Playbook
 
 ```bash
 # Basic usage
-./restore-openstack-ctlplane.sh openstack-ctlplane-backup-20260119-120000.tar.gz
+ansible-playbook restore-openstack-ctlplane.yaml \
+  -e openstack_namespace=openstack \
+  -e backup_file=backups/openstack-ctlplane-backup-20260119-120000.tar.gz
 
 # With custom namespace
-NAMESPACE=openstack-prod ./restore-openstack-ctlplane.sh backup.tar.gz
+ansible-playbook restore-openstack-ctlplane.yaml \
+  -e openstack_namespace=openstack-prod \
+  -e backup_file=/mnt/backups/openstack-ctlplane-backup-20260119-120000.tar.gz
 
-# Skip cleanup of existing resources
-SKIP_CLEANUP=true ./restore-openstack-ctlplane.sh backup.tar.gz
-
-# Skip RabbitMQ user restoration (not recommended)
-SKIP_RABBITMQ_RESTORE=true ./restore-openstack-ctlplane.sh backup.tar.gz
+# Skip RabbitMQ user restoration (not recommended for EDPM deployments)
+ansible-playbook restore-openstack-ctlplane.yaml \
+  -e openstack_namespace=openstack \
+  -e backup_file=backups/openstack-ctlplane-backup-20260119-120000.tar.gz \
+  -e skip_rabbitmq_restore=true
 ```
 
-The script follows the correct restore order and prompts for confirmation at critical steps.
+The playbook follows the correct restore order and prompts for confirmation at critical steps.
 
-**Script location**: `docs/dev/restore-openstack-ctlplane.sh`
+**Note**: The restore playbook assumes cleanup was already done. Run the cleanup playbook first if restoring to an existing environment.
 
-**Environment Variables**:
-- `NAMESPACE`: Target namespace (default: `openstack`)
-- `SKIP_CLEANUP`: Skip cleanup of existing resources (default: `false`)
-- `SKIP_RABBITMQ_RESTORE`: Skip RabbitMQ user restoration (default: `false`)
-- `BACKUP_DIR_BASE`: Backup directory base path (default: `./backups`)
+**Playbook location**: `docs/dev/restore-openstack-ctlplane.yaml`
+
+**Variables**:
+- `openstack_namespace`: Target namespace (default: `openstack`)
+- `backup_file`: Path to backup file (required)
+- `skip_rabbitmq_restore`: Skip RabbitMQ user restoration (default: `false`)
 
 ---
 
