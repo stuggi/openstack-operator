@@ -178,6 +178,8 @@ flowchart TD
 - **Resume Deployment**: Removing the `deployment-stage` annotation triggers creation of OpenStack services
 - **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases (no restarts needed)
 
+**Staged Deployment Feature**: The staged deployment mechanism using the `deployment-stage` annotation is a key feature for reliable restores. For detailed context on why this feature was implemented and how it works, see [enhancement-staged-deployment-restore.md](enhancement-staged-deployment-restore.md).
+
 **Important**: While we don't backup RabbitMQ queue data, we create a fresh RabbitMQ cluster on restore. The RabbitMQ default user credentials **MUST be backed up and manually restored** for EDPM/data plane deployments. See "RabbitMQ User Management" in the Scope section for details.
 
 ## Prerequisites

@@ -49,6 +49,15 @@ ansible-playbook restore-openstack-ctlplane.yaml
 ansible-playbook restore-openstack-dataplane.yaml
 ```
 
+## Features Added for Backup/Restore
+
+The following enhancements were implemented to enable reliable backup and restore:
+
+| Feature | PR | Description |
+|---------|-----|-------------|
+| **Staged Deployment** | [#1785](https://github.com/openstack-k8s-operators/openstack-operator/pull/1785) | Allows pausing deployment after infrastructure (MariaDB, OVN, RabbitMQ) is ready but before OpenStack services start. Enables database restore before services initialize schemas, avoiding conflicts and service restarts. See [enhancement-staged-deployment-restore.md](enhancement-staged-deployment-restore.md) for details. |
+| **Service Name Caching** | [#1796](https://github.com/openstack-k8s-operators/openstack-operator/pull/1796) | Ensures service names remain consistent across backup/restore when `UniquePodNames` is enabled. Service names are cached via webhook during initial creation and preserved when CR is recreated from backup, preventing service name changes that would break references. |
+
 ## Key Concepts
 
 ### ControlPlane vs DataPlane
