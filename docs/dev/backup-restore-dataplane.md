@@ -113,11 +113,15 @@ tar -czf openstack-dataplane-backup-$(date +%Y%m%d-%H%M%S).tar.gz $BACKUP_DIR
 
 ### Prerequisites
 
-1. **ControlPlane must be restored first** from the ControlPlane backup (see [backup-restore-stateless.md](backup-restore-stateless.md))
+1. **OpenStack operators must be running** to reconcile DataPlane resources
 
-2. The target cluster should have the same OpenStack operator versions as the source cluster (check `operator-versions.txt` from ControlPlane backup)
+2. **Required secrets and configmaps must exist** (SSH keys, certificates, etc. referenced by NodeSets)
+   - Typically satisfied by restoring the ControlPlane first (see [backup-restore-stateless.md](backup-restore-stateless.md))
+   - Can also be satisfied by ensuring these resources exist in the target cluster by other means
 
-3. The namespace should exist (any existing DataPlane resources with the same names will be replaced)
+3. The target cluster should have the same OpenStack operator versions as the source cluster (check `operator-versions.txt` from ControlPlane backup)
+
+4. The namespace should exist (any existing DataPlane resources with the same names will be replaced)
 
 ### Restore Steps
 
