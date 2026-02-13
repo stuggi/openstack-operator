@@ -1185,7 +1185,7 @@ oc apply -f instanceha-backup.json 2>/dev/null || true
 
 **Note on Certificate CRs**: We also do NOT restore Certificate CRs. When the OpenStackControlPlane CR is restored, operators will create Certificate CRs during reconciliation, and cert-manager will issue fresh certificates from the restored CAs (Issuers + CA secrets).
 
-#### 10. Restore OpenStackControlPlane CR with Staged Deployment
+#### 10. Restore OpenStackControlPlane CR with Staged Deployment (introduced with FR5!)
 
 **CRITICAL**: Use the staged deployment annotation to pause after infrastructure creation, allowing database restore before services start.
 
