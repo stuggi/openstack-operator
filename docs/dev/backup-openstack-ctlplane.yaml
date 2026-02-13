@@ -153,9 +153,22 @@
       changed_when: true
       failed_when: false
 
+    - name: Step 2 - Backup RabbitMQUser CRs
+      ansible.builtin.shell: |
+        oc get rabbitmquser -n {{ openstack_namespace }} -o json 2>/dev/null | \
+          jq 'del(.items[].metadata.uid,
+                  .items[].metadata.resourceVersion,
+                  .items[].metadata.creationTimestamp,
+                  .items[].metadata.managedFields,
+                  .metadata)' > {{ backup_dir }}/rabbitmquser-backup.json || \
+          echo '{"apiVersion":"v1","items":[],"kind":"List"}' > {{ backup_dir }}/rabbitmquser-backup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+
     - name: Print Step 2 completion
       ansible.builtin.debug:
-        msg: "✓ Related Custom Resources backed up (Topology, BGPConfiguration, DNSData [user-created only], InstanceHa)"
+        msg: "✓ Related Custom Resources backed up (Topology, BGPConfiguration, DNSData [user-created only], InstanceHa, RabbitMQUser)"
 
     - name: Step 3 - Backup NetworkAttachmentDefinitions
       ansible.builtin.shell: |

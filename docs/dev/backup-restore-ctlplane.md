@@ -479,6 +479,14 @@ oc get instanceha -n openstack -o json | \
           .items[].metadata.creationTimestamp,
           .items[].metadata.managedFields,
           .metadata)' > instanceha-backup.json 2>/dev/null || echo "No instanceha found"
+
+# Backup RabbitMQUser CRs (keep ownerReferences - will filter on restore)
+oc get rabbitmquser -n openstack -o json | \
+  jq 'del(.items[].metadata.uid,
+          .items[].metadata.resourceVersion,
+          .items[].metadata.creationTimestamp,
+          .items[].metadata.managedFields,
+          .metadata)' > rabbitmquser-backup.json 2>/dev/null || echo '{"apiVersion":"v1","items":[],"kind":"List"}' > rabbitmquser-backup.json
 ```
 
 **Note**: We do NOT backup operator-created service CRs (KeystoneAPI, PlacementAPI, Nova, Neutron, etc.) as they are automatically recreated by the operator when the OpenStackControlPlane CR reconciles. The control plane CR spec contains all the configuration needed to recreate these resources.
