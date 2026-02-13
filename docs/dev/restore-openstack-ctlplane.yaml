@@ -737,12 +737,45 @@
       ansible.builtin.debug:
         msg: "{{ infra_components.stdout_lines }}"
 
-    # Step 10: Database Restore
+    # Step 10: Restore RabbitMQUser CRs (User-Created)
     - name: Print Step 10 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 10: Restore Database Contents"
+          - "Step 10: Restore RabbitMQUser CRs (User-Created)"
+          - "========================================"
+          - ""
+          - "Restoring user-created RabbitMQUser CRs (those without ownerReferences)."
+          - "These are custom RabbitMQ users that are not automatically created by operators."
+
+    - name: Check if RabbitMQUser backup exists
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/rabbitmquser-backup.json"
+      register: rabbitmquser_backup_file
+
+    - name: Restore RabbitMQUser CRs (user-created only)
+      ansible.builtin.shell: |
+        jq '.items |= map(select(.metadata.ownerReferences == null))' {{ backup_dir }}/rabbitmquser-backup.json | oc apply -f - -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: rabbitmquser_backup_file.stat.exists
+
+    - name: Print RabbitMQUser restore status
+      ansible.builtin.debug:
+        msg: "✓ User-created RabbitMQUser CRs restored"
+      when: rabbitmquser_backup_file.stat.exists
+
+    - name: Print RabbitMQUser skip message
+      ansible.builtin.debug:
+        msg: "No RabbitMQUser backup found, skipping..."
+      when: not rabbitmquser_backup_file.stat.exists
+
+    # Step 11: Database Restore
+    - name: Print Step 11 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 11: Restore Database Contents"
           - "========================================"
           - ""
           - "CRITICAL: Restore database contents while services are NOT running."

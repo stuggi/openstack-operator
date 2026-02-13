@@ -1245,7 +1245,7 @@ oc get memcached -n openstack
 - Ensures clean database restore without service restarts
 - Services start with already-restored databases (no db_sync race conditions)
 
-#### 11. Restore Database Contents (MariaDB and OVN)
+#### 12. Restore Database Contents (MariaDB and OVN)
 
 **CRITICAL**: Restore database contents while services are NOT running. This is only possible because of the staged deployment pause.
 
@@ -1255,7 +1255,7 @@ Follow the separate database restore procedures:
 
 After database restore is complete, proceed to the next step.
 
-#### 12. Restore RabbitMQ User Credentials
+#### 13. Restore RabbitMQ User Credentials
 
 ⚠️ **CRITICAL FOR EDPM/DATA PLANE DEPLOYMENTS** ⚠️
 
@@ -1348,7 +1348,7 @@ echo ""
 echo "RabbitMQ user credentials restored successfully using RabbitMQUser CRs!"
 ```
 
-#### 13. Resume Deployment (Remove Staged Deployment Annotation)
+#### 14. Resume Deployment (Remove Staged Deployment Annotation)
 
 Now that databases and RabbitMQ credentials are restored, resume the deployment to create OpenStack services.
 
