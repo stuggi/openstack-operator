@@ -141,7 +141,7 @@ flowchart TD
     RestoreSecrets --> RestoreConfigMaps[Restore ConfigMaps<br/>filtered: user-provided only]
     RestoreConfigMaps --> RestoreIssuers[Restore TLS Issuers]
     RestoreIssuers --> RestoreMariaDBCRs[Restore MariaDBDatabase &<br/>MariaDBAccount CRs]
-    RestoreMariaDBCRs --> RestoreCtlPlane[Restore OpenStackControlPlane CR<br/>with annotation:<br/>deployment-stage=infrastructure-only]
+    RestoreMariaDBCRs --> RestoreCtlPlane[Restore OpenStackControlPlane CR<br/>with annotation:<br/>core.openstack.org/deployment-stage: infrastructure-only]
 
     RestoreCtlPlane --> WaitInfra{Wait for<br/>OpenStackControlPlane<br/>InfrastructureReady<br/>condition}
     WaitInfra -->|Not Ready| WaitInfra
@@ -151,7 +151,7 @@ flowchart TD
     RestoreMariaDB --> RestoreOVN[Restore OVN Database Contents<br/>NB & SB databases]
     RestoreOVN --> RestoreRabbitMQ[Restore RabbitMQ User Credentials<br/>for EDPM compatibility]
 
-    RestoreRabbitMQ --> Resume[Resume Deployment<br/>Remove deployment-stage annotation]
+    RestoreRabbitMQ --> Resume[Resume Deployment<br/>Remove core.openstack.org/deployment-stage annotation]
 
     Resume --> WaitServices{Wait for<br/>OpenStack Services<br/>to be Ready}
     WaitServices -->|Not Ready| WaitServices
@@ -172,13 +172,13 @@ flowchart TD
 
 **Key Points:**
 - **Prerequisites**: Cluster infrastructure must exist first (StorageClass, NNCP, MetalLB) - either still present or restored separately
-- **Staged Deployment**: Infrastructure (databases, message queue) is created first with annotation `deployment-stage=infrastructure-only`
+- **Staged Deployment**: Infrastructure (databases, message queue) is created first with annotation `core.openstack.org/deployment-stage: "infrastructure-only"`
 - **OpenStackControlPlaneInfrastructureReady Condition**: Single condition check validates all infrastructure components are ready
 - **Database Restore**: Performed while OpenStack services are NOT yet created (clean restore)
-- **Resume Deployment**: Removing the `deployment-stage` annotation triggers creation of OpenStack services
+- **Resume Deployment**: Removing the `core.openstack.org/deployment-stage` annotation triggers creation of OpenStack services
 - **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases (no restarts needed)
 
-**Staged Deployment Feature**: The staged deployment mechanism using the `deployment-stage` annotation is a key feature for reliable restores. For detailed context on why this feature was implemented and how it works, see [enhancement-staged-deployment-restore.md](enhancement-staged-deployment-restore.md).
+**Staged Deployment Feature**: The staged deployment mechanism using the `core.openstack.org/deployment-stage` annotation is a key feature for reliable restores. For detailed context on why this feature was implemented and how it works, see [enhancement-staged-deployment-restore.md](enhancement-staged-deployment-restore.md).
 
 **Important**: While we don't backup RabbitMQ queue data, we create a fresh RabbitMQ cluster on restore. The RabbitMQ default user credentials **MUST be backed up and manually restored** for EDPM/data plane deployments. See "RabbitMQ User Management" in the Scope section for details.
 

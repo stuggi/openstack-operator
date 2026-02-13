@@ -463,7 +463,7 @@ This is a **Kubernetes API limitation**, not an OADP limitation:
 ### Cannot Support Staged Deployment
 
 OADP cannot support the ControlPlane staged deployment workflow where:
-1. Restore with `deployment-stage=infrastructure-only` annotation
+1. Restore with `core.openstack.org/deployment-stage: "infrastructure-only"` annotation
 2. Wait for infrastructure ready
 3. Restore databases
 4. Remove annotation to resume deployment
