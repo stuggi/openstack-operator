@@ -1442,13 +1442,16 @@ Data plane nodes use the restored RabbitMQ credentials for immediate connectivit
 
 ⚠️ **NOTE**: This scenario has not been tested yet. Use with caution and verify each step.
 
-**WARNING**: Namespace changes are complex due to DNS endpoints in OpenStack databases. This procedure assumes you're **NOT** restoring database state.
+⚠️ **CRITICAL - EDPM Hostname Requirements**: If you have EDPM nodes (compute/network nodes), **the hostnames MUST NOT change!** Nova-compute registers with a hostname, and all running VM instances are associated with that hostname. Changing hostnames will cause you to lose the ability to manage existing instances.
+
+⚠️ **EDPM Deployment Required**: Since this scenario changes the namespace, DNS names change (e.g., `rabbitmq.openstack.svc` → `rabbitmq.openstack-restored.svc`). You MUST run an EDPM deployment to update node configurations before nodes can reconnect to the control plane.
 
 **Prerequisites:**
 - **Operator versions match the backup** (same cluster, so this should already be true)
 - New namespace will be created
 - Operator managing the new namespace
 - Storage classes available
+- **EDPM node hostnames must remain the same** (see warning above)
 
 **Steps:**
 
@@ -1499,22 +1502,31 @@ for file in *-backup.json; do
 done
 ```
 
-#### 3. Restore in New Namespace
+#### 3. Restore in New Namespace with Staged Deployment
 
-**Follow the correct restore order:**
+**Follow the correct restore order using staged deployment:**
 
 ```bash
 # 1. Restore NetworkAttachmentDefinitions
 oc apply -f network-attachment-definitions-backup.json -n ${NEW_NAMESPACE}
 
-# 2. Restore TLS Issuers
+# 2. Restore Secrets (filtered)
+jq '.items |= map(
+  select((.metadata.name | startswith("rabbitmq-")) | not) |
+  select(.metadata.labels."service-cert" | not) |
+  select(
+    (.metadata.ownerReferences == null) or
+    (.metadata.name | startswith("rootca-")) or
+    (.metadata.name | contains("-db-password"))
+  )
+)' secrets-all-backup.json | oc apply -f - -n ${NEW_NAMESPACE}
+
+# 3. Restore ConfigMaps (user-provided only)
+jq '.items |= map(select(.metadata.ownerReferences == null))' configmaps-all-backup.json | \
+  oc apply -f - -n ${NEW_NAMESPACE}
+
+# 4. Restore TLS Issuers
 oc apply -f issuer-backup.json -n ${NEW_NAMESPACE}
-
-# 3. Restore Secrets
-oc apply -f secrets-all-backup.json -n ${NEW_NAMESPACE}
-
-# 4. Restore ConfigMaps
-oc apply -f configmaps-all-backup.json -n ${NEW_NAMESPACE}
 
 # 5. Restore MariaDB CRs
 oc apply -f mariadbdatabase-backup.json -n ${NEW_NAMESPACE}
@@ -1522,14 +1534,30 @@ oc apply -f mariadbaccount-backup.json -n ${NEW_NAMESPACE}
 
 # 6. Restore Related CRs
 oc apply -f openstackversion-backup.json -n ${NEW_NAMESPACE} 2>/dev/null || true
-oc apply -f netconfig-backup.json -n ${NEW_NAMESPACE}
 oc apply -f topology-backup.json -n ${NEW_NAMESPACE} 2>/dev/null || true
 
-# 7. Restore OpenStackControlPlane CR
-oc apply -f openstackcontrolplane-backup.json -n ${NEW_NAMESPACE}
+# 7. Restore OpenStackControlPlane CR with staged deployment
+jq '.items[0].metadata.annotations["core.openstack.org/deployment-stage"] = "infrastructure-only"' \
+  openstackcontrolplane-backup.json > openstackcontrolplane-staged.json
+
+oc apply -f openstackcontrolplane-staged.json -n ${NEW_NAMESPACE}
+
+# Wait for infrastructure ready
+oc wait --for=condition=OpenStackControlPlaneInfrastructureReady \
+  openstackcontrolplane/$(jq -r '.items[0].metadata.name' openstackcontrolplane-backup.json) \
+  -n ${NEW_NAMESPACE} --timeout=20m
 ```
 
-#### 8. Restore RabbitMQ User Credentials
+#### 4. Restore Database Contents and PVCs
+
+```bash
+# Restore databases (MariaDB, OVN) while services are paused
+# Follow separate database restore procedures
+
+# Restore PVCs if applicable (OADP or other method)
+```
+
+#### 5. Restore RabbitMQ User Credentials
 
 Follow the RabbitMQUser CRD approach from Scenario 1:
 
@@ -1607,7 +1635,20 @@ echo ""
 echo "RabbitMQ user credentials restored successfully using RabbitMQUser CRs!"
 ```
 
-#### 4. Post-Restore Configuration
+#### 6. Resume Deployment
+
+```bash
+# Remove the staged deployment annotation
+CTLPLANE_NAME=$(jq -r '.items[0].metadata.name' openstackcontrolplane-backup.json)
+oc annotate openstackcontrolplane ${CTLPLANE_NAME} -n ${NEW_NAMESPACE} \
+  core.openstack.org/deployment-stage-
+
+# Wait for control plane ready
+oc wait --for=condition=Ready openstackcontrolplane/${CTLPLANE_NAME} \
+  -n ${NEW_NAMESPACE} --timeout=30m
+```
+
+#### 7. Post-Restore Configuration
 
 **IMPORTANT**: Since you changed namespace, DNS names will change:
 - Old: `keystone.openstack.svc.cluster.local`
@@ -1651,11 +1692,16 @@ Without running EDPM deployment, data plane nodes will continue trying to connec
 
 ⚠️ **NOTE**: This scenario has not been tested yet. Use with caution and verify each step.
 
+⚠️ **CRITICAL - EDPM Hostname Requirements**: If you have EDPM nodes (compute/network nodes), **the hostnames MUST NOT change!** Nova-compute registers with a hostname, and all running VM instances are associated with that hostname. Changing hostnames will cause you to lose the ability to manage existing instances.
+
+⚠️ **EDPM Deployment May Be Required**: If the namespace, control plane endpoint IPs, or DNS server endpoint IP change, you MUST run an EDPM deployment to update node configurations before nodes can reconnect to the control plane.
+
 **Prerequisites:**
 - Target cluster has **EXACT same operator versions installed** as source cluster
 - Target cluster has required storage classes
 - Network connectivity for external access
 - Compatible OpenShift version
+- **EDPM node hostnames must remain the same** (see warning above)
 
 **Steps:**
 
