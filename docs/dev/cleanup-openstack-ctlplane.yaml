@@ -14,8 +14,6 @@
 - name: Cleanup OpenStack Control Plane
   hosts: localhost
   gather_facts: false
-  vars:
-    skip_confirmation: "{{ skip_confirmation | default(false) | bool }}"
 
   tasks:
     - name: Set default namespace
@@ -73,12 +71,12 @@
 
           Continue with cleanup? (yes/no)
       register: delete_confirm
-      when: not skip_confirmation and ctlplane_count.stdout|int > 0
+      when: (skip_confirmation | default(false) | bool) == false and ctlplane_count.stdout|int > 0
 
     - name: Fail if not confirmed
       ansible.builtin.fail:
         msg: "Cleanup cancelled by user"
-      when: not skip_confirmation and ctlplane_count.stdout|int > 0 and delete_confirm.user_input != "yes"
+      when: (skip_confirmation | default(false) | bool) == false and ctlplane_count.stdout|int > 0 and delete_confirm.user_input != "yes"
 
     - name: Step 1 - Delete OpenStackControlPlane CR
       ansible.builtin.debug:
