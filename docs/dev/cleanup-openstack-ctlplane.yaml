@@ -64,6 +64,8 @@
           Found {{ ctlplane_count.stdout }} OpenStackControlPlane CR(s) in namespace {{ openstack_namespace }}
 
           This will DELETE:
+          - RabbitMQUser CRs (all)
+          - RabbitMQ restored-user secrets
           - OpenStackControlPlane CR
           - All operator-managed pods and services
           - Certificates and secrets (excluding EDPM/compute certs and Ceph)
@@ -151,11 +153,40 @@
         msg: "✓ All pods terminated"
       when: ctlplane_count.stdout|int > 0
 
-    - name: Step 3 - Delete certificate secrets
+    - name: Step 3 - Delete RabbitMQUser CRs and restored secrets
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 3: Deleting certificate secrets"
+          - "Step 3: Deleting RabbitMQUser CRs and Restored Secrets"
+          - "========================================"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Delete all RabbitMQUser CRs
+      ansible.builtin.shell: |
+        oc delete rabbitmquser --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Delete RabbitMQ restored-user secrets
+      ansible.builtin.shell: |
+        for secret in $(oc get secret -n {{ openstack_namespace }} -o name | grep '\-restored-user$'); do
+          oc delete -n {{ openstack_namespace }} $secret
+        done
+      changed_when: true
+      failed_when: false
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Print RabbitMQ cleanup status
+      ansible.builtin.debug:
+        msg: "✓ RabbitMQUser CRs and restored secrets deleted"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Step 4 - Delete certificate secrets
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 4: Deleting certificate secrets"
           - "========================================"
           - "(Excluding EDPM, compute node, and Ceph certs)"
       when: ctlplane_count.stdout|int > 0
