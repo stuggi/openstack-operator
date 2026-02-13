@@ -782,12 +782,12 @@
         msg: "✓ Database restore completed"
       when: db_restore_confirm.user_input == "yes"
 
-    # Step 11: RabbitMQ User Restoration
-    - name: Print Step 11 header (if not skipping)
+    # Step 12: RabbitMQ User Restoration
+    - name: Print Step 12 header (if not skipping)
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 11: Restore RabbitMQ User Credentials"
+          - "Step 12: Restore RabbitMQ User Credentials"
           - "========================================"
           - ""
           - "⚠️  CRITICAL FOR EDPM/DATA PLANE DEPLOYMENTS ⚠️"
@@ -929,12 +929,12 @@
         msg: "Skipping RabbitMQ user restoration (skip_rabbitmq_restore=true)"
       when: skip_rabbitmq_restore
 
-    # Step 12: Resume Deployment
-    - name: Print Step 12 header
+    # Step 13: Resume Deployment
+    - name: Print Step 13 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 12: Resume Deployment"
+          - "Step 13: Resume Deployment"
           - "========================================"
           - ""
           - "Now that databases and RabbitMQ credentials are restored,"
