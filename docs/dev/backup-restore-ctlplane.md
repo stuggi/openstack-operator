@@ -1516,55 +1516,6 @@ When restoring to a different OpenShift cluster:
 
 ---
 
-## Recommended Workflow
-
-### For Production Deployments:
-
-1. **Stateless Services** (this procedure):
-   - Backup CRs and secrets regularly (daily)
-   - Use git for version control
-   - Automate with CronJob
-
-2. **Stateful Services** (separate procedure needed):
-   - Regular database dumps (Galera)
-   - OVN database backups
-   - Volume snapshots (CSI snapshots)
-
-3. **Full Recovery**:
-   - Restore stateful services first (databases, OVN)
-   - Then restore stateless services (this procedure)
-   - Verify connectivity and reconciliation
-
-### Automation Example:
-
-```bash
-#!/bin/bash
-# backup-openstack-crs.sh
-
-NAMESPACE="openstack"
-BACKUP_DIR="/backups/openstack/$(date +%Y%m%d-%H%M%S)"
-mkdir -p ${BACKUP_DIR}
-
-# Backup all CRs and resources
-oc get openstackcontrolplane -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/openstackcontrolplane-backup.json
-oc get network-attachment-definition -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/network-attachment-definitions-backup.json
-oc get issuer -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/issuer-backup.json
-oc get certificate -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/certificates-backup.json
-oc get secrets -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/secrets-all-backup.json
-oc get configmaps -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/configmaps-all-backup.json
-oc get netconfig -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/netconfig-backup.json
-oc get openstackversion -n ${NAMESPACE} -o json | jq 'del(.items[].metadata.ownerReferences, .items[].metadata.uid, .items[].metadata.resourceVersion, .items[].metadata.creationTimestamp, .items[].metadata.managedFields, .metadata)' > ${BACKUP_DIR}/openstackversion-backup.json 2>/dev/null || true
-
-# Commit to git
-cd ${BACKUP_DIR}
-git add .
-git commit -m "Backup $(date)"
-git push
-
-echo "Backup completed: ${BACKUP_DIR}"
-```
-
----
 
 ## Troubleshooting
 
