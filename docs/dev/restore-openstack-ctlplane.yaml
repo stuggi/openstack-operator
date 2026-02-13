@@ -793,7 +793,8 @@
           - "⚠️  CRITICAL FOR EDPM/DATA PLANE DEPLOYMENTS ⚠️"
           - ""
           - "The new RabbitMQ clusters have random credentials."
-          - "You MUST restore the original user credentials so that:"
+          - "Restoring original user credentials using RabbitMQUser CRDs."
+          - "This ensures:"
           - "  - Control plane services can authenticate"
           - "  - EDPM data plane nodes maintain connectivity"
       when: not skip_rabbitmq_restore
@@ -806,68 +807,98 @@
       register: rabbitmq_confirm
       when: not skip_rabbitmq_restore
 
-    - name: Extract main RabbitMQ credentials
+    - name: Get list of RabbitMQ clusters
       ansible.builtin.shell: |
-        jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.username' {{ backup_dir }}/secrets-all-backup.json | base64 -d
-      register: rabbitmq_user
+        oc get rabbitmqcluster -n {{ openstack_namespace }} -o jsonpath='{.items[*].metadata.name}'
+      register: rabbitmq_clusters
       changed_when: false
-      failed_when: false
       when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
 
-    - name: Extract main RabbitMQ password
-      ansible.builtin.shell: |
-        jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.password' {{ backup_dir }}/secrets-all-backup.json | base64 -d
-      register: rabbitmq_pass
-      changed_when: false
-      failed_when: false
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
-
-    - name: Restore main RabbitMQ user
-      ansible.builtin.shell: |
-        oc rsh -n {{ openstack_namespace }} rabbitmq-server-0 rabbitmqctl add_user -- "{{ rabbitmq_user.stdout }}" "{{ rabbitmq_pass.stdout }}" 2>/dev/null || echo "  (user may already exist)"
-        oc rsh -n {{ openstack_namespace }} rabbitmq-server-0 rabbitmqctl set_user_tags "{{ rabbitmq_user.stdout }}" administrator
-        oc rsh -n {{ openstack_namespace }} rabbitmq-server-0 rabbitmqctl set_permissions -p / "{{ rabbitmq_user.stdout }}" ".*" ".*" ".*"
-      changed_when: true
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes" and rabbitmq_user.stdout != ""
-
-    - name: Print main RabbitMQ restore status
+    - name: Print RabbitMQ clusters found
       ansible.builtin.debug:
-        msg: "✓ Main RabbitMQ user restored: {{ rabbitmq_user.stdout }}"
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes" and rabbitmq_user.stdout != ""
-
-    - name: Extract cell1 RabbitMQ credentials
-      ansible.builtin.shell: |
-        jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.username' {{ backup_dir }}/secrets-all-backup.json | base64 -d
-      register: rabbitmq_cell1_user
-      changed_when: false
-      failed_when: false
+        msg: "RabbitMQ clusters found: {{ rabbitmq_clusters.stdout }}"
       when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
 
-    - name: Extract cell1 RabbitMQ password
+    - name: Restore RabbitMQ user secrets and create RabbitMQUser CRs
       ansible.builtin.shell: |
-        jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.password' {{ backup_dir }}/secrets-all-backup.json | base64 -d
-      register: rabbitmq_cell1_pass
-      changed_when: false
-      failed_when: false
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+        set -e
+        CLUSTER_NAME="{{ item }}"
+        ORIGINAL_SECRET_NAME="${CLUSTER_NAME}-default-user"
+        RESTORED_SECRET_NAME="${CLUSTER_NAME}-restored-user"
 
-    - name: Restore cell1 RabbitMQ user
-      ansible.builtin.shell: |
-        oc rsh -n {{ openstack_namespace }} rabbitmq-cell1-server-0 rabbitmqctl add_user -- "{{ rabbitmq_cell1_user.stdout }}" "{{ rabbitmq_cell1_pass.stdout }}" 2>/dev/null || echo "  (user may already exist)"
-        oc rsh -n {{ openstack_namespace }} rabbitmq-cell1-server-0 rabbitmqctl set_user_tags "{{ rabbitmq_cell1_user.stdout }}" administrator
-        oc rsh -n {{ openstack_namespace }} rabbitmq-cell1-server-0 rabbitmqctl set_permissions -p / "{{ rabbitmq_cell1_user.stdout }}" ".*" ".*" ".*"
+        echo "Processing cluster: ${CLUSTER_NAME}"
+        echo "Looking for secret: ${ORIGINAL_SECRET_NAME} in backup"
+
+        # Check if secret exists in backup
+        SECRET_EXISTS=$(jq -r ".items[] | select(.metadata.name==\"${ORIGINAL_SECRET_NAME}\") | .metadata.name" {{ backup_dir }}/secrets-all-backup.json 2>/dev/null || echo "")
+
+        if [ -z "${SECRET_EXISTS}" ]; then
+          echo "  ERROR: Secret ${ORIGINAL_SECRET_NAME} not found in backup!"
+          echo "  Cannot restore RabbitMQ credentials for cluster ${CLUSTER_NAME}"
+          exit 1
+        fi
+
+        # Check if the restored secret already exists
+        if oc get secret "${RESTORED_SECRET_NAME}" -n {{ openstack_namespace }} &>/dev/null; then
+          echo "  ERROR: Secret ${RESTORED_SECRET_NAME} already exists!"
+          echo "  This may indicate a previous restore attempt. Please investigate and delete if needed:"
+          echo "    oc delete secret ${RESTORED_SECRET_NAME} -n {{ openstack_namespace }}"
+          exit 1
+        fi
+
+        # Restore the secret with a new name to avoid conflict
+        jq ".items[] | select(.metadata.name==\"${ORIGINAL_SECRET_NAME}\") | .metadata.name=\"${RESTORED_SECRET_NAME}\" | del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.ownerReferences)" \
+          {{ backup_dir }}/secrets-all-backup.json | oc apply -f - -n {{ openstack_namespace }}
+
+        echo "  ✓ Restored secret as ${RESTORED_SECRET_NAME}"
+
+        # Create RabbitMQUser CR that references the restored secret
+        cat <<EOF | oc apply -f -
+        apiVersion: rabbitmq.openstack.org/v1beta1
+        kind: RabbitMQUser
+        metadata:
+          name: ${CLUSTER_NAME}-restored-user
+          namespace: {{ openstack_namespace }}
+        spec:
+          rabbitmqClusterName: ${CLUSTER_NAME}
+          secret: ${RESTORED_SECRET_NAME}
+          tags:
+            - administrator
+          permissions:
+            configure: ".*"
+            read: ".*"
+            write: ".*"
+        EOF
+
+        echo "  ✓ Created RabbitMQUser CR for ${CLUSTER_NAME}"
+      args:
+        executable: /bin/bash
+      loop: "{{ rabbitmq_clusters.stdout.split() }}"
       changed_when: true
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes" and rabbitmq_cell1_user.stdout != ""
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes" and rabbitmq_clusters.stdout != ""
 
-    - name: Print cell1 RabbitMQ restore status
+    - name: Wait for RabbitMQUser CRs to be ready
+      ansible.builtin.pause:
+        seconds: 5
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+
+    - name: Get RabbitMQUser status
+      ansible.builtin.shell: |
+        oc get rabbitmquser -n {{ openstack_namespace }}
+      register: rabbitmquser_status
+      changed_when: false
+      failed_when: false
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+
+    - name: Display RabbitMQUser status
       ansible.builtin.debug:
-        msg: "✓ Cell1 RabbitMQ user restored: {{ rabbitmq_cell1_user.stdout }}"
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes" and rabbitmq_cell1_user.stdout != ""
+        msg: "{{ rabbitmquser_status.stdout_lines }}"
+      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
 
     - name: Print RabbitMQ completion
       ansible.builtin.debug:
         msg:
-          - "✓ RabbitMQ user credentials restored successfully!"
+          - "✓ RabbitMQ user credentials restored successfully using RabbitMQUser CRs!"
           - ""
           - "IMPORTANT: Data plane nodes will get updated credentials on their next EDPM deployment run."
       when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"

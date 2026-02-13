@@ -62,7 +62,7 @@ All services are **operator-managed** and **stateless**. The operator will autom
 4. **Restore Challenge**: When you restore the control plane:
    - **A NEW RabbitMQ cluster gets created** (no queue data restored)
    - New default admin credentials are **automatically generated** (different from backup)
-   - **MANUAL STEP REQUIRED**: You must restore the original user credentials to the new cluster by exec'ing into the RabbitMQ pods. This will change in later version where we have the RabbitMQUser CRD which allows us to create users referencing an secret which holds the password to use.
+   - **USER RESTORATION REQUIRED**: You must restore the original user credentials to the new cluster using the RabbitMQUser CRD, which creates users by referencing a secret containing the credentials
    - This ensures all services can reconnect (TransportURL CRs will regenerate the transport URL secrets automatically)
 
 **Fresh Cluster Strategy:**
@@ -150,7 +150,7 @@ flowchart TD
     InfraReady --> RestorePVC[Restore PVCs/PVs<br/>From OADP or other backup method<br/>Optional: only if PVC data backed up]
     RestorePVC --> RestoreMariaDB[Restore MariaDB Database Contents]
     RestoreMariaDB --> RestoreOVN[Restore OVN Database Contents<br/>NB & SB databases]
-    RestoreOVN --> RestoreRabbitMQ[Restore RabbitMQ User Credentials<br/>for EDPM compatibility]
+    RestoreOVN --> RestoreRabbitMQ[Restore RabbitMQ User Credentials<br/>Create RabbitMQUser CRs<br/>for EDPM compatibility]
 
     RestoreRabbitMQ --> Resume[Resume Deployment<br/>Remove core.openstack.org/deployment-stage annotation]
 
@@ -1247,57 +1247,86 @@ Follow the separate database restore procedures:
 
 After database restore is complete, proceed to the next step.
 
-#### 12. Restore RabbitMQ User Credentials (CRITICAL MANUAL STEP)
+#### 12. Restore RabbitMQ User Credentials
 
 ⚠️ **CRITICAL FOR EDPM/DATA PLANE DEPLOYMENTS** ⚠️
 
 The new RabbitMQ clusters have been created with randomly generated credentials. Restore the original user credentials from the backup to ensure data plane node connectivity. See "RabbitMQ User Management" in the Scope section for why this step is required.
 
+**Approach**: Use the `RabbitMQUser` CRD to declaratively create users with the backed-up credentials.
+
 ```bash
+# Get list of running RabbitMQ clusters
+echo "Finding RabbitMQ clusters..."
+RABBITMQ_CLUSTERS=$(oc get rabbitmqcluster -n openstack -o jsonpath='{.items[*].metadata.name}')
+
+echo "RabbitMQ clusters found: ${RABBITMQ_CLUSTERS}"
+
 # For each RabbitMQ cluster, restore the user credentials
-# Extract credentials from the secrets-all-backup.json file
+for CLUSTER_NAME in ${RABBITMQ_CLUSTERS}; do
+  # Determine the secret name pattern (e.g., rabbitmq -> rabbitmq-default-user)
+  ORIGINAL_SECRET_NAME="${CLUSTER_NAME}-default-user"
+  RESTORED_SECRET_NAME="${CLUSTER_NAME}-restored-user"
 
-# Get the backed up credentials for main rabbitmq
-RABBITMQ_USER=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.username' secrets-all-backup.json | base64 -d)
-RABBITMQ_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.password' secrets-all-backup.json | base64 -d)
+  echo ""
+  echo "Processing cluster: ${CLUSTER_NAME}"
+  echo "Looking for secret: ${ORIGINAL_SECRET_NAME} in backup"
 
-echo "Restoring RabbitMQ user: ${RABBITMQ_USER}"
+  # Check if secret exists in backup
+  SECRET_EXISTS=$(jq -r ".items[] | select(.metadata.name==\"${ORIGINAL_SECRET_NAME}\") | .metadata.name" secrets-all-backup.json 2>/dev/null)
 
-# Restore user to main rabbitmq cluster
-oc rsh -n openstack rabbitmq-server-0 rabbitmqctl add_user -- "${RABBITMQ_USER}" "${RABBITMQ_PASS}" || echo "User may already exist"
-oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_user_tags "${RABBITMQ_USER}" administrator
-oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_USER}" ".*" ".*" ".*"
+  if [ -z "${SECRET_EXISTS}" ]; then
+    echo "  ERROR: Secret ${ORIGINAL_SECRET_NAME} not found in backup!"
+    echo "  Cannot restore RabbitMQ credentials for cluster ${CLUSTER_NAME}"
+    exit 1
+  fi
 
-# Restore user to rabbitmq-cell1 cluster
-RABBITMQ_CELL1_USER=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.username' secrets-all-backup.json | base64 -d)
-RABBITMQ_CELL1_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.password' secrets-all-backup.json | base64 -d)
+  # Check if the restored secret already exists
+  if oc get secret "${RESTORED_SECRET_NAME}" -n openstack &>/dev/null; then
+    echo "  ERROR: Secret ${RESTORED_SECRET_NAME} already exists!"
+    echo "  This may indicate a previous restore attempt. Please investigate and delete if needed:"
+    echo "    oc delete secret ${RESTORED_SECRET_NAME} -n openstack"
+    exit 1
+  fi
 
-echo "Restoring RabbitMQ Cell1 user: ${RABBITMQ_CELL1_USER}"
+  # Restore the secret with a new name to avoid conflict
+  jq ".items[] | select(.metadata.name==\"${ORIGINAL_SECRET_NAME}\") | .metadata.name=\"${RESTORED_SECRET_NAME}\" | del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.ownerReferences)" \
+    secrets-all-backup.json | oc apply -f -
 
-oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl add_user -- "${RABBITMQ_CELL1_USER}" "${RABBITMQ_CELL1_PASS}" || echo "User may already exist"
-oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl set_user_tags "${RABBITMQ_CELL1_USER}" administrator
-oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_CELL1_USER}" ".*" ".*" ".*"
+  echo "  ✓ Restored secret as ${RESTORED_SECRET_NAME}"
 
-# Restore user to rabbitmq-notifications cluster (if exists)
-RABBITMQ_NOTIF_USER=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-notifications-default-user") | .data.username' secrets-all-backup.json 2>/dev/null | base64 -d)
-if [ -n "${RABBITMQ_NOTIF_USER}" ]; then
-  RABBITMQ_NOTIF_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-notifications-default-user") | .data.password' secrets-all-backup.json | base64 -d)
+  # Create RabbitMQUser CR that references the restored secret
+  cat <<EOF | oc apply -f -
+apiVersion: rabbitmq.openstack.org/v1beta1
+kind: RabbitMQUser
+metadata:
+  name: ${CLUSTER_NAME}-restored-user
+  namespace: openstack
+spec:
+  rabbitmqClusterName: ${CLUSTER_NAME}
+  secret: ${RESTORED_SECRET_NAME}
+  tags:
+    - administrator
+  permissions:
+    configure: ".*"
+    read: ".*"
+    write: ".*"
+EOF
 
-  echo "Restoring RabbitMQ Notifications user: ${RABBITMQ_NOTIF_USER}"
+  echo "  ✓ Created RabbitMQUser CR for ${CLUSTER_NAME}"
+done
 
-  oc rsh -n openstack rabbitmq-notifications-server-0 rabbitmqctl add_user -- "${RABBITMQ_NOTIF_USER}" "${RABBITMQ_NOTIF_PASS}" || echo "User may already exist"
-  oc rsh -n openstack rabbitmq-notifications-server-0 rabbitmqctl set_user_tags "${RABBITMQ_NOTIF_USER}" administrator
-  oc rsh -n openstack rabbitmq-notifications-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_NOTIF_USER}" ".*" ".*" ".*"
-fi
-
-# Verify users were created
 echo ""
-echo "Verifying users in RabbitMQ clusters:"
-oc rsh -n openstack rabbitmq-server-0 rabbitmqctl list_users | grep "${RABBITMQ_USER}"
-oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl list_users | grep "${RABBITMQ_CELL1_USER}"
+echo "Waiting for RabbitMQUser CRs to be ready..."
+sleep 5
+
+# Verify RabbitMQUser CRs are ready
+echo ""
+echo "RabbitMQUser status:"
+oc get rabbitmquser -n openstack
 
 echo ""
-echo "RabbitMQ user credentials restored successfully!"
+echo "RabbitMQ user credentials restored successfully using RabbitMQUser CRs!"
 ```
 
 #### 13. Resume Deployment (Remove Staged Deployment Annotation)
