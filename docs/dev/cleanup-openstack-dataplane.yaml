@@ -1,0 +1,250 @@
+---
+# OpenStack Data Plane Cleanup Playbook
+# This playbook performs cleanup of OpenStack data plane resources
+#
+# IMPORTANT: This will delete all OpenStack data plane resources!
+# Use this before restoring from backup or when completely removing data plane.
+#
+# Usage:
+#   ansible-playbook cleanup-openstack-dataplane.yaml
+#   ansible-playbook cleanup-openstack-dataplane.yaml -e openstack_namespace=my-openstack
+#   ansible-playbook cleanup-openstack-dataplane.yaml -e skip_confirmation=true
+
+- name: Cleanup OpenStack Data Plane
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Set default namespace
+      ansible.builtin.set_fact:
+        openstack_namespace: "{{ openstack_namespace | default('openstack') }}"
+
+    - name: Print cleanup header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "OpenStack Data Plane Cleanup"
+          - "========================================"
+          - "Namespace: {{ openstack_namespace }}"
+          - ""
+          - "WARNING: This will delete all OpenStack data plane resources!"
+
+    - name: Check if namespace exists
+      ansible.builtin.shell: |
+        oc get namespace {{ openstack_namespace }}
+      register: namespace_check
+      changed_when: false
+      failed_when: false
+
+    - name: Exit if namespace doesn't exist
+      ansible.builtin.debug:
+        msg: "Namespace {{ openstack_namespace }} does not exist. Nothing to clean up."
+      when: namespace_check.rc != 0
+
+    - name: End playbook if namespace doesn't exist
+      ansible.builtin.meta: end_play
+      when: namespace_check.rc != 0
+
+    - name: Check for existing data plane resources
+      ansible.builtin.shell: |
+        echo "DataPlaneNodeSets: $(oc get openstackdataplanenodeset -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)"
+        echo "DataPlaneServices: $(oc get openstackdataplaneservice -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)"
+        echo "DataPlaneDeployments: $(oc get openstackdataplanedeployment -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)"
+        echo "NetConfigs: $(oc get netconfig -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)"
+      register: resource_counts
+      changed_when: false
+      failed_when: false
+
+    - name: Display found resources
+      ansible.builtin.debug:
+        msg: "{{ resource_counts.stdout_lines }}"
+
+    - name: Get total resource count
+      ansible.builtin.shell: |
+        TOTAL=0
+        TOTAL=$((TOTAL + $(oc get openstackdataplanenodeset -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)))
+        TOTAL=$((TOTAL + $(oc get openstackdataplaneservice -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)))
+        TOTAL=$((TOTAL + $(oc get openstackdataplanedeployment -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)))
+        TOTAL=$((TOTAL + $(oc get netconfig -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l)))
+        echo $TOTAL
+      register: total_count
+      changed_when: false
+
+    - name: Confirm deletion
+      ansible.builtin.pause:
+        prompt: |
+
+          Found {{ total_count.stdout }} data plane resource(s) in namespace {{ openstack_namespace }}
+
+          This will DELETE:
+          - OpenStackDataPlaneNodeSet CRs
+          - OpenStackDataPlaneService CRs
+          - OpenStackDataPlaneDeployment CRs
+          - NetConfig CRs
+          - Associated jobs and pods
+
+          NOTE: This does NOT delete:
+          - Reservation CRs (IP reservations)
+          - IPSet CRs (IP allocations)
+          - Actual data plane node configurations
+
+          Continue with cleanup? (yes/no)
+      register: delete_confirm
+      when: (skip_confirmation | default(false) | bool) == false and total_count.stdout|int > 0
+
+    - name: Fail if not confirmed
+      ansible.builtin.fail:
+        msg: "Cleanup cancelled by user"
+      when: (skip_confirmation | default(false) | bool) == false and total_count.stdout|int > 0 and delete_confirm.user_input != "yes"
+
+    - name: Step 1 - Delete OpenStackDataPlaneDeployment CRs
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 1: Deleting DataPlaneDeployment CRs"
+          - "========================================"
+      when: total_count.stdout|int > 0
+
+    - name: Delete DataPlaneDeployment resources
+      ansible.builtin.shell: |
+        oc delete openstackdataplanedeployment --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: total_count.stdout|int > 0
+
+    - name: Step 2 - Delete OpenStackDataPlaneNodeSet CRs
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 2: Deleting DataPlaneNodeSet CRs"
+          - "========================================"
+      when: total_count.stdout|int > 0
+
+    - name: Delete DataPlaneNodeSet resources
+      ansible.builtin.shell: |
+        oc delete openstackdataplanenodeset --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: total_count.stdout|int > 0
+
+    - name: Step 3 - Delete OpenStackDataPlaneService CRs
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 3: Deleting DataPlaneService CRs"
+          - "========================================"
+      when: total_count.stdout|int > 0
+
+    - name: Delete DataPlaneService resources
+      ansible.builtin.shell: |
+        oc delete openstackdataplaneservice --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: total_count.stdout|int > 0
+
+    - name: Step 4 - Delete NetConfig CRs
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 4: Deleting NetConfig CRs"
+          - "========================================"
+      when: total_count.stdout|int > 0
+
+    - name: Delete NetConfig resources
+      ansible.builtin.shell: |
+        oc delete netconfig --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: total_count.stdout|int > 0
+
+    - name: Wait for initial cleanup (15 seconds)
+      ansible.builtin.pause:
+        seconds: 15
+      when: total_count.stdout|int > 0
+
+    - name: Step 5 - Wait for pods to terminate
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 5: Waiting for pods to terminate"
+          - "========================================"
+      when: total_count.stdout|int > 0
+
+    - name: Wait for cleanup to complete
+      ansible.builtin.shell: |
+        oc get pods -n {{ openstack_namespace }} -l app=openstackansibleee --no-headers 2>/dev/null | wc -l
+      register: pod_count
+      until: pod_count.stdout|int == 0
+      retries: 30
+      delay: 10
+      changed_when: false
+      failed_when: false
+      when: total_count.stdout|int > 0
+
+    - name: Check for stuck pods
+      ansible.builtin.shell: |
+        oc get pods -n {{ openstack_namespace }} -l app=openstackansibleee --field-selector=status.phase=Terminating -o name
+      register: stuck_pods
+      changed_when: false
+      failed_when: false
+      when: total_count.stdout|int > 0 and pod_count.stdout|int > 0
+
+    - name: Force delete stuck pods
+      ansible.builtin.shell: |
+        oc delete {{ stuck_pods.stdout_lines | join(' ') }} -n {{ openstack_namespace }} --force --grace-period=0
+      changed_when: true
+      when: total_count.stdout|int > 0 and pod_count.stdout|int > 0 and stuck_pods.stdout != ""
+
+    - name: Print stuck pods status
+      ansible.builtin.debug:
+        msg: "✓ Force deleted {{ stuck_pods.stdout_lines | length }} stuck pod(s)"
+      when: total_count.stdout|int > 0 and pod_count.stdout|int > 0 and stuck_pods.stdout != ""
+
+    - name: Wait again after force delete
+      ansible.builtin.shell: |
+        oc get pods -n {{ openstack_namespace }} -l app=openstackansibleee --no-headers 2>/dev/null | wc -l
+      register: pod_count_final
+      until: pod_count_final.stdout|int == 0
+      retries: 20
+      delay: 5
+      changed_when: false
+      failed_when: false
+      when: total_count.stdout|int > 0 and pod_count.stdout|int > 0 and stuck_pods.stdout != ""
+
+    - name: Print pod cleanup status
+      ansible.builtin.debug:
+        msg: "✓ All data plane pods terminated"
+      when: total_count.stdout|int > 0
+
+    - name: Verify cleanup
+      ansible.builtin.shell: |
+        echo "Remaining DataPlane resources:"
+        oc get openstackdataplanenodeset,openstackdataplaneservice,openstackdataplanedeployment,netconfig -n {{ openstack_namespace }} 2>&1
+      register: remaining_resources
+      changed_when: false
+      failed_when: false
+
+    - name: Display remaining resources
+      ansible.builtin.debug:
+        msg: "{{ remaining_resources.stdout_lines }}"
+
+    - name: Print completion summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Cleanup completed!"
+          - "========================================"
+          - ""
+          - "Namespace {{ openstack_namespace }} data plane resources are now clean and ready for:"
+          - "- Fresh data plane deployment"
+          - "- Restore from backup"
+          - ""
+          - "NOTE: IP reservations (Reservation, IPSet) were NOT deleted."
+          - "To restore from backup, run:"
+          - "  ansible-playbook restore-openstack-dataplane.yaml -e backup_file=backup.tar.gz -e openstack_namespace={{ openstack_namespace }}"
+      when: total_count.stdout|int > 0
+
+    - name: Print no cleanup needed message
+      ansible.builtin.debug:
+        msg: "No OpenStack data plane resources found. Namespace is already clean."
+      when: total_count.stdout|int == 0
