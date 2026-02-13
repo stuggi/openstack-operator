@@ -16,6 +16,7 @@ For a complete OpenStack backup and restore:
 | [backup-restore-ctlplane.md](backup-restore-ctlplane.md) | **ControlPlane** backup/restore - OpenStackControlPlane CR, secrets, configmaps |
 | [backup-restore-dataplane.md](backup-restore-dataplane.md) | **DataPlane** backup/restore - Compute nodes (NodeSets), network configuration (NetConfig), IP allocations |
 | [backup-restore-ctlplane-troubleshooting.md](backup-restore-ctlplane-troubleshooting.md) | **Troubleshooting** - Common issues and solutions for backup/restore |
+| [backup-restore-ctlplane-alternatives.md](backup-restore-ctlplane-alternatives.md) | **Alternative Approaches** - Other backup methods (e.g., must-gather) |
 
 ## Ansible Playbooks
 
