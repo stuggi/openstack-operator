@@ -2,12 +2,14 @@
 
 ⚠️ **WARNING**: The scenarios documented here have **NOT been tested**. Use at your own risk and verify each step carefully.
 
+⚠️ **OUTDATED PROCEDURES**: These scenarios do not yet incorporate the refined filtering and error handling from Scenario 1 (smart filtering of secrets/configmaps, RabbitMQUser CRD approach, etc.). They need to be updated to match the tested approach before use.
+
 This document contains experimental restore scenarios that are theoretically possible but have not been validated:
 
 - **Scenario 2**: Restore to Different Namespace (Same Cluster)
 - **Scenario 3**: Restore to Different Cluster
 
-For the **tested and supported** restore procedure, see [backup-restore-ctlplane.md](backup-restore-ctlplane.md) for Scenario 1 (Restore to Same Namespace).
+For the **tested** restore procedure with refined filtering and error handling, see [backup-restore-ctlplane.md](backup-restore-ctlplane.md) for Scenario 1 (Restore to Same Namespace).
 
 ---
 
