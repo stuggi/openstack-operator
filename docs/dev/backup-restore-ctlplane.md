@@ -147,7 +147,8 @@ flowchart TD
     WaitInfra -->|Not Ready| WaitInfra
     WaitInfra -->|Ready| InfraReady[Infrastructure Ready:<br/>✓ Galera<br/>✓ OVN NB/SB<br/>✓ RabbitMQ<br/>✓ Memcached]
 
-    InfraReady --> RestoreMariaDB[Restore MariaDB Database Contents]
+    InfraReady --> RestorePVC[Restore PVCs/PVs<br/>From OADP or other backup method<br/>Optional: only if PVC data backed up]
+    RestorePVC --> RestoreMariaDB[Restore MariaDB Database Contents]
     RestoreMariaDB --> RestoreOVN[Restore OVN Database Contents<br/>NB & SB databases]
     RestoreOVN --> RestoreRabbitMQ[Restore RabbitMQ User Credentials<br/>for EDPM compatibility]
 
@@ -165,6 +166,7 @@ flowchart TD
     style InfraReady fill:#90EE90
     style ServicesReady fill:#90EE90
     style RestoreCtlPlane fill:#FFE4B5
+    style RestorePVC fill:#FFE4B5
     style Resume fill:#FFE4B5
     style WaitInfra fill:#87CEEB
     style WaitServices fill:#87CEEB
@@ -174,9 +176,10 @@ flowchart TD
 - **Prerequisites**: Cluster infrastructure must exist first (StorageClass, NNCP, MetalLB) - either still present or restored separately
 - **Staged Deployment**: Infrastructure (databases, message queue) is created first with annotation `core.openstack.org/deployment-stage: "infrastructure-only"`
 - **OpenStackControlPlaneInfrastructureReady Condition**: Single condition check validates all infrastructure components are ready
+- **PVC Restore**: After infrastructure is ready, PVCs are created (but empty). Restore PVC data from OADP or other backup method while services are paused
 - **Database Restore**: Performed while OpenStack services are NOT yet created (clean restore)
 - **Resume Deployment**: Removing the `core.openstack.org/deployment-stage` annotation triggers creation of OpenStack services
-- **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases (no restarts needed)
+- **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases and PVCs (no restarts needed)
 
 **Staged Deployment Feature**: The staged deployment mechanism using the `core.openstack.org/deployment-stage` annotation is a key feature for reliable restores. For detailed context on why this feature was implemented and how it works, see [enhancement-staged-deployment-restore.md](enhancement-staged-deployment-restore.md).
 
