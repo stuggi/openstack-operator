@@ -1440,6 +1440,8 @@ Data plane nodes use the restored RabbitMQ credentials for immediate connectivit
 
 ### Scenario 2: Restore to Different Namespace (Same Cluster)
 
+⚠️ **NOTE**: This scenario has not been tested yet. Use with caution and verify each step.
+
 **WARNING**: Namespace changes are complex due to DNS endpoints in OpenStack databases. This procedure assumes you're **NOT** restoring database state.
 
 **Prerequisites:**
@@ -1527,7 +1529,83 @@ oc apply -f topology-backup.json -n ${NEW_NAMESPACE} 2>/dev/null || true
 oc apply -f openstackcontrolplane-backup.json -n ${NEW_NAMESPACE}
 ```
 
-**Note**: Follow step 10 from Scenario 1 to restore RabbitMQ user credentials.
+#### 8. Restore RabbitMQ User Credentials
+
+Follow the RabbitMQUser CRD approach from Scenario 1:
+
+```bash
+# Get list of running RabbitMQ clusters
+echo "Finding RabbitMQ clusters..."
+RABBITMQ_CLUSTERS=$(oc get rabbitmqcluster -n ${NEW_NAMESPACE} -o jsonpath='{.items[*].metadata.name}')
+
+echo "RabbitMQ clusters found: ${RABBITMQ_CLUSTERS}"
+
+# For each RabbitMQ cluster, restore the user credentials
+for CLUSTER_NAME in ${RABBITMQ_CLUSTERS}; do
+  # Determine the secret name pattern (e.g., rabbitmq -> rabbitmq-default-user)
+  ORIGINAL_SECRET_NAME="${CLUSTER_NAME}-default-user"
+  RESTORED_SECRET_NAME="${CLUSTER_NAME}-restored-user"
+
+  echo ""
+  echo "Processing cluster: ${CLUSTER_NAME}"
+  echo "Looking for secret: ${ORIGINAL_SECRET_NAME} in backup"
+
+  # Check if secret exists in backup
+  SECRET_EXISTS=$(jq -r ".items[] | select(.metadata.name==\"${ORIGINAL_SECRET_NAME}\") | .metadata.name" secrets-all-backup.json 2>/dev/null)
+
+  if [ -z "${SECRET_EXISTS}" ]; then
+    echo "  ERROR: Secret ${ORIGINAL_SECRET_NAME} not found in backup!"
+    echo "  Cannot restore RabbitMQ credentials for cluster ${CLUSTER_NAME}"
+    exit 1
+  fi
+
+  # Check if the restored secret already exists
+  if oc get secret "${RESTORED_SECRET_NAME}" -n ${NEW_NAMESPACE} &>/dev/null; then
+    echo "  ERROR: Secret ${RESTORED_SECRET_NAME} already exists!"
+    echo "  This may indicate a previous restore attempt. Please investigate and delete if needed:"
+    echo "    oc delete secret ${RESTORED_SECRET_NAME} -n ${NEW_NAMESPACE}"
+    exit 1
+  fi
+
+  # Restore the secret with a new name to avoid conflict
+  jq ".items[] | select(.metadata.name==\"${ORIGINAL_SECRET_NAME}\") | .metadata.name=\"${RESTORED_SECRET_NAME}\" | del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.ownerReferences)" \
+    secrets-all-backup.json | oc apply -f - -n ${NEW_NAMESPACE}
+
+  echo "  ✓ Restored secret as ${RESTORED_SECRET_NAME}"
+
+  # Create RabbitMQUser CR that references the restored secret
+  cat <<EOF | oc apply -f -
+apiVersion: rabbitmq.openstack.org/v1beta1
+kind: RabbitMQUser
+metadata:
+  name: ${CLUSTER_NAME}-restored-user
+  namespace: ${NEW_NAMESPACE}
+spec:
+  rabbitmqClusterName: ${CLUSTER_NAME}
+  secret: ${RESTORED_SECRET_NAME}
+  tags:
+    - administrator
+  permissions:
+    configure: ".*"
+    read: ".*"
+    write: ".*"
+EOF
+
+  echo "  ✓ Created RabbitMQUser CR for ${CLUSTER_NAME}"
+done
+
+echo ""
+echo "Waiting for RabbitMQUser CRs to be ready..."
+sleep 5
+
+# Verify RabbitMQUser CRs are ready
+echo ""
+echo "RabbitMQUser status:"
+oc get rabbitmquser -n ${NEW_NAMESPACE}
+
+echo ""
+echo "RabbitMQ user credentials restored successfully using RabbitMQUser CRs!"
+```
 
 #### 4. Post-Restore Configuration
 
@@ -1570,6 +1648,8 @@ Without running EDPM deployment, data plane nodes will continue trying to connec
 ---
 
 ### Scenario 3: Restore to Different Cluster
+
+⚠️ **NOTE**: This scenario has not been tested yet. Use with caution and verify each step.
 
 **Prerequisites:**
 - Target cluster has **EXACT same operator versions installed** as source cluster
@@ -1679,22 +1759,77 @@ oc wait --for=condition=OpenStackControlPlaneInfrastructureReady openstackcontro
 # 8. Restore Database Contents (MariaDB and OVN)
 # Follow separate database restore procedures while services are NOT running
 
-# 9. Restore RabbitMQ User Credentials
-# Extract and restore credentials for EDPM compatibility
-RABBITMQ_USER=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.username' secrets-all-backup.json | base64 -d)
-RABBITMQ_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-default-user") | .data.password' secrets-all-backup.json | base64 -d)
+# 9. Restore RabbitMQ User Credentials using RabbitMQUser CRD
+# Get list of running RabbitMQ clusters
+echo "Finding RabbitMQ clusters..."
+RABBITMQ_CLUSTERS=$(oc get rabbitmqcluster -n openstack -o jsonpath='{.items[*].metadata.name}')
 
-oc rsh -n openstack rabbitmq-server-0 rabbitmqctl add_user -- "${RABBITMQ_USER}" "${RABBITMQ_PASS}" || echo "User may already exist"
-oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_user_tags "${RABBITMQ_USER}" administrator
-oc rsh -n openstack rabbitmq-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_USER}" ".*" ".*" ".*"
+echo "RabbitMQ clusters found: ${RABBITMQ_CLUSTERS}"
 
-# Repeat for rabbitmq-cell1 and rabbitmq-notifications clusters
-RABBITMQ_CELL1_USER=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.username' secrets-all-backup.json | base64 -d)
-RABBITMQ_CELL1_PASS=$(jq -r '.items[] | select(.metadata.name=="rabbitmq-cell1-default-user") | .data.password' secrets-all-backup.json | base64 -d)
+# For each RabbitMQ cluster, restore the user credentials
+for CLUSTER_NAME in ${RABBITMQ_CLUSTERS}; do
+  ORIGINAL_SECRET_NAME="${CLUSTER_NAME}-default-user"
+  RESTORED_SECRET_NAME="${CLUSTER_NAME}-restored-user"
 
-oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl add_user -- "${RABBITMQ_CELL1_USER}" "${RABBITMQ_CELL1_PASS}" || echo "User may already exist"
-oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl set_user_tags "${RABBITMQ_CELL1_USER}" administrator
-oc rsh -n openstack rabbitmq-cell1-server-0 rabbitmqctl set_permissions -p / "${RABBITMQ_CELL1_USER}" ".*" ".*" ".*"
+  echo ""
+  echo "Processing cluster: ${CLUSTER_NAME}"
+  echo "Looking for secret: ${ORIGINAL_SECRET_NAME} in backup"
+
+  # Check if secret exists in backup
+  SECRET_EXISTS=$(jq -r ".items[] | select(.metadata.name==\"${ORIGINAL_SECRET_NAME}\") | .metadata.name" secrets-all-backup.json 2>/dev/null)
+
+  if [ -z "${SECRET_EXISTS}" ]; then
+    echo "  ERROR: Secret ${ORIGINAL_SECRET_NAME} not found in backup!"
+    echo "  Cannot restore RabbitMQ credentials for cluster ${CLUSTER_NAME}"
+    exit 1
+  fi
+
+  # Check if the restored secret already exists
+  if oc get secret "${RESTORED_SECRET_NAME}" -n openstack &>/dev/null; then
+    echo "  ERROR: Secret ${RESTORED_SECRET_NAME} already exists!"
+    echo "  This may indicate a previous restore attempt. Please investigate and delete if needed:"
+    echo "    oc delete secret ${RESTORED_SECRET_NAME} -n openstack"
+    exit 1
+  fi
+
+  # Restore the secret with a new name to avoid conflict
+  jq ".items[] | select(.metadata.name==\"${ORIGINAL_SECRET_NAME}\") | .metadata.name=\"${RESTORED_SECRET_NAME}\" | del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.ownerReferences)" \
+    secrets-all-backup.json | oc apply -f -
+
+  echo "  ✓ Restored secret as ${RESTORED_SECRET_NAME}"
+
+  # Create RabbitMQUser CR that references the restored secret
+  cat <<EOF | oc apply -f -
+apiVersion: rabbitmq.openstack.org/v1beta1
+kind: RabbitMQUser
+metadata:
+  name: ${CLUSTER_NAME}-restored-user
+  namespace: openstack
+spec:
+  rabbitmqClusterName: ${CLUSTER_NAME}
+  secret: ${RESTORED_SECRET_NAME}
+  tags:
+    - administrator
+  permissions:
+    configure: ".*"
+    read: ".*"
+    write: ".*"
+EOF
+
+  echo "  ✓ Created RabbitMQUser CR for ${CLUSTER_NAME}"
+done
+
+echo ""
+echo "Waiting for RabbitMQUser CRs to be ready..."
+sleep 5
+
+# Verify RabbitMQUser CRs are ready
+echo ""
+echo "RabbitMQUser status:"
+oc get rabbitmquser -n openstack
+
+echo ""
+echo "RabbitMQ user credentials restored successfully using RabbitMQUser CRs!"
 
 # 10. Resume Deployment (Remove staged deployment annotation)
 oc annotate openstackcontrolplane openstack -n openstack \
