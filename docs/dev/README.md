@@ -15,6 +15,7 @@ For a complete OpenStack backup and restore:
 |----------|-------------|
 | [backup-restore-ctlplane.md](backup-restore-ctlplane.md) | **ControlPlane** backup/restore - OpenStackControlPlane CR, secrets, configmaps |
 | [backup-restore-dataplane.md](backup-restore-dataplane.md) | **DataPlane** backup/restore - Compute nodes (NodeSets), network configuration (NetConfig), IP allocations |
+| [backup-restore-ctlplane-troubleshooting.md](backup-restore-ctlplane-troubleshooting.md) | **Troubleshooting** - Common issues and solutions for backup/restore |
 
 ## Ansible Playbooks
 
@@ -103,6 +104,16 @@ The current DataPlane backup/restore procedure is designed for **NodeSets with `
 ## Future Enhancements
 
 The following features are under consideration for future implementation:
+
+### Experimental Restore Scenarios (Not Tested)
+
+Additional restore scenarios have been documented but **NOT tested**:
+
+| Document | Description |
+|----------|-------------|
+| [backup-restore-ctlplane-experimental.md](backup-restore-ctlplane-experimental.md) | **Experimental** - Scenario 2 (Different Namespace) and Scenario 3 (Different Cluster) restore procedures. ⚠️ Use at your own risk. |
+
+These scenarios are theoretically possible but require additional testing and validation before production use.
 
 ### Backup/Restore During Partial Updates
 
