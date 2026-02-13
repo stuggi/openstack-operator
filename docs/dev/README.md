@@ -139,6 +139,9 @@ Operators could label all resources they create or reference (including user-pro
 - Clearer resource ownership and dependency tracking
 - Smaller, more focused backups
 
+**Related Issues:**
+- [OSPRH-26643](https://issues.redhat.com/browse/OSPRH-26643) - Resource Labeling for ControlPlane vs DataPlane Separation
+
 ### Automatic CR Discovery for Backup
 
 **Current Limitation:**
@@ -180,3 +183,6 @@ done
 - Requires changes to all operator CRD definitions
 - Need to define backup categories and filtering strategies
 - May need additional labels (e.g., `openstack.org/backup-filter: "no-owner"` for user-created resources only)
+
+**Related Issues:**
+- [OSPRH-26645](https://issues.redhat.com/browse/OSPRH-26645) - Automatic CR Discovery for Backup
