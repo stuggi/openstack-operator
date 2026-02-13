@@ -1264,36 +1264,47 @@ echo "RabbitMQ clusters found: ${RABBITMQ_CLUSTERS}"
 
 # For each RabbitMQ cluster, restore the user credentials
 for CLUSTER_NAME in ${RABBITMQ_CLUSTERS}; do
-  # Determine the secret name pattern (e.g., rabbitmq -> rabbitmq-default-user)
   ORIGINAL_SECRET_NAME="${CLUSTER_NAME}-default-user"
   RESTORED_SECRET_NAME="${CLUSTER_NAME}-restored-user"
 
   echo ""
   echo "Processing cluster: ${CLUSTER_NAME}"
-  echo "Looking for secret: ${ORIGINAL_SECRET_NAME} in backup"
 
-  # Check if secret exists in backup
-  SECRET_EXISTS=$(jq -r ".items[] | select(.metadata.name==\"${ORIGINAL_SECRET_NAME}\") | .metadata.name" secrets-all-backup.json 2>/dev/null)
+  # Check if restored secret already exists in backup (from previous restore)
+  RESTORED_IN_BACKUP=$(jq -r ".items[] | select(.metadata.name==\"${RESTORED_SECRET_NAME}\") | .metadata.name" secrets-all-backup.json 2>/dev/null)
 
-  if [ -z "${SECRET_EXISTS}" ]; then
-    echo "  ERROR: Secret ${ORIGINAL_SECRET_NAME} not found in backup!"
-    echo "  Cannot restore RabbitMQ credentials for cluster ${CLUSTER_NAME}"
-    exit 1
+  if [ -n "${RESTORED_IN_BACKUP}" ]; then
+    # Use the already-restored credentials (preserves EDPM credentials across restores)
+    echo "  Found existing restored credentials: ${RESTORED_SECRET_NAME}"
+    SOURCE_SECRET_NAME="${RESTORED_SECRET_NAME}"
+  else
+    # First restore - use default-user credentials
+    echo "  Looking for original credentials: ${ORIGINAL_SECRET_NAME}"
+    SOURCE_SECRET_NAME="${ORIGINAL_SECRET_NAME}"
+
+    # Verify default-user secret exists
+    SECRET_EXISTS=$(jq -r ".items[] | select(.metadata.name==\"${ORIGINAL_SECRET_NAME}\") | .metadata.name" secrets-all-backup.json 2>/dev/null)
+
+    if [ -z "${SECRET_EXISTS}" ]; then
+      echo "  ERROR: Secret ${ORIGINAL_SECRET_NAME} not found in backup!"
+      echo "  Cannot restore RabbitMQ credentials for cluster ${CLUSTER_NAME}"
+      exit 1
+    fi
   fi
 
-  # Check if the restored secret already exists
+  # Check if the restored secret already exists in cluster
   if oc get secret "${RESTORED_SECRET_NAME}" -n openstack &>/dev/null; then
-    echo "  ERROR: Secret ${RESTORED_SECRET_NAME} already exists!"
+    echo "  ERROR: Secret ${RESTORED_SECRET_NAME} already exists in cluster!"
     echo "  This may indicate a previous restore attempt. Please investigate and delete if needed:"
     echo "    oc delete secret ${RESTORED_SECRET_NAME} -n openstack"
     exit 1
   fi
 
-  # Restore the secret with a new name to avoid conflict
-  jq ".items[] | select(.metadata.name==\"${ORIGINAL_SECRET_NAME}\") | .metadata.name=\"${RESTORED_SECRET_NAME}\" | del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.ownerReferences)" \
+  # Restore the secret with the restored name
+  jq ".items[] | select(.metadata.name==\"${SOURCE_SECRET_NAME}\") | .metadata.name=\"${RESTORED_SECRET_NAME}\" | del(.metadata.resourceVersion, .metadata.uid, .metadata.creationTimestamp, .metadata.ownerReferences)" \
     secrets-all-backup.json | oc apply -f -
 
-  echo "  ✓ Restored secret as ${RESTORED_SECRET_NAME}"
+  echo "  ✓ Restored secret as ${RESTORED_SECRET_NAME} (from ${SOURCE_SECRET_NAME})"
 
   # Create RabbitMQUser CR that references the restored secret
   cat <<EOF | oc apply -f -
