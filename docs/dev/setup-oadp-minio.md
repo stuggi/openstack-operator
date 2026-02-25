@@ -20,12 +20,12 @@ For automated setup, use the provided Ansible playbooks:
 
 ```bash
 # 1. Deploy MinIO (with custom storage class if needed)
-ansible-playbook setup-minio.yaml
+ansible-playbook playbooks/setup-minio.yaml
 # Or with custom parameters:
-ansible-playbook setup-minio.yaml -e minio_storage_class=local-storage -e minio_storage_size=100Gi
+ansible-playbook playbooks/setup-minio.yaml -e minio_storage_class=local-storage -e minio_storage_size=100Gi
 
 # 2. Install and configure OADP (use credentials from MinIO setup output)
-ansible-playbook setup-oadp.yaml -e minio_access_key_id=<ACCESS_KEY_ID> -e minio_secret_access_key=<SECRET_ACCESS_KEY>
+ansible-playbook playbooks/setup-oadp.yaml -e minio_access_key_id=<ACCESS_KEY_ID> -e minio_secret_access_key=<SECRET_ACCESS_KEY>
 ```
 
 The playbooks will:

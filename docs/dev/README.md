@@ -26,19 +26,19 @@ For a complete OpenStack backup and restore:
 
 | Playbook | Description |
 |----------|-------------|
-| [backup-openstack-ctlplane.yaml](backup-openstack-ctlplane.yaml) | Ansible playbook to backup ControlPlane resources |
-| [backup-openstack-dataplane.yaml](backup-openstack-dataplane.yaml) | Ansible playbook to backup DataPlane resources |
-| [restore-openstack-ctlplane.yaml](restore-openstack-ctlplane.yaml) | Ansible playbook to restore ControlPlane resources |
-| [restore-openstack-dataplane.yaml](restore-openstack-dataplane.yaml) | Ansible playbook to restore DataPlane resources |
-| [cleanup-openstack-ctlplane.yaml](cleanup-openstack-ctlplane.yaml) | Ansible playbook to clean up ControlPlane resources (use before restore) |
-| [cleanup-openstack-dataplane.yaml](cleanup-openstack-dataplane.yaml) | Ansible playbook to clean up DataPlane resources (use before restore) |
+| [playbooks/backup-openstack-ctlplane.yaml](playbooks/backup-openstack-ctlplane.yaml) | Ansible playbook to backup ControlPlane resources |
+| [playbooks/backup-openstack-dataplane.yaml](playbooks/backup-openstack-dataplane.yaml) | Ansible playbook to backup DataPlane resources |
+| [playbooks/restore-openstack-ctlplane.yaml](playbooks/restore-openstack-ctlplane.yaml) | Ansible playbook to restore ControlPlane resources |
+| [playbooks/restore-openstack-dataplane.yaml](playbooks/restore-openstack-dataplane.yaml) | Ansible playbook to restore DataPlane resources |
+| [playbooks/cleanup-openstack-ctlplane.yaml](playbooks/cleanup-openstack-ctlplane.yaml) | Ansible playbook to clean up ControlPlane resources (use before restore) |
+| [playbooks/cleanup-openstack-dataplane.yaml](playbooks/cleanup-openstack-dataplane.yaml) | Ansible playbook to clean up DataPlane resources (use before restore) |
 
 ### OADP Setup Playbooks
 
 | Playbook | Description |
 |----------|-------------|
-| [setup-minio.yaml](setup-minio.yaml) | Deploy MinIO as S3-compatible storage for OADP (does NOT use ODF) |
-| [setup-oadp.yaml](setup-oadp.yaml) | Install and configure OADP operator with MinIO backend |
+| [playbooks/setup-minio.yaml](playbooks/setup-minio.yaml) | Deploy MinIO as S3-compatible storage for OADP (does NOT use ODF) |
+| [playbooks/setup-oadp.yaml](playbooks/setup-oadp.yaml) | Install and configure OADP operator with MinIO backend |
 
 ## Backup/Restore Workflow
 
@@ -46,10 +46,10 @@ For a complete OpenStack backup and restore:
 
 ```bash
 # 1. Backup ControlPlane (OpenStackControlPlane CR, secrets, configmaps)
-ansible-playbook backup-openstack-ctlplane.yaml -e openstack_namespace=openstack
+ansible-playbook playbooks/backup-openstack-ctlplane.yaml -e openstack_namespace=openstack
 
 # 2. Backup DataPlane (NodeSets, NetConfig, IP allocations)
-ansible-playbook backup-openstack-dataplane.yaml -e openstack_namespace=openstack
+ansible-playbook playbooks/backup-openstack-dataplane.yaml -e openstack_namespace=openstack
 ```
 
 ### Full Restore Procedure
@@ -58,12 +58,12 @@ ansible-playbook backup-openstack-dataplane.yaml -e openstack_namespace=openstac
 # 1. Ensure operators are installed in target cluster
 
 # 2. Restore ControlPlane (OpenStackControlPlane CR, secrets, configmaps)
-ansible-playbook restore-openstack-ctlplane.yaml \
+ansible-playbook playbooks/restore-openstack-ctlplane.yaml \
   -e openstack_namespace=openstack \
   -e backup_file=backups/openstack-ctlplane-backup-20260209-162223.tar.gz
 
 # 3. Restore DataPlane (NodeSets, NetConfig, IP allocations)
-ansible-playbook restore-openstack-dataplane.yaml \
+ansible-playbook playbooks/restore-openstack-dataplane.yaml \
   -e openstack_namespace=openstack \
   -e backup_file=backups/openstack-dataplane-backup-20260209-162223.tar.gz
 ```

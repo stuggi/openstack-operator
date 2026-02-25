@@ -365,7 +365,7 @@ ansible-playbook backup-openstack-ctlplane.yaml -e backup_dir_base=/mnt/backups
 
 The playbook creates a timestamped backup archive following all steps in the backup procedure.
 
-**Playbook location**: `docs/dev/backup-openstack-ctlplane.yaml`
+**Playbook location**: `docs/dev/playbooks/backup-openstack-ctlplane.yaml`
 
 **Variables**:
 - `openstack_namespace`: Target namespace (default: `openstack`)
@@ -380,7 +380,7 @@ Before restoring, you may need to clean up existing resources:
 ansible-playbook cleanup-openstack-ctlplane.yaml -e openstack_namespace=openstack
 ```
 
-**Playbook location**: `docs/dev/cleanup-openstack-ctlplane.yaml`
+**Playbook location**: `docs/dev/playbooks/cleanup-openstack-ctlplane.yaml`
 
 ### Restore Playbook
 
@@ -406,7 +406,7 @@ The playbook follows the correct restore order and prompts for confirmation at c
 
 **Note**: The restore playbook assumes cleanup was already done. Run the cleanup playbook first if restoring to an existing environment.
 
-**Playbook location**: `docs/dev/restore-openstack-ctlplane.yaml`
+**Playbook location**: `docs/dev/playbooks/restore-openstack-ctlplane.yaml`
 
 **Variables**:
 - `openstack_namespace`: Target namespace (default: `openstack`)
