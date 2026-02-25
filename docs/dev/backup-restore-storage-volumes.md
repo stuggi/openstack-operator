@@ -225,72 +225,14 @@ oc get pvc -n openstack -l openstack.org/backup-volume=true
 
 ## Integration with Overall Backup Strategy
 
-Storage volume backups complement other backup procedures:
+Storage volume backups are integrated into the complete OpenStack backup/restore workflow:
 
-### Complete Backup Workflow
+- **Backup**: Storage volumes are backed up as **Step 9** in the control plane backup procedure
+- **Restore**: Storage volumes are restored as **Step 12** in the control plane restore procedure (after database restore, before resuming deployment)
 
-```bash
-# 1. Backup Control Plane CRs and configuration
-ansible-playbook backup-openstack-ctlplane.yaml -e openstack_namespace=openstack
-
-# 2. Backup databases using dedicated procedures
-# (MariaDB, OVN - handled by respective teams)
-
-# 3. Backup storage volumes with OADP (ad-hoc)
-cat <<EOF | oc apply -f -
-apiVersion: velero.io/v1
-kind: Backup
-metadata:
-  name: openstack-volumes-$(date +%Y%m%d-%H%M%S)
-  namespace: openshift-adp
-spec:
-  includedNamespaces:
-  - openstack
-  labelSelector:
-    matchLabels:
-      openstack.org/backup-volume: "true"
-  defaultVolumesToRestic: true
-  storageLocation: velero-1
-EOF
-
-# 4. Backup Data Plane
-ansible-playbook backup-openstack-dataplane.yaml -e openstack_namespace=openstack
-```
-
-### Complete Restore Workflow
-
-```bash
-# 1. Restore Control Plane (with staged deployment)
-ansible-playbook restore-openstack-ctlplane.yaml \
-  -e openstack_namespace=openstack \
-  -e backup_file=backups/openstack-ctlplane-backup-*.tar.gz
-
-# 2. Restore databases during infrastructure-only stage
-# (MariaDB, OVN - handled by respective teams, see restore-openstack-ctlplane.yaml Step 11)
-
-# 3. Restore storage volumes with OADP
-cat <<EOF | oc apply -f -
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: openstack-volumes-restore
-  namespace: openshift-adp
-spec:
-  backupName: openstack-volumes-20260225-140530
-  includedNamespaces:
-  - openstack
-  restorePVs: true
-EOF
-
-# 4. Resume OpenStackControlPlane deployment
-oc annotate openstackcontrolplane openstack-galera-network-isolation \
-  -n openstack core.openstack.org/deployment-stage-
-
-# 5. Restore Data Plane
-ansible-playbook restore-openstack-dataplane.yaml \
-  -e openstack_namespace=openstack \
-  -e backup_file=backups/openstack-dataplane-backup-*.tar.gz
-```
+For the complete integrated backup/restore workflow, see:
+- [Control Plane Backup/Restore](backup-restore-ctlplane.md) - Includes storage volumes (Step 9 backup, Step 12 restore)
+- [Data Plane Backup/Restore](backup-restore-dataplane.md) - NodeSets, NetConfig, IP allocations
 
 ## Alternative PVC Backup Methods
 
