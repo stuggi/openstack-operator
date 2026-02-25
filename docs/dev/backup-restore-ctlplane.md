@@ -784,7 +784,7 @@ For detailed instructions on OADP storage volumes backup, see **[backup-restore-
 oc get deployment velero -n openshift-adp &>/dev/null && echo "OADP installed" || echo "OADP not installed"
 
 # Check if any PVCs are labeled for backup
-oc get pvc -n openstack -l openstack.org/backup-volumes=true
+oc get pvc -n openstack -l openstack.org/backup-volume=true
 
 # If OADP is installed and PVCs exist, create a backup
 BACKUP_DATE=$(date +%Y%m%d-%H%M%S)
@@ -801,7 +801,7 @@ spec:
   - openstack
   labelSelector:
     matchLabels:
-      openstack.org/backup-volumes: "true"
+      openstack.org/backup-volume: "true"
   defaultVolumesToRestic: true
   storageLocation: velero-1
   ttl: 720h  # 30 days
@@ -1380,7 +1380,7 @@ EOF
     echo "OADP restore completed"
 
     # Verify PVCs were restored
-    oc get pvc -n openstack -l openstack.org/backup-volumes=true
+    oc get pvc -n openstack -l openstack.org/backup-volume=true
   else
     echo "OADP not installed. Skipping PVC restore."
     echo "To set up OADP, see: docs/dev/setup-oadp-minio.md"
@@ -1399,10 +1399,10 @@ fi
 
 ```bash
 # Check for existing service PVCs
-oc get pvc -n openstack -l openstack.org/backup-volumes=true
+oc get pvc -n openstack -l openstack.org/backup-volume=true
 
 # If they exist, delete them before OADP restore
-oc delete pvc -n openstack -l openstack.org/backup-volumes=true
+oc delete pvc -n openstack -l openstack.org/backup-volume=true
 ```
 
 See [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md#oadp-restore-creates-new-pvcs) for more details.
@@ -1421,7 +1421,7 @@ Check reclaim policy:
 oc get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
 
 # Check existing PVs bound to service PVCs
-oc get pvc -n openstack -l openstack.org/backup-volumes=true -o custom-columns=NAME:.metadata.name,VOLUME:.spec.volumeName,STORAGECLASS:.spec.storageClassName
+oc get pvc -n openstack -l openstack.org/backup-volume=true -o custom-columns=NAME:.metadata.name,VOLUME:.spec.volumeName,STORAGECLASS:.spec.storageClassName
 ```
 
 After OADP restore completes, if using Retain policy, clean up orphaned PVs:

@@ -215,10 +215,10 @@ done
 ### Storage Volume Backup Labels
 
 **Current Limitation:**
-Services that create PVCs requiring backup must be manually labeled with `openstack.org/backup-volumes: "true"` to enable OADP/Restic backups (see [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md)).
+Services that create PVCs requiring backup must be manually labeled with `openstack.org/backup-volume: "true"` to enable OADP/Restic backups (see [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md)).
 
 **Proposed Enhancement:**
-Service operators (glance-operator, cinder-operator, swift-operator, manila-operator) should automatically add the `openstack.org/backup-volumes: "true"` label to PVCs they create for persistent storage.
+Service operators (glance-operator, cinder-operator, swift-operator, manila-operator) should automatically add the `openstack.org/backup-volume: "true"` label to PVCs they create for persistent storage.
 
 **Implementation:**
 Operators would add the label in their PVC creation logic:
@@ -227,7 +227,7 @@ Operators would add the label in their PVC creation logic:
 // Example: Add backup label to PVC template
 pvc.Labels = map[string]string{
     "service":                        "glance",
-    "openstack.org/backup-volumes":   "true",
+    "openstack.org/backup-volume":   "true",
     "app.kubernetes.io/name":         "glance",
 }
 ```

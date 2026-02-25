@@ -45,7 +45,7 @@ OADP complements, but does not replace, other backup methods:
 Services that need PVC/PV backup should label their PVCs with:
 
 ```yaml
-openstack.org/backup-volumes: "true"
+openstack.org/backup-volume: "true"
 ```
 
 PVCs already have an existing `service: <service-name>` label for service identification.
@@ -57,29 +57,29 @@ Add the backup label to PVCs that need to be backed up:
 ```bash
 # Label Glance PVCs
 oc label pvc -n openstack -l service=glance \
-  openstack.org/backup-volumes=true
+  openstack.org/backup-volume=true
 
 # Label Cinder PVCs
 oc label pvc -n openstack -l service=cinder \
-  openstack.org/backup-volumes=true
+  openstack.org/backup-volume=true
 
 # Label Swift PVCs (if using PVC backend)
 oc label pvc -n openstack -l service=swift \
-  openstack.org/backup-volumes=true
+  openstack.org/backup-volume=true
 
 # Label Manila PVCs (if applicable)
 oc label pvc -n openstack -l service=manila \
-  openstack.org/backup-volumes=true
+  openstack.org/backup-volume=true
 ```
 
 ### Verify Labeled PVCs
 
 ```bash
 # List all PVCs marked for backup
-oc get pvc -n openstack -l openstack.org/backup-volumes=true
+oc get pvc -n openstack -l openstack.org/backup-volume=true
 
 # Show which services have PVCs marked for backup
-oc get pvc -n openstack -l openstack.org/backup-volumes=true \
+oc get pvc -n openstack -l openstack.org/backup-volume=true \
   -o custom-columns=NAME:.metadata.name,SERVICE:.metadata.labels.service,SIZE:.spec.resources.requests.storage
 ```
 
@@ -99,7 +99,7 @@ spec:
   - openstack
   labelSelector:
     matchLabels:
-      openstack.org/backup-volumes: "true"
+      openstack.org/backup-volume: "true"
   defaultVolumesToRestic: true
   storageLocation: velero-1
   ttl: 720h  # 30 days
@@ -138,7 +138,7 @@ Example task to trigger ad-hoc backup:
       - openstack
       labelSelector:
         matchLabels:
-          openstack.org/backup-volumes: "true"
+          openstack.org/backup-volume: "true"
       defaultVolumesToRestic: true
       storageLocation: velero-1
       ttl: 720h
@@ -174,7 +174,7 @@ spec:
     - openstack
     labelSelector:
       matchLabels:
-        openstack.org/backup-volumes: "true"
+        openstack.org/backup-volume: "true"
     defaultVolumesToRestic: true
     storageLocation: velero-1
     ttl: 168h  # 7 days retention
@@ -220,7 +220,7 @@ oc get restore -n openshift-adp -w
 oc describe restore openstack-volumes-restore -n openshift-adp
 
 # Verify PVCs were restored
-oc get pvc -n openstack -l openstack.org/backup-volumes=true
+oc get pvc -n openstack -l openstack.org/backup-volume=true
 ```
 
 ## Integration with Overall Backup Strategy
@@ -248,7 +248,7 @@ spec:
   - openstack
   labelSelector:
     matchLabels:
-      openstack.org/backup-volumes: "true"
+      openstack.org/backup-volume: "true"
   defaultVolumesToRestic: true
   storageLocation: velero-1
 EOF

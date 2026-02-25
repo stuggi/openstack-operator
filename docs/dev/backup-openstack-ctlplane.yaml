@@ -446,7 +446,7 @@
           - "Step 9: Backup Storage Volumes (OADP)"
           - "========================================"
           - ""
-          - "Backing up PVCs with label openstack.org/backup-volumes=true"
+          - "Backing up PVCs with label openstack.org/backup-volume=true"
           - "See: docs/dev/backup-restore-storage-volumes.md"
       when: not skip_pvc_backup
 
@@ -459,7 +459,7 @@
 
     - name: Check for PVCs with backup label
       ansible.builtin.shell: |
-        oc get pvc -n {{ openstack_namespace }} -l openstack.org/backup-volumes=true --no-headers 2>/dev/null | wc -l
+        oc get pvc -n {{ openstack_namespace }} -l openstack.org/backup-volume=true --no-headers 2>/dev/null | wc -l
       register: pvc_count
       changed_when: false
       when: not skip_pvc_backup and oadp_check.stdout == "installed"
@@ -476,7 +476,7 @@
     - name: Print no PVCs labeled message
       ansible.builtin.debug:
         msg:
-          - "No PVCs found with label openstack.org/backup-volumes=true"
+          - "No PVCs found with label openstack.org/backup-volume=true"
           - "Skipping PVC backup. To label PVCs, see: docs/dev/backup-restore-storage-volumes.md"
       when: not skip_pvc_backup and oadp_check.stdout == "installed" and pvc_count.stdout|int == 0
 
@@ -494,7 +494,7 @@
           - {{ openstack_namespace }}
           labelSelector:
             matchLabels:
-              openstack.org/backup-volumes: "true"
+              openstack.org/backup-volume: "true"
           defaultVolumesToRestic: true
           storageLocation: velero-1
           ttl: 720h
