@@ -204,26 +204,20 @@ Check MinIO pod status:
 oc get pods -n minio
 ```
 
-Get MinIO console URL:
+**MinIO Web Console Access:**
+
+MinIO provides a web console for management and verification. To access it:
 
 ```bash
 echo "MinIO Console: https://$(oc get route minio-console -n minio -o jsonpath='{.spec.host}')"
-echo "MinIO API: https://$(oc get route minio-api -n minio -o jsonpath='{.spec.host}')"
+echo "Credentials: minio / minio123"
 ```
+
+The web console can be used to browse buckets, verify backups, and manage access. For initial setup, use the CLI commands below.
 
 ### Step 4: Create Backup Bucket in MinIO
 
-You can create the bucket either via the MinIO console UI or using the MinIO client (`mc`).
-
-#### Option A: Using MinIO Console (Web UI)
-
-1. Open the MinIO console URL from above
-2. Login with credentials: `minio` / `minio123`
-3. Click "Buckets" → "Create Bucket"
-4. Bucket name: `velero`
-5. Click "Create Bucket"
-
-#### Option B: Using MinIO Client (mc)
+Using MinIO client (`mc`):
 
 Install MinIO client:
 
@@ -242,14 +236,7 @@ MINIO_API_URL=$(oc get route minio-api -n minio -o jsonpath='{.spec.host}')
 
 ### Step 5: Create MinIO Service Account for OADP
 
-In MinIO console:
-
-1. Navigate to "Identity" → "Service Accounts"
-2. Click "Create Service Account"
-3. Save the generated **Access Key** and **Secret Key** (you'll need these for OADP)
-4. Assign policy: `readwrite` or `consoleAdmin`
-
-Alternatively, create via API:
+Create a service account for OADP to use:
 
 ```bash
 # This creates a service account with full access
@@ -257,6 +244,8 @@ Alternatively, create via API:
 MINIO_API_URL=$(oc get route minio-api -n minio -o jsonpath='{.spec.host}')
 /tmp/mc admin user svcacct add minio minio
 ```
+
+**Important**: Save the generated **Access Key** and **Secret Key** from the output - you'll need these for OADP configuration.
 
 ## Part 2: Install and Configure OADP Operator
 
