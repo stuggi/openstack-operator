@@ -1,10 +1,28 @@
-# Backing Up OpenStack Storage Volumes with OADP
+# OpenStack Storage Volumes Backup and Restore
 
-This guide covers backing up persistent volumes for OpenStack storage services (Glance, Cinder, Swift, Manila) using OADP (OpenShift API for Data Protection).
+This guide covers backing up and restoring persistent volumes for OpenStack services PVCs (like Glance, Cinder, Swift, Manila, ...) using OADP (OpenShift API for Data Protection).
 
 ## Overview
 
-OpenStack services that store persistent data on PVCs can be backed up using OADP with Restic for filesystem-level backups. This complements other backup strategies:
+**OADP (OpenShift API for Data Protection)** is Red Hat's operator-based backup solution for OpenShift, built on the upstream Velero project. For OpenStack deployments, OADP provides automated backup and restore for persistent storage volumes.
+
+### What OADP Provides
+
+- ✅ **Automated PVC/PV backups** using Restic for file-level backups
+- ✅ **Scheduled backups** (daily, weekly, etc.)
+- ✅ **Label-based selection** for backup filtering
+- ✅ **S3-compatible object storage** integration (MinIO, AWS S3, etc.)
+- ✅ **Retention policies** and automatic cleanup
+
+### What OADP Does NOT Handle
+
+OADP complements, but does not replace, other backup methods:
+
+- ❌ **Database backups** - MariaDB and OVN databases use dedicated procedures for transactional consistency
+- ❌ **Staged deployment workflows** - Control plane restore requires manual staged deployment
+- ❌ **Complex restoration logic** - RabbitMQ credential management requires manual procedures
+
+### Backup Strategy Summary
 
 | Component | Backup Method | Reason |
 |-----------|---------------|--------|
@@ -274,6 +292,42 @@ ansible-playbook restore-openstack-dataplane.yaml \
   -e backup_file=backups/openstack-dataplane-backup-*.tar.gz
 ```
 
+## Alternative PVC Backup Methods
+
+While OADP is recommended for automated backups, you can use alternative methods:
+
+### Manual CSI Snapshots
+
+If your storage class supports CSI snapshots:
+
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: glance-data-snapshot-$(date +%Y%m%d)
+  namespace: openstack
+spec:
+  source:
+    persistentVolumeClaimName: glance-data
+  volumeSnapshotClassName: csi-snapshot-class
+EOF
+```
+
+### Storage Array Snapshots
+
+Use your storage vendor's snapshot capabilities (NetApp, Dell EMC, Pure Storage, etc.).
+
+### File-Level Backup Tools
+
+Use tools like rsync, tar, or restic directly:
+
+```bash
+# Backup from pod
+oc exec glance-api-0 -- tar czf /tmp/data.tar.gz /var/lib/glance
+oc cp glance-api-0:/tmp/data.tar.gz ./glance-backup.tar.gz
+```
+
 ## Troubleshooting
 
 For OADP storage volume backup/restore troubleshooting, see the [Backup/Restore Troubleshooting Guide](backup-restore-troubleshooting.md#oadp-storage-volume-backuprestore-issues).
@@ -327,5 +381,7 @@ spec:
 
 - [OADP Setup with MinIO](setup-oadp-minio.md)
 - [Control Plane Backup/Restore](backup-restore-ctlplane.md)
+- [Data Plane Backup/Restore](backup-restore-dataplane.md)
+- [Backup/Restore Troubleshooting](backup-restore-troubleshooting.md)
 - [OADP Documentation](https://docs.openshift.com/container-platform/latest/backup_and_restore/application_backup_and_restore/oadp-intro.html)
 - [Velero Backup API](https://velero.io/docs/main/api-types/backup/)

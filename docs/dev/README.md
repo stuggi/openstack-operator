@@ -15,7 +15,7 @@ For a complete OpenStack backup and restore:
 |----------|-------------|
 | [backup-restore-ctlplane.md](backup-restore-ctlplane.md) | **ControlPlane** backup/restore - OpenStackControlPlane CR, secrets, configmaps |
 | [backup-restore-dataplane.md](backup-restore-dataplane.md) | **DataPlane** backup/restore - Compute nodes (NodeSets), network configuration (NetConfig), IP allocations |
-| [backup-openstack-storage-volumes.md](backup-openstack-storage-volumes.md) | **Storage Volumes** - Backup/restore persistent volumes (Glance, Cinder, Swift, Manila) using OADP |
+| [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md) | **Storage Volumes** - Backup/restore persistent volumes (Glance, Cinder, Swift, Manila, ...) using OADP |
 | [backup-restore-troubleshooting.md](backup-restore-troubleshooting.md) | **Troubleshooting** - Common issues and solutions for backup/restore |
 | [backup-restore-ctlplane-alternatives.md](backup-restore-ctlplane-alternatives.md) | **Alternative Approaches** - Other backup methods (e.g., must-gather) |
 | [setup-oadp-minio.md](setup-oadp-minio.md) | **OADP with MinIO** - Set up OADP (OpenShift API for Data Protection) using MinIO storage (not ODF) for automated backups |
@@ -215,7 +215,7 @@ done
 ### Storage Volume Backup Labels
 
 **Current Limitation:**
-Services that create PVCs requiring backup must be manually labeled with `openstack.org/backup-volumes: "true"` to enable OADP/Restic backups (see [backup-openstack-storage-volumes.md](backup-openstack-storage-volumes.md)).
+Services that create PVCs requiring backup must be manually labeled with `openstack.org/backup-volumes: "true"` to enable OADP/Restic backups (see [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md)).
 
 **Proposed Enhancement:**
 Service operators (glance-operator, cinder-operator, swift-operator, manila-operator) should automatically add the `openstack.org/backup-volumes: "true"` label to PVCs they create for persistent storage.

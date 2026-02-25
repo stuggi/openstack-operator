@@ -5,7 +5,7 @@ This document contains troubleshooting guidance for OpenStack backup and restore
 For the main backup/restore documentation, see:
 - [Control Plane Backup/Restore](backup-restore-ctlplane.md)
 - [Data Plane Backup/Restore](backup-restore-dataplane.md)
-- [Storage Volumes Backup/Restore](backup-openstack-storage-volumes.md)
+- [Storage Volumes Backup/Restore](backup-restore-storage-volumes.md)
 
 ---
 
@@ -267,7 +267,7 @@ vi openstackcontrolplane-backup.json
 
 ## OADP Storage Volume Backup/Restore Issues
 
-For issues related to OADP-based storage volume backups (Glance, Cinder, Swift, Manila), see [backup-openstack-storage-volumes.md](backup-openstack-storage-volumes.md).
+For issues related to OADP-based storage volume backups (Glance, Cinder, Swift, Manila), see [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md).
 
 ### OADP Backup Stuck in "InProgress"
 
