@@ -234,42 +234,6 @@ For the complete integrated backup/restore workflow, see:
 - [Control Plane Backup/Restore](backup-restore-ctlplane.md) - Includes storage volumes (Step 9 backup, Step 12 restore)
 - [Data Plane Backup/Restore](backup-restore-dataplane.md) - NodeSets, NetConfig, IP allocations
 
-## Alternative PVC Backup Methods
-
-While OADP is recommended for automated backups, you can use alternative methods:
-
-### Manual CSI Snapshots
-
-If your storage class supports CSI snapshots:
-
-```bash
-cat <<EOF | oc apply -f -
-apiVersion: snapshot.storage.k8s.io/v1
-kind: VolumeSnapshot
-metadata:
-  name: glance-data-snapshot-$(date +%Y%m%d)
-  namespace: openstack
-spec:
-  source:
-    persistentVolumeClaimName: glance-data
-  volumeSnapshotClassName: csi-snapshot-class
-EOF
-```
-
-### Storage Array Snapshots
-
-Use your storage vendor's snapshot capabilities (NetApp, Dell EMC, Pure Storage, etc.).
-
-### File-Level Backup Tools
-
-Use tools like rsync, tar, or restic directly:
-
-```bash
-# Backup from pod
-oc exec glance-api-0 -- tar czf /tmp/data.tar.gz /var/lib/glance
-oc cp glance-api-0:/tmp/data.tar.gz ./glance-backup.tar.gz
-```
-
 ## Troubleshooting
 
 For OADP storage volume backup/restore troubleshooting, see the [Backup/Restore Troubleshooting Guide](backup-restore-troubleshooting.md#oadp-storage-volume-backuprestore-issues).
@@ -327,3 +291,241 @@ spec:
 - [Backup/Restore Troubleshooting](backup-restore-troubleshooting.md)
 - [OADP Documentation](https://docs.openshift.com/container-platform/latest/backup_and_restore/application_backup_and_restore/oadp-intro.html)
 - [Velero Backup API](https://velero.io/docs/main/api-types/backup/)
+
+---
+
+## Appendix: Alternative PVC Backup Methods
+
+⚠️ **WARNING**: The methods described in this appendix are **NOT drop-in replacements** for OADP. They require **different restore workflows** and are **highly dependent on your storage backend and vendor tooling**. The integrated OADP procedure in [backup-restore-ctlplane.md](backup-restore-ctlplane.md) will NOT work with these alternative methods.
+
+### CSI Volume Snapshots
+
+**Backup Method**: Use Kubernetes CSI VolumeSnapshot resources if your storage class supports CSI snapshots.
+
+**Requirements**:
+- Storage class with CSI snapshot support
+- VolumeSnapshotClass configured
+- CSI driver installed and configured
+
+**Backup Example**:
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshot
+metadata:
+  name: glance-data-snapshot-$(date +%Y%m%d)
+  namespace: openstack
+spec:
+  source:
+    persistentVolumeClaimName: glance-data
+  volumeSnapshotClassName: csi-snapshot-class
+EOF
+```
+
+**Restore Workflow - Option 1 (Pre-create from snapshot)**:
+```bash
+# At Step 12 in restore procedure, create PVCs from snapshots
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: glance-data
+  namespace: openstack
+  labels:
+    service: glance
+spec:
+  dataSource:
+    name: glance-data-snapshot-20260225
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+  storageClassName: csi-storage-class
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+EOF
+
+# Then resume deployment (Step 14)
+# Services find PVCs already populated
+```
+
+**Restore Workflow - Option 2 (Restore after service creation)**:
+```bash
+# 1. Resume deployment - services create empty PVCs and start
+
+# 2. Scale down services via OpenStackControlPlane CR
+oc patch openstackcontrolplane openstack -n openstack --type=merge -p '
+spec:
+  glance:
+    template:
+      glanceAPIs:
+        default:
+          replicas: 0
+'
+
+# Wait for pods to terminate
+oc wait --for=delete pod -l service=glance -n openstack --timeout=60s
+
+# 3. Delete empty PVCs
+oc delete pvc glance-data -n openstack
+
+# 4. Create new PVCs from snapshots
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: glance-data
+  namespace: openstack
+  labels:
+    service: glance
+spec:
+  dataSource:
+    name: glance-data-snapshot-20260225
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+  storageClassName: csi-storage-class
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+EOF
+
+# 5. Scale up services via OpenStackControlPlane CR
+oc patch openstackcontrolplane openstack -n openstack --type=merge -p '
+spec:
+  glance:
+    template:
+      glanceAPIs:
+        default:
+          replicas: 1
+'
+```
+
+**Limitations**:
+- Snapshots are typically local to the cluster/storage array
+- Cross-cluster restore may not be possible
+- Retention policies depend on storage backend
+- Snapshot performance varies by storage vendor
+
+---
+
+### Storage Array Snapshots
+
+**Backup Method**: Use your storage vendor's native snapshot capabilities.
+
+**Examples**:
+- **NetApp**: ONTAP snapshots, SnapMirror
+- **Dell EMC**: PowerStore, Unity, VMAX snapshots
+- **Pure Storage**: FlashArray, FlashBlade snapshots
+- **Red Hat Ceph**: RBD snapshots
+- **VMware vSAN**: vSAN snapshots
+
+**Restore Workflow**:
+
+The restore procedure is **highly vendor-specific** and typically requires:
+
+1. **Stop services** before restoring (to ensure data consistency):
+   ```bash
+   # Example: Scale down Glance service via OpenStackControlPlane CR
+   oc patch openstackcontrolplane openstack -n openstack --type=merge -p '
+   spec:
+     glance:
+       template:
+         glanceAPIs:
+           default:
+             replicas: 0
+   '
+
+   # Wait for pods to terminate
+   oc wait --for=delete pod -l service=glance -n openstack --timeout=60s
+   ```
+
+2. **Use vendor tools** to restore storage at the array level:
+   - NetApp: `volume clone create`, `snapmirror restore`
+   - Dell EMC: EMC Unisphere, PowerStore Manager
+   - Pure Storage: Purity GUI, REST API
+   - Ceph: `rbd snap rollback`, `rbd clone`
+
+3. **Verify PVs/PVCs** are bound after storage restore:
+   ```bash
+   oc get pvc -n openstack
+   oc get pv
+   ```
+
+4. **Restart services**:
+   ```bash
+   # Example: Scale up Glance service via OpenStackControlPlane CR
+   oc patch openstackcontrolplane openstack -n openstack --type=merge -p '
+   spec:
+     glance:
+       template:
+         glanceAPIs:
+           default:
+             replicas: 1
+   '
+   ```
+
+**Important Notes**:
+- Requires direct access to storage management tools
+- May require storage administrator involvement
+- Snapshot location (array-local vs replicated) affects DR capabilities
+- Cross-cluster restore depends on array replication features
+- Consult vendor documentation for specific procedures
+
+---
+
+### File-Level Backup Tools
+
+**Backup Method**: Use traditional backup tools (rsync, tar, restic) by exec'ing into pods.
+
+**Backup Example**:
+```bash
+# Backup from running pod
+oc exec -n openstack glance-api-0 -- tar czf /tmp/glance-backup.tar.gz /var/lib/glance
+
+# Copy backup out of pod
+oc cp -n openstack glance-api-0:/tmp/glance-backup.tar.gz ./glance-backup-$(date +%Y%m%d).tar.gz
+
+# Clean up temp file
+oc exec -n openstack glance-api-0 -- rm /tmp/glance-backup.tar.gz
+```
+
+**Restore Workflow**:
+```bash
+# 1. Resume deployment - services create empty PVCs and start
+
+# 2. Copy backup into pod
+oc cp ./glance-backup-20260225.tar.gz -n openstack glance-api-0:/tmp/glance-backup.tar.gz
+
+# 3. Extract data in pod
+oc exec -n openstack glance-api-0 -- tar xzf /tmp/glance-backup.tar.gz -C /
+
+# 4. Clean up temp file
+oc exec -n openstack glance-api-0 -- rm /tmp/glance-backup.tar.gz
+
+# 5. Restart pod to pick up restored data
+oc delete pod -n openstack glance-api-0
+```
+
+**Limitations**:
+- Requires pods to be running (cannot restore before services start)
+- Data consistency depends on application state during backup
+- Manual process for each service
+- No automation or scheduling
+- Error-prone for large datasets
+- Slow for large volumes
+
+---
+
+### Comparison Summary
+
+| Method | Pre-create PVCs | Integrated Workflow | Cross-Cluster | Automation | Vendor Dependency |
+|--------|----------------|---------------------|---------------|------------|-------------------|
+| **OADP** | ✅ Yes | ✅ Yes | ✅ Yes (via S3) | ✅ High | ❌ Minimal |
+| **CSI Snapshots** | ⚠️ Optional | ⚠️ Partial | ❌ Usually No | ⚠️ Medium | ⚠️ CSI driver |
+| **Storage Array** | ❌ No | ❌ No | ⚠️ Depends | ❌ Low | ✅ High |
+| **File-Level** | ❌ No | ❌ No | ✅ Yes | ❌ Minimal | ❌ Minimal |
+
+**Recommendation**: Use OADP for production environments unless you have specific requirements that necessitate alternative methods.
