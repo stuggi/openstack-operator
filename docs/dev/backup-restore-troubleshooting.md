@@ -1,8 +1,11 @@
-# OpenStack Control Plane Backup and Restore - Troubleshooting
+# OpenStack Backup and Restore - Troubleshooting
 
-This document contains troubleshooting guidance for the OpenStack Control Plane backup and restore procedures.
+This document contains troubleshooting guidance for OpenStack backup and restore procedures.
 
-For the main backup/restore documentation, see [backup-restore-ctlplane.md](backup-restore-ctlplane.md).
+For the main backup/restore documentation, see:
+- [Control Plane Backup/Restore](backup-restore-ctlplane.md)
+- [Data Plane Backup/Restore](backup-restore-dataplane.md)
+- [Storage Volumes Backup/Restore](backup-openstack-storage-volumes.md)
 
 ---
 
@@ -258,6 +261,230 @@ vi openstackcontrolplane-backup.json
 # Common OpenShift storage classes:
 # - ocs-storagecluster-ceph-rbd (OpenShift Data Foundation)
 # - local-storage
+```
+
+---
+
+## OADP Storage Volume Backup/Restore Issues
+
+For issues related to OADP-based storage volume backups (Glance, Cinder, Swift, Manila), see [backup-openstack-storage-volumes.md](backup-openstack-storage-volumes.md).
+
+### OADP Backup Stuck in "InProgress"
+
+**Symptoms:**
+- Backup remains in "InProgress" status for extended time
+- Restic pods showing high CPU/memory usage
+- Backup never completes
+
+**Diagnosis:**
+
+```bash
+# Find Restic pods
+oc get pods -n openshift-adp -l app.kubernetes.io/name=node-agent
+
+# Check Restic logs on specific node
+oc logs -n openshift-adp node-agent-xxxxx
+
+# Check backup status
+oc get backup openstack-volumes-20260225-140530 -n openshift-adp -o yaml
+```
+
+**Common Causes:**
+- Large volumes taking longer than expected
+- Network issues to MinIO
+- Resource constraints on Restic pods
+- PVC mounted by running pod (some backup methods require pod to be stopped)
+
+**Solutions:**
+
+```bash
+# Increase timeout and retry
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  backup/openstack-volumes-20260225-140530 \
+  -n openshift-adp \
+  --timeout=120m
+
+# Increase Restic resources in DPA
+oc edit dataprotectionapplication velero -n openshift-adp
+# Add under spec.configuration.restic:
+#   podConfig:
+#     resourceAllocations:
+#       limits:
+#         cpu: "2"
+#         memory: 4Gi
+#       requests:
+#         cpu: "1"
+#         memory: 2Gi
+```
+
+### OADP Backup Failed
+
+**Symptoms:**
+- Backup shows "Failed" or "PartiallyFailed" status
+- Error messages in backup description
+
+**Diagnosis:**
+
+```bash
+# Get backup status and errors
+oc get backup openstack-volumes-20260225-140530 -n openshift-adp -o yaml
+
+# Check Velero logs
+oc logs -n openshift-adp deployment/velero
+
+# Describe backup for events
+oc describe backup openstack-volumes-20260225-140530 -n openshift-adp
+```
+
+**Common Causes:**
+- PVCs not labeled correctly
+- MinIO connectivity issues
+- Insufficient permissions
+- Storage full in MinIO
+
+**Solutions:**
+
+```bash
+# Verify PVC labels
+oc get pvc -n openstack --show-labels | grep backup-volumes
+
+# Test MinIO connectivity
+oc run -it --rm debug --image=curlimages/curl --restart=Never -- \
+  curl -v https://$(oc get route minio-api -n minio -o jsonpath='{.spec.host}')
+
+# Check MinIO storage
+oc get pvc -n minio
+```
+
+### PVCs Not Being Backed Up
+
+**Symptoms:**
+- Backup completes but some PVCs are missing
+- Backup shows fewer volumes than expected
+
+**Diagnosis:**
+
+```bash
+# Check if PVCs have the backup label
+oc get pvc -n openstack --show-labels | grep backup-volumes
+
+# Check backup spec
+oc get backup openstack-volumes-20260225-140530 -n openshift-adp -o yaml | grep -A 5 labelSelector
+
+# List PVCs that should be backed up
+oc get pvc -n openstack -l service=glance
+oc get pvc -n openstack -l service=cinder
+oc get pvc -n openstack -l service=swift
+oc get pvc -n openstack -l service=manila
+```
+
+**Solutions:**
+
+```bash
+# Add missing labels
+oc label pvc <pvc-name> -n openstack openstack.org/backup-volumes=true
+
+# Verify label was added
+oc get pvc <pvc-name> -n openstack --show-labels
+```
+
+### OADP Restore Creates New PVCs
+
+**Symptoms:**
+- Restore creates new PVCs instead of restoring data to existing ones
+- Old PVCs still exist after restore
+- Pods not using restored data
+
+**Diagnosis:**
+This is expected behavior for OADP. The restore process creates new PVCs with the same names and restores data into them.
+
+**Solutions:**
+
+```bash
+# Proper restore workflow:
+# 1. Scale down pods using the PVCs
+oc scale deployment glance-api -n openstack --replicas=0
+
+# 2. Delete old PVCs
+oc delete pvc glance-api-0 -n openstack
+
+# 3. Run OADP restore (creates new PVCs with restored data)
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-volumes-restore
+  namespace: openshift-adp
+spec:
+  backupName: openstack-volumes-20260225-140530
+  includedNamespaces:
+  - openstack
+  restorePVs: true
+EOF
+
+# 4. Wait for restore to complete
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  restore/openstack-volumes-restore -n openshift-adp --timeout=60m
+
+# 5. Scale up pods (will use restored PVCs)
+oc scale deployment glance-api -n openstack --replicas=1
+```
+
+### BackupStorageLocation Unavailable
+
+**Symptoms:**
+- BackupStorageLocation shows "Unavailable" status
+- Backups cannot be created
+- Error about storage location
+
+**Diagnosis:**
+
+```bash
+# Check BSL status
+oc get backupstoragelocation -n openshift-adp
+
+# Get detailed status
+oc get backupstoragelocation -n openshift-adp -o yaml
+
+# Check Velero logs
+oc logs -n openshift-adp deployment/velero
+```
+
+**Common Causes:**
+- MinIO not running or not accessible
+- Incorrect credentials in cloud-credentials secret
+- MinIO bucket doesn't exist
+- Network connectivity issues
+
+**Solutions:**
+
+```bash
+# Verify MinIO is running
+oc get deployment minio -n minio
+
+# Verify MinIO bucket exists
+oc get route minio-console -n minio -o jsonpath='{.spec.host}'
+# Open in browser and check for 'velero' bucket
+
+# Verify cloud credentials
+oc get secret cloud-credentials -n openshift-adp -o yaml
+
+# Recreate cloud credentials if needed
+cat <<EOF > /tmp/credentials-velero
+[default]
+aws_access_key_id=<ACCESS_KEY_ID>
+aws_secret_access_key=<SECRET_ACCESS_KEY>
+EOF
+
+oc create secret generic cloud-credentials \
+  --from-file cloud=/tmp/credentials-velero \
+  -n openshift-adp \
+  --dry-run=client -o yaml | oc apply -f -
+
+rm /tmp/credentials-velero
+
+# Restart Velero pod to pick up new credentials
+oc delete pod -l app.kubernetes.io/name=velero -n openshift-adp
 ```
 
 ---

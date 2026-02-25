@@ -1538,7 +1538,7 @@ When restoring to a different OpenShift cluster:
 
 ## Troubleshooting
 
-For troubleshooting common issues during backup and restore, see [backup-restore-ctlplane-troubleshooting.md](backup-restore-ctlplane-troubleshooting.md).
+For troubleshooting common issues during backup and restore, see [backup-restore-troubleshooting.md](backup-restore-troubleshooting.md).
 
 ---
 

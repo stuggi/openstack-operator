@@ -15,7 +15,8 @@ For a complete OpenStack backup and restore:
 |----------|-------------|
 | [backup-restore-ctlplane.md](backup-restore-ctlplane.md) | **ControlPlane** backup/restore - OpenStackControlPlane CR, secrets, configmaps |
 | [backup-restore-dataplane.md](backup-restore-dataplane.md) | **DataPlane** backup/restore - Compute nodes (NodeSets), network configuration (NetConfig), IP allocations |
-| [backup-restore-ctlplane-troubleshooting.md](backup-restore-ctlplane-troubleshooting.md) | **Troubleshooting** - Common issues and solutions for backup/restore |
+| [backup-openstack-storage-volumes.md](backup-openstack-storage-volumes.md) | **Storage Volumes** - Backup/restore persistent volumes (Glance, Cinder, Swift, Manila) using OADP |
+| [backup-restore-troubleshooting.md](backup-restore-troubleshooting.md) | **Troubleshooting** - Common issues and solutions for backup/restore |
 | [backup-restore-ctlplane-alternatives.md](backup-restore-ctlplane-alternatives.md) | **Alternative Approaches** - Other backup methods (e.g., must-gather) |
 | [setup-oadp-minio.md](setup-oadp-minio.md) | **OADP with MinIO** - Set up OADP (OpenShift API for Data Protection) using MinIO storage (not ODF) for automated backups |
 
@@ -210,3 +211,38 @@ done
 
 **Related Issues:**
 - [OSPRH-26645](https://issues.redhat.com/browse/OSPRH-26645) - Automatic CR Discovery for Backup
+
+### Storage Volume Backup Labels
+
+**Current Limitation:**
+Services that create PVCs requiring backup must be manually labeled with `openstack.org/backup-volumes: "true"` to enable OADP/Restic backups (see [backup-openstack-storage-volumes.md](backup-openstack-storage-volumes.md)).
+
+**Proposed Enhancement:**
+Service operators (glance-operator, cinder-operator, swift-operator, manila-operator) should automatically add the `openstack.org/backup-volumes: "true"` label to PVCs they create for persistent storage.
+
+**Implementation:**
+Operators would add the label in their PVC creation logic:
+
+```go
+// Example: Add backup label to PVC template
+pvc.Labels = map[string]string{
+    "service":                        "glance",
+    "openstack.org/backup-volumes":   "true",
+    "app.kubernetes.io/name":         "glance",
+}
+```
+
+**Benefits:**
+- Automatic opt-in for volume backups without manual labeling
+- Clear declaration of which PVCs contain persistent data
+- Consistent backup coverage across all storage services
+- No manual intervention needed after operator deployment
+
+**Services Requiring This:**
+- Glance (image storage)
+- Cinder (volume backend storage, depending on backend)
+- Swift (object storage, if using PVC backend)
+- Manila (share storage, depending on backend)
+
+**Related Issues:**
+- [OSPRH-27012](https://issues.redhat.com/browse/OSPRH-27012) - Storage Volume Backup Labels
