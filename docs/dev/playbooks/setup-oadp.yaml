@@ -164,7 +164,7 @@
               default: true
               objectStorage:
                 bucket: {{ minio_bucket_name }}
-                prefix: backups
+                prefix: rhoso
               config:
                 region: {{ minio_region }}
                 s3ForcePathStyle: "true"

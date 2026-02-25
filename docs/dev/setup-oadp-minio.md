@@ -346,7 +346,7 @@ spec:
       default: true
       objectStorage:
         bucket: velero
-        prefix: backups
+        prefix: rhoso
       config:
         region: minio
         s3ForcePathStyle: "true"
@@ -512,17 +512,18 @@ echo "Password: minio123"
 4. Browse the backup structure:
    ```
    velero/
-   ├── backups/
-   │   ├── openstack-volumes-20260225-140530/
-   │   │   ├── openstack-volumes-20260225-140530.tar.gz
-   │   │   ├── openstack-volumes-20260225-140530-logs.gz
-   │   │   ├── openstack-volumes-20260225-140530-podvolumebackups.json.gz
-   │   │   ├── openstack-volumes-20260225-140530-volumesnapshots.json.gz
-   │   │   └── velero-backup.json
-   │   └── <other-backups>/
-   └── restic/
-       └── openstack/
-           └── <volume-data>/
+   └── rhoso/
+       ├── backups/
+       │   ├── openstack-volumes-20260225-140530/
+       │   │   ├── openstack-volumes-20260225-140530.tar.gz
+       │   │   ├── openstack-volumes-20260225-140530-logs.gz
+       │   │   ├── openstack-volumes-20260225-140530-podvolumebackups.json.gz
+       │   │   ├── openstack-volumes-20260225-140530-volumesnapshots.json.gz
+       │   │   └── velero-backup.json
+       │   └── <other-backups>/
+       └── restic/
+           └── openstack/
+               └── <volume-data>/
    ```
 
 5. **Verify backup files exist**:
@@ -557,16 +558,16 @@ mc alias set minio-oadp https://${MINIO_ENDPOINT} minio minio123 --insecure
 mc ls minio-oadp/velero --insecure
 
 # List all backups
-mc ls minio-oadp/velero/backups/ --insecure
+mc ls minio-oadp/velero/rhoso/backups/ --insecure
 
 # List specific backup contents
-mc ls minio-oadp/velero/backups/openstack-volumes-20260225-140530/ --insecure
+mc ls minio-oadp/velero/rhoso/backups/openstack-volumes-20260225-140530/ --insecure
 
 # Check backup size
-mc du minio-oadp/velero/backups/openstack-volumes-20260225-140530/ --insecure
+mc du minio-oadp/velero/rhoso/backups/openstack-volumes-20260225-140530/ --insecure
 
 # Download a backup for inspection (optional)
-mc cp minio-oadp/velero/backups/openstack-volumes-20260225-140530/velero-backup.json \
+mc cp minio-oadp/velero/rhoso/backups/openstack-volumes-20260225-140530/velero-backup.json \
   ./velero-backup.json --insecure
 ```
 
@@ -582,10 +583,10 @@ oc exec -it -n minio deployment/minio -- sh
 mc alias set local http://localhost:9000 minio minio123
 
 # List backups
-mc ls local/velero/backups/
+mc ls local/velero/rhoso/backups/
 
 # Check specific backup
-mc ls local/velero/backups/openstack-volumes-20260225-140530/
+mc ls local/velero/rhoso/backups/openstack-volumes-20260225-140530/
 
 # Exit pod
 exit
@@ -599,25 +600,25 @@ After accessing MinIO, verify:
 2. **Backup is complete**: Check `velero-backup.json` for status:
    ```bash
    # Download and check backup metadata
-   mc cp minio-oadp/velero/backups/<backup-name>/velero-backup.json - --insecure | jq '.status.phase'
+   mc cp minio-oadp/velero/rhoso/backups/<backup-name>/velero-backup.json - --insecure | jq '.status.phase'
    # Should show: "Completed"
    ```
 
 3. **Backup size is reasonable**:
    ```bash
-   mc du minio-oadp/velero/backups/<backup-name>/ --insecure
+   mc du minio-oadp/velero/rhoso/backups/<backup-name>/ --insecure
    # Compare with expected PVC sizes
    ```
 
 4. **Restic data exists** (for PVC backups):
    ```bash
-   mc ls minio-oadp/velero/restic/openstack/ --insecure
+   mc ls minio-oadp/velero/rhoso/restic/openstack/ --insecure
    # Should show directories for each backed-up PVC
    ```
 
 5. **Recent backups**: Verify backup timestamp matches when you created it
    ```bash
-   mc ls minio-oadp/velero/backups/ --insecure
+   mc ls minio-oadp/velero/rhoso/backups/ --insecure
    # Check modification times
    ```
 
@@ -627,10 +628,10 @@ Check backup retention and cleanup:
 
 ```bash
 # List all backups sorted by date
-mc ls --recursive minio-oadp/velero/backups/ --insecure | sort
+mc ls --recursive minio-oadp/velero/rhoso/backups/ --insecure | sort
 
 # Count total backups
-mc ls minio-oadp/velero/backups/ --insecure | wc -l
+mc ls minio-oadp/velero/rhoso/backups/ --insecure | wc -l
 
 # Check total storage used
 mc du minio-oadp/velero/ --insecure
