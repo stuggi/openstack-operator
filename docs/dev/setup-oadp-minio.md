@@ -499,6 +499,160 @@ oc delete backup test-backup -n openshift-adp
 oc delete restore test-restore -n openshift-adp
 ```
 
+## Verifying Backups in MinIO
+
+After creating backups with OADP, you can manually verify that backup data is stored in MinIO.
+
+### Option 1: Using MinIO Web Console (GUI)
+
+The easiest way to verify backups is through the MinIO web console:
+
+```bash
+# Get the MinIO console route
+echo "MinIO Console: https://$(oc get route minio-console -n minio -o jsonpath='{.spec.host}')"
+
+# Get MinIO credentials (if using playbook-created credentials)
+echo "Username: minio"
+echo "Password: minio123"
+```
+
+**Steps:**
+1. Open the MinIO console URL in your browser
+2. Log in with the MinIO root credentials
+3. Navigate to **Buckets** → **velero**
+4. Browse the backup structure:
+   ```
+   velero/
+   ├── backups/
+   │   ├── openstack-volumes-20260225-140530/
+   │   │   ├── openstack-volumes-20260225-140530.tar.gz
+   │   │   ├── openstack-volumes-20260225-140530-logs.gz
+   │   │   ├── openstack-volumes-20260225-140530-podvolumebackups.json.gz
+   │   │   ├── openstack-volumes-20260225-140530-volumesnapshots.json.gz
+   │   │   └── velero-backup.json
+   │   └── <other-backups>/
+   └── restic/
+       └── openstack/
+           └── <volume-data>/
+   ```
+
+5. **Verify backup files exist**:
+   - `<backup-name>.tar.gz` - Main backup archive with Kubernetes resources
+   - `<backup-name>-logs.gz` - Backup operation logs
+   - `<backup-name>-podvolumebackups.json.gz` - Restic backup metadata
+   - `velero-backup.json` - Backup CR metadata
+
+6. **Check Restic data** (for PVC backups):
+   - Navigate to `restic/openstack/` directory
+   - You should see subdirectories for each PVC backup
+   - Data is deduplicated and stored in Restic repository format
+
+### Option 2: Using MinIO Client (mc) CLI
+
+For automation or scripting, use the MinIO Client:
+
+```bash
+# Install mc (MinIO Client)
+curl https://dl.min.io/client/mc/release/linux-amd64/mc \
+  --create-dirs -o $HOME/bin/mc
+chmod +x $HOME/bin/mc
+
+# Configure mc with MinIO server
+# Get MinIO API endpoint
+MINIO_ENDPOINT=$(oc get route minio-api -n minio -o jsonpath='{.spec.host}')
+
+# Set up mc alias (using root credentials)
+mc alias set minio-oadp https://${MINIO_ENDPOINT} minio minio123 --insecure
+
+# List velero bucket contents
+mc ls minio-oadp/velero --insecure
+
+# List all backups
+mc ls minio-oadp/velero/backups/ --insecure
+
+# List specific backup contents
+mc ls minio-oadp/velero/backups/openstack-volumes-20260225-140530/ --insecure
+
+# Check backup size
+mc du minio-oadp/velero/backups/openstack-volumes-20260225-140530/ --insecure
+
+# Download a backup for inspection (optional)
+mc cp minio-oadp/velero/backups/openstack-volumes-20260225-140530/velero-backup.json \
+  ./velero-backup.json --insecure
+```
+
+### Option 3: Using oc exec into MinIO Pod
+
+Directly access MinIO from inside the cluster:
+
+```bash
+# Exec into MinIO pod
+oc exec -it -n minio deployment/minio -- sh
+
+# Inside the pod, use mc
+mc alias set local http://localhost:9000 minio minio123
+
+# List backups
+mc ls local/velero/backups/
+
+# Check specific backup
+mc ls local/velero/backups/openstack-volumes-20260225-140530/
+
+# Exit pod
+exit
+```
+
+### What to Verify
+
+After accessing MinIO, verify:
+
+1. **Backup exists**: The backup directory with your backup name is present
+2. **Backup is complete**: Check `velero-backup.json` for status:
+   ```bash
+   # Download and check backup metadata
+   mc cp minio-oadp/velero/backups/<backup-name>/velero-backup.json - --insecure | jq '.status.phase'
+   # Should show: "Completed"
+   ```
+
+3. **Backup size is reasonable**:
+   ```bash
+   mc du minio-oadp/velero/backups/<backup-name>/ --insecure
+   # Compare with expected PVC sizes
+   ```
+
+4. **Restic data exists** (for PVC backups):
+   ```bash
+   mc ls minio-oadp/velero/restic/openstack/ --insecure
+   # Should show directories for each backed-up PVC
+   ```
+
+5. **Recent backups**: Verify backup timestamp matches when you created it
+   ```bash
+   mc ls minio-oadp/velero/backups/ --insecure
+   # Check modification times
+   ```
+
+### Backup Retention
+
+Check backup retention and cleanup:
+
+```bash
+# List all backups sorted by date
+mc ls --recursive minio-oadp/velero/backups/ --insecure | sort
+
+# Count total backups
+mc ls minio-oadp/velero/backups/ --insecure | wc -l
+
+# Check total storage used
+mc du minio-oadp/velero/ --insecure
+```
+
+Velero automatically deletes backups older than their TTL (time-to-live). Check the Backup CR for TTL:
+
+```bash
+oc get backup <backup-name> -n openshift-adp -o jsonpath='{.spec.ttl}'
+```
+
 ## Troubleshooting
 
 ### BackupStorageLocation Shows "Unavailable"
