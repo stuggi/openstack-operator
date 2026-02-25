@@ -346,7 +346,7 @@ oc describe backup openstack-volumes-20260225-140530 -n openshift-adp
 
 ```bash
 # Verify PVC labels
-oc get pvc -n openstack --show-labels | grep backup-volumes
+oc get pvc -n openstack --show-labels | grep backup-volume
 
 # Test MinIO connectivity
 oc run -it --rm debug --image=curlimages/curl --restart=Never -- \
@@ -366,7 +366,7 @@ oc get pvc -n minio
 
 ```bash
 # Check if PVCs have the backup label
-oc get pvc -n openstack --show-labels | grep backup-volumes
+oc get pvc -n openstack --show-labels | grep backup-volume
 
 # Check backup spec
 oc get backup openstack-volumes-20260225-140530 -n openshift-adp -o yaml | grep -A 5 labelSelector
