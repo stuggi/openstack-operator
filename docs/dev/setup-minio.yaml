@@ -1,0 +1,358 @@
+---
+# MinIO Setup Playbook
+# This playbook deploys MinIO as an S3-compatible storage backend
+#
+# Usage:
+#   ansible-playbook setup-minio.yaml
+#   ansible-playbook setup-minio.yaml -e minio_namespace=minio
+#   ansible-playbook setup-minio.yaml -e minio_storage_size=100Gi
+#   ansible-playbook setup-minio.yaml -e minio_storage_class=local-storage
+#   ansible-playbook setup-minio.yaml -e minio_root_user=admin -e minio_root_password=secretpassword
+
+- name: Setup MinIO for OADP
+  hosts: localhost
+  gather_facts: false
+  vars:
+    minio_namespace: "minio"
+    minio_storage_size: "10Gi"
+    minio_storage_class: ""  # Leave empty to use default storage class
+    minio_root_user: "minio"
+    minio_root_password: "minio123"
+    minio_bucket_name: "velero"
+
+  tasks:
+    - name: Print setup header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "MinIO Setup for OADP"
+          - "========================================"
+          - "Namespace: {{ minio_namespace }}"
+          - "Storage Size: {{ minio_storage_size }}"
+          - "Storage Class: {{ minio_storage_class if minio_storage_class else 'default' }}"
+          - "Bucket Name: {{ minio_bucket_name }}"
+          - ""
+          - "WARNING: Default credentials are insecure!"
+          - "For production, use: -e minio_root_password=<strong-password>"
+
+    - name: Create MinIO namespace
+      ansible.builtin.shell: |
+        oc create namespace {{ minio_namespace }} --dry-run=client -o yaml | oc apply -f -
+      changed_when: true
+
+    - name: Create MinIO PVC (with storage class)
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: minio-pvc
+          namespace: {{ minio_namespace }}
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: {{ minio_storage_class }}
+          resources:
+            requests:
+              storage: {{ minio_storage_size }}
+        EOF
+      changed_when: true
+      when: minio_storage_class != ""
+
+    - name: Create MinIO PVC (default storage class)
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: minio-pvc
+          namespace: {{ minio_namespace }}
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: {{ minio_storage_size }}
+        EOF
+      changed_when: true
+      when: minio_storage_class == ""
+
+    - name: Create MinIO credentials secret
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: v1
+        kind: Secret
+        metadata:
+          name: minio-credentials
+          namespace: {{ minio_namespace }}
+        type: Opaque
+        stringData:
+          MINIO_ROOT_USER: {{ minio_root_user }}
+          MINIO_ROOT_PASSWORD: {{ minio_root_password }}
+        EOF
+      changed_when: true
+
+    - name: Create MinIO deployment
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: minio
+          namespace: {{ minio_namespace }}
+        spec:
+          selector:
+            matchLabels:
+              app: minio
+          strategy:
+            type: Recreate
+          template:
+            metadata:
+              labels:
+                app: minio
+            spec:
+              containers:
+              - name: minio
+                image: quay.io/minio/minio:latest
+                args:
+                - server
+                - /data
+                - --console-address
+                - :9001
+                env:
+                - name: MINIO_ROOT_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: MINIO_ROOT_USER
+                - name: MINIO_ROOT_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: minio-credentials
+                      key: MINIO_ROOT_PASSWORD
+                ports:
+                - containerPort: 9000
+                  name: api
+                - containerPort: 9001
+                  name: console
+                volumeMounts:
+                - name: data
+                  mountPath: /data
+                livenessProbe:
+                  httpGet:
+                    path: /minio/health/live
+                    port: 9000
+                  initialDelaySeconds: 30
+                  periodSeconds: 20
+                readinessProbe:
+                  httpGet:
+                    path: /minio/health/ready
+                    port: 9000
+                  initialDelaySeconds: 30
+                  periodSeconds: 20
+              volumes:
+              - name: data
+                persistentVolumeClaim:
+                  claimName: minio-pvc
+        EOF
+      changed_when: true
+
+    - name: Create MinIO service
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: v1
+        kind: Service
+        metadata:
+          name: minio
+          namespace: {{ minio_namespace }}
+        spec:
+          type: ClusterIP
+          ports:
+          - port: 9000
+            targetPort: 9000
+            name: api
+          - port: 9001
+            targetPort: 9001
+            name: console
+          selector:
+            app: minio
+        EOF
+      changed_when: true
+
+    - name: Create MinIO console route
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: route.openshift.io/v1
+        kind: Route
+        metadata:
+          name: minio-console
+          namespace: {{ minio_namespace }}
+        spec:
+          to:
+            kind: Service
+            name: minio
+          port:
+            targetPort: console
+          tls:
+            termination: edge
+            insecureEdgeTerminationPolicy: Redirect
+        EOF
+      changed_when: true
+
+    - name: Create MinIO API route
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: route.openshift.io/v1
+        kind: Route
+        metadata:
+          name: minio-api
+          namespace: {{ minio_namespace }}
+        spec:
+          to:
+            kind: Service
+            name: minio
+          port:
+            targetPort: api
+          tls:
+            termination: edge
+            insecureEdgeTerminationPolicy: Redirect
+        EOF
+      changed_when: true
+
+    - name: Wait for MinIO deployment to be ready
+      ansible.builtin.shell: |
+        oc wait --for=condition=available --timeout=300s deployment/minio -n {{ minio_namespace }}
+      changed_when: false
+
+    - name: Get MinIO routes
+      ansible.builtin.shell: |
+        echo "Console URL: https://$(oc get route minio-console -n {{ minio_namespace }} -o jsonpath='{.spec.host}')"
+        echo "API URL: https://$(oc get route minio-api -n {{ minio_namespace }} -o jsonpath='{.spec.host}')"
+      register: minio_routes
+      changed_when: false
+
+    - name: Display MinIO routes
+      ansible.builtin.debug:
+        msg: "{{ minio_routes.stdout_lines }}"
+
+    - name: Install MinIO client (mc)
+      ansible.builtin.shell: |
+        if ! command -v mc &> /dev/null; then
+          curl -o /tmp/mc https://dl.min.io/client/mc/release/linux-amd64/mc
+          chmod +x /tmp/mc
+          echo "/tmp/mc"
+        else
+          echo "mc"
+        fi
+      register: mc_path
+      changed_when: false
+
+    - name: Configure MinIO client
+      ansible.builtin.shell: |
+        MINIO_API_URL=$(oc get route minio-api -n {{ minio_namespace }} -o jsonpath='{.spec.host}')
+        {{ mc_path.stdout }} alias set minio https://${MINIO_API_URL} {{ minio_root_user }} {{ minio_root_password }} --insecure
+      changed_when: true
+
+    - name: Create Velero bucket
+      ansible.builtin.shell: |
+        {{ mc_path.stdout }} mb minio/{{ minio_bucket_name }} --insecure || true
+      changed_when: true
+
+    - name: Verify bucket was created
+      ansible.builtin.shell: |
+        {{ mc_path.stdout }} ls minio --insecure | grep {{ minio_bucket_name }}
+      register: bucket_check
+      changed_when: false
+
+    - name: Create MinIO service account for OADP
+      ansible.builtin.shell: |
+        {{ mc_path.stdout }} admin user svcacct add minio {{ minio_root_user }} --insecure
+      register: service_account
+      changed_when: true
+      failed_when: false
+
+    - name: Parse service account credentials
+      ansible.builtin.set_fact:
+        access_key: "{{ service_account.stdout | regex_search('Access Key: (.+)', '\\1') | first }}"
+        secret_key: "{{ service_account.stdout | regex_search('Secret Key: (.+)', '\\1') | first }}"
+      when: service_account.rc == 0 and service_account.stdout != ""
+
+    - name: Save service account credentials
+      ansible.builtin.copy:
+        content: |
+          MinIO Service Account Credentials for OADP
+          ==========================================
+
+          Access Key: {{ access_key }}
+          Secret Key: {{ secret_key }}
+
+          Save these credentials! You will need them for OADP setup.
+
+          To create cloud-credentials secret for OADP:
+
+          cat <<EOF > /tmp/credentials-velero
+          [default]
+          aws_access_key_id={{ access_key }}
+          aws_secret_access_key={{ secret_key }}
+          EOF
+
+          oc create secret generic cloud-credentials \
+            --from-file cloud=/tmp/credentials-velero \
+            -n openshift-adp
+
+          rm /tmp/credentials-velero
+        dest: "/tmp/minio-service-account-{{ minio_namespace }}.txt"
+      when: service_account.rc == 0 and access_key is defined
+
+    - name: Print service account information
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "MinIO Setup Complete!"
+          - "========================================"
+          - ""
+          - "MinIO Console: {{ minio_routes.stdout_lines[0] }}"
+          - "MinIO API: {{ minio_routes.stdout_lines[1] }}"
+          - ""
+          - "Login Credentials:"
+          - "  Username: {{ minio_root_user }}"
+          - "  Password: {{ minio_root_password }}"
+          - ""
+          - "Bucket Created: {{ minio_bucket_name }}"
+          - "Storage Class: {{ minio_storage_class if minio_storage_class else 'default' }}"
+          - ""
+          - "Service Account Credentials:"
+          - "  Access Key: {{ access_key }}"
+          - "  Secret Key: {{ secret_key }}"
+          - ""
+          - "Credentials saved to: /tmp/minio-service-account-{{ minio_namespace }}.txt"
+          - ""
+          - "Next Steps:"
+          - "1. Save the service account credentials above"
+          - "2. Run: ansible-playbook setup-oadp.yaml -e minio_access_key_id={{ access_key }} -e minio_secret_access_key={{ secret_key }}"
+      when: service_account.rc == 0 and access_key is defined
+
+    - name: Print alternate service account creation message
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "MinIO Setup Complete!"
+          - "========================================"
+          - ""
+          - "MinIO Console: {{ minio_routes.stdout_lines[0] }}"
+          - "MinIO API: {{ minio_routes.stdout_lines[1] }}"
+          - ""
+          - "Login Credentials:"
+          - "  Username: {{ minio_root_user }}"
+          - "  Password: {{ minio_root_password }}"
+          - ""
+          - "Bucket Created: {{ minio_bucket_name }}"
+          - "Storage Class: {{ minio_storage_class if minio_storage_class else 'default' }}"
+          - ""
+          - "To create a service account for OADP:"
+          - "1. Open MinIO Console"
+          - "2. Navigate to Identity -> Service Accounts"
+          - "3. Click 'Create Service Account'"
+          - "4. Save the Access Key and Secret Key"
+          - "5. Run: ansible-playbook setup-oadp.yaml -e minio_access_key_id=<ACCESS_KEY_ID> -e minio_secret_access_key=<SECRET_ACCESS_KEY>"
+      when: service_account.rc != 0 or access_key is not defined
