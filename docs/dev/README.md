@@ -9,6 +9,14 @@ For a complete OpenStack backup and restore:
 1. **[Backup ControlPlane](backup-restore-ctlplane.md)** - OpenStackControlPlane CR, secrets, configmaps
 2. **[Backup DataPlane](backup-restore-dataplane.md)** - Compute nodes and network configuration
 
+## Prerequisites and Setup
+
+| Document | Description |
+|----------|-------------|
+| [setup-oadp-minio.md](setup-oadp-minio.md) | **OADP Setup** - Set up OADP (OpenShift API for Data Protection) with MinIO storage (not ODF) for storage volume backups |
+
+See also: [OADP Setup Playbooks](#oadp-setup-playbooks) for automated installation using Ansible.
+
 ## Core Backup/Restore Procedures
 
 | Document | Description |
@@ -18,7 +26,6 @@ For a complete OpenStack backup and restore:
 | [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md) | **Storage Volumes** - Backup/restore persistent volumes (Glance, Cinder, Swift, Manila, ...) using OADP |
 | [backup-restore-troubleshooting.md](backup-restore-troubleshooting.md) | **Troubleshooting** - Common issues and solutions for backup/restore |
 | [backup-restore-ctlplane-alternatives.md](backup-restore-ctlplane-alternatives.md) | **Alternative Approaches** - Other backup methods (e.g., must-gather) |
-| [setup-oadp-minio.md](setup-oadp-minio.md) | **OADP with MinIO** - Set up OADP (OpenShift API for Data Protection) using MinIO storage (not ODF) for automated backups |
 
 ## Ansible Playbooks
 
