@@ -147,10 +147,10 @@ flowchart TD
     WaitInfra -->|Not Ready| WaitInfra
     WaitInfra -->|Ready| InfraReady[Infrastructure Ready:<br/>✓ Galera<br/>✓ OVN NB/SB<br/>✓ RabbitMQ<br/>✓ Memcached]
 
-    InfraReady --> RestorePVC[Restore PVCs/PVs<br/>From OADP or other backup method<br/>Optional: only if PVC data backed up]
-    RestorePVC --> RestoreMariaDB[Restore MariaDB Database Contents]
+    InfraReady --> RestoreMariaDB[Restore MariaDB Database Contents]
     RestoreMariaDB --> RestoreOVN[Restore OVN Database Contents<br/>NB & SB databases]
-    RestoreOVN --> RestoreRabbitMQ[Restore RabbitMQ User Credentials<br/>Create RabbitMQUser CRs<br/>for EDPM compatibility]
+    RestoreOVN --> RestorePVC[Restore Storage Volumes<br/>OADP restore for service PVCs<br/>Optional: Glance, Cinder, Swift, Manila]
+    RestorePVC --> RestoreRabbitMQ[Restore RabbitMQ User Credentials<br/>Create RabbitMQUser CRs<br/>for EDPM compatibility]
 
     RestoreRabbitMQ --> Resume[Resume Deployment<br/>Remove core.openstack.org/deployment-stage annotation]
 
@@ -176,9 +176,10 @@ flowchart TD
 - **Prerequisites**: Cluster infrastructure must exist first (StorageClass, NNCP, MetalLB) - either still present or restored separately
 - **Staged Deployment**: Infrastructure (databases, message queue) is created first with annotation `core.openstack.org/deployment-stage: "infrastructure-only"`
 - **OpenStackControlPlaneInfrastructureReady Condition**: Single condition check validates all infrastructure components are ready
-- **PVC Restore**: After infrastructure is ready, PVCs are created (but empty). Restore PVC data from OADP or other backup method while services are paused
-- **Database Restore**: Performed while OpenStack services are NOT yet created (clean restore)
-- **Resume Deployment**: Removing the `core.openstack.org/deployment-stage` annotation triggers creation of OpenStack services
+- **Database Restore**: Performed while OpenStack services are NOT yet created (clean restore) - Step 11
+- **Storage Volumes Restore**: OADP restores service PVCs after database restore, before services start - Step 12 (optional)
+- **RabbitMQ User Restore**: Original user credentials restored for EDPM compatibility - Step 13
+- **Resume Deployment**: Removing the `core.openstack.org/deployment-stage` annotation triggers creation of OpenStack services - Step 14
 - **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases and PVCs (no restarts needed)
 
 **Staged Deployment Feature**: The staged deployment mechanism using the `core.openstack.org/deployment-stage` annotation is a key feature for reliable restores. For detailed context on why this feature was implemented and how it works, see [enhancement-staged-deployment-restore.md](enhancement-staged-deployment-restore.md).
@@ -772,17 +773,76 @@ echo "Operator versions documented in operator-versions.txt"
 echo "Detailed operator info saved: csv-backup.json, subscription-backup.json, installplan-backup.json"
 ```
 
-### 9. Create Backup Archive
+### 9. Backup Storage Volumes (OADP)
+
+**Optional**: If you have persistent volumes for services (Glance images, Cinder volumes, Swift objects, Manila shares, etc.), back them up using OADP.
+
+For detailed instructions on OADP storage volumes backup, see **[backup-restore-storage-volumes.md](backup-restore-storage-volumes.md)**.
 
 ```bash
-# Create timestamped backup directory
+# Check if OADP is installed
+oc get deployment velero -n openshift-adp &>/dev/null && echo "OADP installed" || echo "OADP not installed"
+
+# Check if any PVCs are labeled for backup
+oc get pvc -n openstack -l openstack.org/backup-volumes=true
+
+# If OADP is installed and PVCs exist, create a backup
 BACKUP_DATE=$(date +%Y%m%d-%H%M%S)
+OADP_BACKUP_NAME="openstack-volumes-${BACKUP_DATE}"
+
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: ${OADP_BACKUP_NAME}
+  namespace: openshift-adp
+spec:
+  includedNamespaces:
+  - openstack
+  labelSelector:
+    matchLabels:
+      openstack.org/backup-volumes: "true"
+  defaultVolumesToRestic: true
+  storageLocation: velero-1
+  ttl: 720h  # 30 days
+EOF
+
+# Wait for backup to complete
+echo "Waiting for OADP backup to complete..."
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  backup/${OADP_BACKUP_NAME} \
+  -n openshift-adp \
+  --timeout=60m
+
+# Save the Velero Backup CR for restore reference
+mkdir -p backups
+oc get backup ${OADP_BACKUP_NAME} -n openshift-adp -o yaml > backups/velero-backup-${BACKUP_DATE}.yaml
+
+echo "OADP backup completed: ${OADP_BACKUP_NAME}"
+echo "Backup reference saved: backups/velero-backup-${BACKUP_DATE}.yaml"
+```
+
+**Note**: The `velero-backup-*.yaml` file contains the reference to the OADP backup and will be included in the backup archive. During restore, this reference will be used to restore the correct storage volumes backup.
+
+If OADP is not installed or you don't have PVCs to backup, skip this step.
+
+### 10. Create Backup Archive
+
+```bash
+# Create timestamped backup directory (reuse BACKUP_DATE if running from step 9)
+BACKUP_DATE=${BACKUP_DATE:-$(date +%Y%m%d-%H%M%S)}
 BACKUP_DIR="openstack-ctlplane-backup-${BACKUP_DATE}"
 mkdir -p ${BACKUP_DIR}
 
 # Move all backup files
 mv *-backup.json ${BACKUP_DIR}/
 mv operator-versions.txt ${BACKUP_DIR}/
+
+# Move OADP backup reference if it exists
+if [ -f backups/velero-backup-${BACKUP_DATE}.yaml ]; then
+  mv backups/velero-backup-${BACKUP_DATE}.yaml ${BACKUP_DIR}/velero-backup.yaml
+  echo "OADP backup reference included in archive"
+fi
 
 # Create a README for the backup
 cat > ${BACKUP_DIR}/README.md <<EOF
@@ -816,6 +876,18 @@ All backup files are in JSON format for consistency.
 ### TLS Infrastructure
 - issuer-backup.json: cert-manager Issuer CRs (RESTORED - define certificate authorities)
 - certificates-backup.json: cert-manager Certificate CRs (NOT RESTORED - operators recreate these)
+
+### MariaDB Resources
+- mariadbdatabase-backup.json: MariaDBDatabase CRs (database definitions)
+- mariadbaccount-backup.json: MariaDBAccount CRs (database account definitions)
+
+### RabbitMQ Resources
+- rabbitmquser-backup.json: RabbitMQUser CRs (user-created ones without ownerReferences will be restored, operator-managed ones with ownerReferences will be filtered out)
+
+### Storage Volumes (Optional)
+- velero-backup.yaml: OADP Velero Backup CR reference (if PVC backup was performed)
+  - References the OADP backup for restoring storage volumes (Glance, Cinder, Swift, Manila, ...)
+  - See docs/dev/backup-restore-storage-volumes.md for details
 
 ### Operator Version Information
 - operator-versions.txt: Operator and platform versions (human-readable summary)
@@ -1245,15 +1317,125 @@ oc get memcached -n openstack
 - Ensures clean database restore without service restarts
 - Services start with already-restored databases (no db_sync race conditions)
 
-#### 12. Restore Database Contents (MariaDB and OVN)
+#### 11. Restore Database Contents (MariaDB and OVN)
 
 **CRITICAL**: Restore database contents while services are NOT running. This is only possible because of the staged deployment pause.
 
 Follow the separate database restore procedures:
-- **MariaDB**
-- **OVN Databases**
+- **MariaDB**: Use MariaDB-specific backup/restore procedures
+- **OVN Databases**: Use OVN database backup/restore procedures
 
 After database restore is complete, proceed to the next step.
+
+#### 12. Restore Storage Volumes (OADP)
+
+**Optional**: If you backed up persistent volumes for services (Glance images, Cinder volumes, Swift objects, Manila shares, etc.) using OADP, restore them now.
+
+**Timing**: Storage volumes are restored AFTER database restore to ensure MariaDB PVCs are populated first, and BEFORE resuming deployment so that service PVCs exist when services start.
+
+For detailed instructions on OADP storage volumes restore, see **[backup-restore-storage-volumes.md](backup-restore-storage-volumes.md)**.
+
+```bash
+# Check if OADP backup reference exists in backup
+if [ -f velero-backup.yaml ]; then
+  echo "OADP backup reference found"
+
+  # Get backup name from the reference
+  VELERO_BACKUP_NAME=$(grep 'name:' velero-backup.yaml | head -1 | awk '{print $2}')
+  echo "Backup name: ${VELERO_BACKUP_NAME}"
+
+  # Check if OADP is installed
+  if oc get deployment velero -n openshift-adp &>/dev/null; then
+    echo "OADP is installed"
+
+    # Create restore with tracking labels/annotations
+    RESTORE_TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+    RESTORE_TIMESTAMP_ISO=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+    cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: ${VELERO_BACKUP_NAME}-restore-${RESTORE_TIMESTAMP}
+  namespace: openshift-adp
+  labels:
+    openstack.org/backup-name: "${VELERO_BACKUP_NAME}"
+  annotations:
+    openstack.org/backup-name: "${VELERO_BACKUP_NAME}"
+    openstack.org/restore-timestamp: "${RESTORE_TIMESTAMP_ISO}"
+spec:
+  backupName: ${VELERO_BACKUP_NAME}
+  includedNamespaces:
+  - openstack
+  restorePVs: true
+EOF
+
+    # Wait for restore to complete
+    echo "Waiting for OADP restore to complete..."
+    oc wait --for=jsonpath='{.status.phase}'=Completed \
+      restore/${VELERO_BACKUP_NAME}-restore-${RESTORE_TIMESTAMP} \
+      -n openshift-adp \
+      --timeout=60m
+
+    echo "OADP restore completed"
+
+    # Verify PVCs were restored
+    oc get pvc -n openstack -l openstack.org/backup-volumes=true
+  else
+    echo "OADP not installed. Skipping PVC restore."
+    echo "To set up OADP, see: docs/dev/setup-oadp-minio.md"
+  fi
+else
+  echo "No OADP backup reference found. Skipping PVC restore."
+fi
+```
+
+**What happens during OADP restore:**
+1. OADP creates PVCs for services (Glance, Cinder, Swift, Manila) with data from backup
+2. When deployment resumes (Step 14), services find PVCs already exist and use them
+3. No conflicts occur because StatefulSets don't add ownerReferences to PVCs
+
+**Important - OADP Cannot Overwrite Existing PVCs**: If service PVCs already exist (e.g., from a previous restore attempt or incomplete cleanup), OADP **CANNOT overwrite them**. You must delete existing PVCs first:
+
+```bash
+# Check for existing service PVCs
+oc get pvc -n openstack -l openstack.org/backup-volumes=true
+
+# If they exist, delete them before OADP restore
+oc delete pvc -n openstack -l openstack.org/backup-volumes=true
+```
+
+See [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md#oadp-restore-creates-new-pvcs) for more details.
+
+**Note on PV Reclaim Policy and Orphaned PVs:**
+
+If your storage class uses `reclaimPolicy: Retain`:
+- Deleting PVCs does NOT delete the underlying PVs or data
+- Old PVs become "Released" (unusable) but still consume storage
+- OADP restore creates NEW PVCs and NEW PVs with restored data
+- **Result**: Orphaned PVs in "Released" state that need manual cleanup
+
+Check reclaim policy:
+```bash
+# Check storage class reclaim policy
+oc get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
+
+# Check existing PVs bound to service PVCs
+oc get pvc -n openstack -l openstack.org/backup-volumes=true -o custom-columns=NAME:.metadata.name,VOLUME:.spec.volumeName,STORAGECLASS:.spec.storageClassName
+```
+
+After OADP restore completes, if using Retain policy, clean up orphaned PVs:
+```bash
+# Find PVs in Released state (orphaned from deleted PVCs)
+oc get pv --field-selector=status.phase=Released
+
+# Delete released PVs to reclaim storage
+# WARNING: This deletes the underlying storage data
+oc delete pv <released-pv-name>
+
+# Or delete all released PVs at once
+oc get pv --field-selector=status.phase=Released -o name | xargs oc delete
+```
 
 #### 13. Restore RabbitMQ User Credentials
 
@@ -1350,7 +1532,7 @@ echo "RabbitMQ user credentials restored successfully using RabbitMQUser CRs!"
 
 #### 14. Resume Deployment (Remove Staged Deployment Annotation)
 
-Now that databases and RabbitMQ credentials are restored, resume the deployment to create OpenStack services.
+Now that databases, storage volumes, and RabbitMQ credentials are restored, resume the deployment to create OpenStack services.
 
 ```bash
 # Remove the deployment-stage annotation to resume deployment
@@ -1367,9 +1549,10 @@ oc wait --for=condition=Ready openstackcontrolplane/openstack -n openstack --tim
 **What happens after resuming:**
 1. Operator creates all OpenStack services (Keystone, Nova, Neutron, Glance, etc.)
 2. Services start and connect to the already-restored databases
-3. Services connect to RabbitMQ using the restored credentials
-4. No database initialization or db_sync needed (data already restored)
-5. Services come up with existing data intact
+3. Services use the restored PVCs (Glance images, Cinder volumes, etc.)
+4. Services connect to RabbitMQ using the restored credentials
+5. No database initialization or db_sync needed (data already restored)
+6. Services come up with existing data intact
 
 **Monitor the deployment:**
 
@@ -1387,7 +1570,7 @@ oc get transporturl -n openstack
 oc logs -n openstack-operators deployment/openstack-operator-controller-manager -f
 ```
 
-#### 14. Verify Restoration
+#### 15. Verify Restoration
 
 ```bash
 # Check control plane status
