@@ -815,12 +815,116 @@
         msg: "✓ Database restore completed"
       when: db_restore_confirm.user_input == "yes"
 
-    # Step 12: RabbitMQ User Restoration
-    - name: Print Step 12 header (if not skipping)
+    # Step 12: Restore Storage Volumes (OADP)
+    - name: Print Step 12 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 12: Restore RabbitMQ User Credentials"
+          - "Step 12: Restore Storage Volumes (OADP)"
+          - "========================================"
+          - ""
+          - "Restoring PVCs for services (Glance, Cinder, Swift, Manila, ...)."
+          - "See: docs/dev/backup-restore-storage-volumes.md"
+
+    - name: Check if velero-backup.yaml exists in backup
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/velero-backup.yaml"
+      register: velero_backup_file
+
+    - name: Get OADP backup name from velero-backup.yaml
+      ansible.builtin.shell: |
+        grep 'name:' {{ backup_dir }}/velero-backup.yaml | head -1 | awk '{print $2}'
+      register: velero_backup_name
+      changed_when: false
+      when: velero_backup_file.stat.exists
+
+    - name: Check if OADP is installed
+      ansible.builtin.shell: |
+        oc get deployment velero -n {{ oadp_namespace | default('openshift-adp') }} &>/dev/null && echo "installed" || echo "not_installed"
+      register: oadp_restore_check
+      changed_when: false
+      when: velero_backup_file.stat.exists
+
+    - name: Print OADP not installed message
+      ansible.builtin.debug:
+        msg:
+          - "OADP backup reference found (velero-backup.yaml)"
+          - "But OADP not found in namespace {{ oadp_namespace | default('openshift-adp') }}"
+          - "Skipping PVC restore. To set up OADP, see: docs/dev/setup-oadp-minio.md"
+      when: velero_backup_file.stat.exists and oadp_restore_check.stdout == "not_installed"
+
+    - name: Print no OADP backup message
+      ansible.builtin.debug:
+        msg:
+          - "No OADP backup reference found (velero-backup.yaml not in backup)"
+          - "Skipping PVC restore."
+      when: not velero_backup_file.stat.exists
+
+    - name: Get restore timestamp
+      ansible.builtin.shell: |
+        date +%Y%m%d-%H%M%S
+      register: restore_timestamp
+      changed_when: false
+      when: velero_backup_file.stat.exists and oadp_restore_check.stdout == "installed"
+
+    - name: Get restore timestamp ISO8601
+      ansible.builtin.shell: |
+        date -u +"%Y-%m-%dT%H:%M:%SZ"
+      register: restore_timestamp_iso
+      changed_when: false
+      when: velero_backup_file.stat.exists and oadp_restore_check.stdout == "installed"
+
+    - name: Restore storage volumes with OADP
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: velero.io/v1
+        kind: Restore
+        metadata:
+          name: {{ velero_backup_name.stdout }}-restore-{{ restore_timestamp.stdout }}
+          namespace: {{ oadp_namespace | default('openshift-adp') }}
+          labels:
+            openstack.org/backup-name: "{{ velero_backup_name.stdout }}"
+          annotations:
+            openstack.org/backup-name: "{{ velero_backup_name.stdout }}"
+            openstack.org/restore-timestamp: "{{ restore_timestamp_iso.stdout }}"
+        spec:
+          backupName: {{ velero_backup_name.stdout }}
+          includedNamespaces:
+          - {{ openstack_namespace }}
+          restorePVs: true
+        EOF
+      register: oadp_restore
+      changed_when: true
+      when: velero_backup_file.stat.exists and oadp_restore_check.stdout == "installed"
+
+    - name: Get restore name
+      ansible.builtin.set_fact:
+        oadp_restore_name: "{{ velero_backup_name.stdout }}-restore-{{ restore_timestamp.stdout }}"
+      when: velero_backup_file.stat.exists and oadp_restore_check.stdout == "installed"
+
+    - name: Wait for OADP restore to complete
+      ansible.builtin.shell: |
+        oc wait --for=jsonpath='{.status.phase}'=Completed \
+          restore/{{ oadp_restore_name }} \
+          -n {{ oadp_namespace | default('openshift-adp') }} \
+          --timeout={{ pvc_restore_timeout | default('60m') }}
+      changed_when: false
+      when: velero_backup_file.stat.exists and oadp_restore_check.stdout == "installed"
+
+    - name: Print Step 12 completion
+      ansible.builtin.debug:
+        msg:
+          - "✓ Storage volumes restored from OADP backup"
+          - "  Backup: {{ velero_backup_name.stdout }}"
+          - "  Restore: {{ oadp_restore_name }}"
+      when: velero_backup_file.stat.exists and oadp_restore_check.stdout == "installed"
+
+    # Step 13: RabbitMQ User Restoration
+    - name: Print Step 13 header (if not skipping)
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 13: Restore RabbitMQ User Credentials"
           - "========================================"
           - ""
           - "⚠️  CRITICAL FOR EDPM/DATA PLANE DEPLOYMENTS ⚠️"
@@ -962,15 +1066,15 @@
         msg: "Skipping RabbitMQ user restoration (skip_rabbitmq_restore=true)"
       when: skip_rabbitmq_restore
 
-    # Step 13: Resume Deployment
-    - name: Print Step 13 header
+    # Step 14: Resume Deployment
+    - name: Print Step 14 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 13: Resume Deployment"
+          - "Step 14: Resume Deployment"
           - "========================================"
           - ""
-          - "Now that databases and RabbitMQ credentials are restored,"
+          - "Now that databases, storage volumes, and RabbitMQ credentials are restored,"
           - "remove the staged deployment annotation to resume deployment."
           - ""
           - "This will:"

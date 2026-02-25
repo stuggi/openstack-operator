@@ -15,6 +15,7 @@
 #   ansible-playbook backup-openstack-ctlplane.yaml
 #   ansible-playbook backup-openstack-ctlplane.yaml -e openstack_namespace=my-openstack
 #   ansible-playbook backup-openstack-ctlplane.yaml -e backup_dir_base=/custom/backup/path
+#   ansible-playbook backup-openstack-ctlplane.yaml -e skip_pvc_backup=true  # Skip OADP PVC backup
 
 - name: Backup OpenStack Control Plane
   hosts: localhost
@@ -31,6 +32,9 @@
         backup_date: "{{ backup_date_result.stdout }}"
         openstack_namespace: "{{ openstack_namespace | default('openstack') }}"
         backup_dir_base_input: "{{ backup_dir_base | default('./backups') }}"
+        skip_pvc_backup: "{{ skip_pvc_backup | default(false) | bool }}"
+        oadp_namespace: "{{ oadp_namespace | default('openshift-adp') }}"
+        pvc_backup_timeout: "{{ pvc_backup_timeout | default('60m') }}"
 
     - name: Resolve absolute backup directory path
       ansible.builtin.set_fact:
@@ -435,6 +439,105 @@
       ansible.builtin.debug:
         msg: "✓ Operator versions documented"
 
+    - name: Print Step 9 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 9: Backup Storage Volumes (OADP)"
+          - "========================================"
+          - ""
+          - "Backing up PVCs with label openstack.org/backup-volumes=true"
+          - "See: docs/dev/backup-restore-storage-volumes.md"
+      when: not skip_pvc_backup
+
+    - name: Check if OADP is installed
+      ansible.builtin.shell: |
+        oc get deployment velero -n {{ oadp_namespace }} &>/dev/null && echo "installed" || echo "not_installed"
+      register: oadp_check
+      changed_when: false
+      when: not skip_pvc_backup
+
+    - name: Check for PVCs with backup label
+      ansible.builtin.shell: |
+        oc get pvc -n {{ openstack_namespace }} -l openstack.org/backup-volumes=true --no-headers 2>/dev/null | wc -l
+      register: pvc_count
+      changed_when: false
+      when: not skip_pvc_backup and oadp_check.stdout == "installed"
+
+    - name: Print OADP not installed message
+      ansible.builtin.debug:
+        msg:
+          - "OADP not found in namespace {{ oadp_namespace }}"
+          - "Skipping PVC backup. To set up OADP, see: docs/dev/setup-oadp-minio.md"
+          - ""
+          - "To skip this check, use: -e skip_pvc_backup=true"
+      when: not skip_pvc_backup and oadp_check.stdout == "not_installed"
+
+    - name: Print no PVCs labeled message
+      ansible.builtin.debug:
+        msg:
+          - "No PVCs found with label openstack.org/backup-volumes=true"
+          - "Skipping PVC backup. To label PVCs, see: docs/dev/backup-restore-storage-volumes.md"
+      when: not skip_pvc_backup and oadp_check.stdout == "installed" and pvc_count.stdout|int == 0
+
+    - name: Create OADP backup for storage volumes
+      ansible.builtin.shell: |
+        BACKUP_NAME="openstack-volumes-{{ backup_date }}"
+        cat <<EOF | oc apply -f -
+        apiVersion: velero.io/v1
+        kind: Backup
+        metadata:
+          name: ${BACKUP_NAME}
+          namespace: {{ oadp_namespace }}
+        spec:
+          includedNamespaces:
+          - {{ openstack_namespace }}
+          labelSelector:
+            matchLabels:
+              openstack.org/backup-volumes: "true"
+          defaultVolumesToRestic: true
+          storageLocation: velero-1
+          ttl: 720h
+        EOF
+        echo ${BACKUP_NAME}
+      register: oadp_backup
+      changed_when: true
+      when: not skip_pvc_backup and oadp_check.stdout == "installed" and pvc_count.stdout|int > 0
+
+    - name: Wait for OADP backup to complete
+      ansible.builtin.shell: |
+        oc wait --for=jsonpath='{.status.phase}'=Completed \
+          backup/{{ oadp_backup.stdout_lines[-1] }} \
+          -n {{ oadp_namespace }} \
+          --timeout={{ pvc_backup_timeout }}
+      changed_when: false
+      when: not skip_pvc_backup and oadp_check.stdout == "installed" and pvc_count.stdout|int > 0
+
+    - name: Save Velero Backup CR for restore reference
+      ansible.builtin.shell: |
+        oc get backup {{ oadp_backup.stdout_lines[-1] }} -n {{ oadp_namespace }} -o yaml > "{{ backup_dir }}/velero-backup.yaml"
+      changed_when: true
+      when: not skip_pvc_backup and oadp_check.stdout == "installed" and pvc_count.stdout|int > 0
+
+    - name: Print Step 9 completion
+      ansible.builtin.debug:
+        msg:
+          - "✓ Storage volumes backed up: {{ oadp_backup.stdout_lines[-1] }}"
+          - "✓ Backup CR saved to: velero-backup.yaml"
+      when: not skip_pvc_backup and oadp_check.stdout == "installed" and pvc_count.stdout|int > 0
+
+    - name: Print Step 9 skipped
+      ansible.builtin.debug:
+        msg: "Step 9 skipped (skip_pvc_backup=true)"
+      when: skip_pvc_backup
+
+    - name: Print Step 10 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 10: Create Backup Archive"
+          - "========================================"
+
     - name: Create README.md
       ansible.builtin.shell: |
         cat > "{{ backup_dir }}/README.md" << 'EOF'
@@ -481,6 +584,14 @@
         - subscription-backup.json: Subscription details
         - installplan-backup.json: InstallPlan details
 
+        ### RabbitMQ Resources
+        - rabbitmquser-backup.json: RabbitMQUser CRs (user-created ones without ownerReferences will be restored, operator-managed ones with ownerReferences will be filtered out)
+
+        ### Storage Volumes (OADP Backup Reference)
+        - velero-backup.yaml: Velero Backup CR reference for storage volumes (if OADP backup was performed)
+          The actual PVC data is stored in the OADP backup location (MinIO/S3).
+          See: docs/dev/backup-restore-storage-volumes.md
+
         ## Restore Instructions
 
         See: docs/dev/backup-restore-stateless.md
@@ -510,6 +621,10 @@
       register: archive_size
       changed_when: false
 
+    - name: Set OADP backup name for summary
+      ansible.builtin.set_fact:
+        oadp_backup_name: "{{ oadp_backup.stdout_lines[-1] if (oadp_backup is defined and oadp_backup.stdout_lines is defined) else 'N/A (skipped or not available)' }}"
+
     - name: Print backup completion summary
       ansible.builtin.debug:
         msg:
@@ -520,10 +635,16 @@
           - "Archive created: {{ backup_dir_base }}/openstack-ctlplane-backup-{{ backup_date }}.tar.gz"
           - "Archive size: {{ archive_size.stdout }}"
           - ""
+          - "Storage Volumes (OADP):"
+          - "  Backup name: {{ oadp_backup_name }}"
+          - "  OADP namespace: {{ oadp_namespace }}"
+          - "  Location: MinIO/S3 (not in archive)"
+          - ""
           - "Next steps:"
           - "1. Review operator-versions.txt for required operator versions"
           - "2. Store backup archive securely"
-          - "3. Test restore on a test cluster before relying on this backup"
+          - "3. Ensure OADP backup is also available in MinIO/S3"
+          - "4. Test restore on a test cluster before relying on this backup"
           - ""
           - "Example storage commands:"
           - "  scp {{ backup_dir_base }}/openstack-ctlplane-backup-{{ backup_date }}.tar.gz backup-server:/backups/"
