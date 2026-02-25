@@ -1,7 +1,7 @@
 ---
 # OpenStack Control Plane Restore Playbook
 # This playbook performs a restore of the stateless OpenStack control plane
-# following the documented procedure in backup-restore-stateless.md
+# following the documented procedure in backup-restore-ctlplane.md
 #
 # IMPORTANT: Only restore from backups of fully updated environments!
 #            Restore is NOT supported for partially updated environments
@@ -1172,4 +1172,4 @@
           - "   - Check nova-compute logs on compute nodes"
           - "   - Check neutron agent logs on network nodes"
           - ""
-          - "For detailed verification steps, see docs/dev/backup-restore-stateless.md"
+          - "For detailed verification steps, see docs/dev/backup-restore-ctlplane.md"

@@ -242,7 +242,7 @@
         See: docs/dev/backup-restore-dataplane.md
 
         **Prerequisites:**
-        - ControlPlane must be restored first (see backup-restore-stateless.md)
+        - ControlPlane must be restored first (see backup-restore-ctlplane.md)
         - Target cluster must have matching operator versions
 
         **Restore Order:**

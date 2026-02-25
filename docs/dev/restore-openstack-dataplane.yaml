@@ -8,7 +8,7 @@
 #       an additional procedure required to restore those objects.
 #
 # PREREQUISITES:
-#   - ControlPlane must be restored first (see backup-restore-stateless.md)
+#   - ControlPlane must be restored first (see backup-restore-ctlplane.md)
 #   - Target cluster must have matching operator versions
 #   - Namespace must exist
 #
@@ -57,7 +57,7 @@
           - "Target namespace: {{ openstack_namespace }}"
           - ""
           - "PREREQUISITES CHECKLIST:"
-          - "  [ ] ControlPlane restored (see backup-restore-stateless.md)"
+          - "  [ ] ControlPlane restored (see backup-restore-ctlplane.md)"
           - "  [ ] Target cluster has matching operator versions"
           - "  [ ] Namespace exists and is ready for DataPlane"
 

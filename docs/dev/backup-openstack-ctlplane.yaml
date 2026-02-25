@@ -1,7 +1,7 @@
 ---
 # OpenStack Control Plane Backup Playbook
 # This playbook performs a backup of the stateless OpenStack control plane
-# following the documented procedure in backup-restore-stateless.md
+# following the documented procedure in backup-restore-ctlplane.md
 #
 # IMPORTANT: Only backup fully updated environments!
 #            Backup/restore is NOT supported for partially updated environments
@@ -594,7 +594,7 @@
 
         ## Restore Instructions
 
-        See: docs/dev/backup-restore-stateless.md
+        See: docs/dev/backup-restore-ctlplane.md
 
         **IMPORTANT**: Target cluster must have matching operator versions!
         Check operator-versions.txt for required versions.

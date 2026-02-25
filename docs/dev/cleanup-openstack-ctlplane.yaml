@@ -1,7 +1,7 @@
 ---
 # OpenStack Control Plane Cleanup Playbook
 # This playbook performs cleanup of OpenStack control plane resources
-# following the documented procedure in backup-restore-stateless.md
+# following the documented procedure in backup-restore-ctlplane.md
 #
 # IMPORTANT: This will delete all OpenStack control plane resources!
 # Use this before restoring from backup or when completely removing OpenStack.

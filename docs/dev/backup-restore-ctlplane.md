@@ -897,7 +897,7 @@ All backup files are in JSON format for consistency.
 
 ## Restore Instructions
 
-See: docs/dev/backup-restore-stateless.md
+See: docs/dev/backup-restore-ctlplane.md
 
 **IMPORTANT**: Target cluster must have matching operator versions!
 Check operator-versions.txt for required versions.
