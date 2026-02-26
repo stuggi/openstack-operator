@@ -1,21 +1,31 @@
-# OpenStack Control Plane Backup and Restore Procedure (Stateless Services)
+# OpenStack Control Plane Backup and Restore Procedure
 
 ## Overview
 
 This procedure is designed for **Red Hat OpenShift** deployments using the `oc` CLI client.
 
-This procedure covers backup and restore of the OpenStack Control Plane focusing on **stateless services only**. It excludes:
-- Database data (Galera/MariaDB)
-- OVN databases
-- PersistentVolumes/PersistentVolumeClaims
-- RabbitMQ message queue data (persistent messages)
+This procedure covers backup and restore of the OpenStack Control Plane including:
+- **Stateless Services**: API services, controllers, schedulers, caching layers
+- **Database Data**: Galera/MariaDB backups via dedicated procedure (see Step 9 for backup, Step 11 for restore)
+- **Storage Volumes**: PersistentVolumes/PersistentVolumeClaims via OADP (see Step 10 for backup, Step 12 for restore)
+- **RabbitMQ**: Fresh cluster recreation with user credential restoration (see [Key Principle](#key-principle) section)
+
+This procedure does **NOT** cover:
+- **OVN databases** - Requires separate backup/restore procedure (not yet documented)
 
 ## Scope
 
-### Services Covered (Stateless)
+### What's Backed Up
+
+**Stateless Services:**
 - **API Services**: Keystone, Placement, Nova, Glance, Cinder, Neutron, Horizon, Heat, Ironic, Manila, Barbican, Designate, Octavia
 - **Control Services**: Nova Conductor, Nova Scheduler, Cinder Scheduler, Heat Engine
 - **Caching**: Memcached, Redis (non-persistent)
+
+**Stateful Components:**
+- **Database Data**: Galera/MariaDB database dumps (transactionally consistent)
+- **Storage Volumes**: PVCs/PVs for Glance, Cinder, Swift, Manila (via OADP/Restic)
+- **Infrastructure Services**: RabbitMQ (fresh cluster with credential restoration)
 
 ### Important Limitation: Fully Updated Environments Only
 
@@ -147,7 +157,8 @@ flowchart TD
     WaitInfra -->|Not Ready| WaitInfra
     WaitInfra -->|Ready| InfraReady[Infrastructure Ready:<br/>✓ Galera<br/>✓ OVN NB/SB<br/>✓ RabbitMQ<br/>✓ Memcached]
 
-    InfraReady --> RestoreMariaDB[Restore MariaDB Database Contents]
+    InfraReady --> RestoreGaleraBackup[Restore GaleraBackup CRs<br/>Database backup configuration]
+    RestoreGaleraBackup --> RestoreMariaDB[Restore MariaDB Database Contents<br/>Create GaleraRestore CR & execute]
     RestoreMariaDB --> RestoreOVN[Restore OVN Database Contents<br/>NB & SB databases]
     RestoreOVN --> RestorePVC[Restore Storage Volumes<br/>OADP restore for service PVCs<br/>Optional: Glance, Cinder, Swift, Manila]
     RestorePVC --> RestoreRabbitMQ[Restore RabbitMQ User Credentials<br/>Create RabbitMQUser CRs<br/>for EDPM compatibility]
@@ -176,6 +187,7 @@ flowchart TD
 - **Prerequisites**: Cluster infrastructure must exist first (StorageClass, NNCP, MetalLB) - either still present or restored separately
 - **Staged Deployment**: Infrastructure (databases, message queue) is created first with annotation `core.openstack.org/deployment-stage: "infrastructure-only"`
 - **OpenStackControlPlaneInfrastructureReady Condition**: Single condition check validates all infrastructure components are ready
+- **GaleraBackup CRs Restore**: Database backup configurations restored first - Step 7a
 - **Database Restore**: Performed while OpenStack services are NOT yet created (clean restore) - Step 11
 - **Storage Volumes Restore**: OADP restores service PVCs after database restore, before services start - Step 12 (optional)
 - **RabbitMQ User Restore**: Original user credentials restored for EDPM compatibility - Step 13
