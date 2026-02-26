@@ -512,7 +512,7 @@
           - "Step 10: Backup Storage Volumes (OADP)"
           - "========================================"
           - ""
-          - "Backing up PVCs with label openstack.org/backup-volume=true"
+          - "Backing up PVCs with label openstack.org/backup=true"
           - "See: docs/dev/backup-restore-storage-volumes.md"
       when: not skip_pvc_backup
 
@@ -525,7 +525,7 @@
 
     - name: Check for PVCs with backup label
       ansible.builtin.shell: |
-        oc get pvc -n {{ openstack_namespace }} -l openstack.org/backup-volume=true --no-headers 2>/dev/null | wc -l
+        oc get pvc -n {{ openstack_namespace }} -l openstack.org/backup=true --no-headers 2>/dev/null | wc -l
       register: pvc_count
       changed_when: false
       when: not skip_pvc_backup and oadp_check.stdout == "installed"
@@ -542,7 +542,7 @@
     - name: Print no PVCs labeled message
       ansible.builtin.debug:
         msg:
-          - "No PVCs found with label openstack.org/backup-volume=true"
+          - "No PVCs found with label openstack.org/backup=true"
           - "Skipping PVC backup. To label PVCs, see: docs/dev/backup-restore-storage-volumes.md"
       when: not skip_pvc_backup and oadp_check.stdout == "installed" and pvc_count.stdout|int == 0
 
@@ -560,7 +560,7 @@
           - {{ openstack_namespace }}
           labelSelector:
             matchLabels:
-              openstack.org/backup-volume: "true"
+              openstack.org/backup: "true"
           defaultVolumesToRestic: true
           storageLocation: velero-1
           ttl: 720h
@@ -659,7 +659,7 @@
           The actual PVC data is stored in the OADP backup location (MinIO/S3).
 
           Includes backups of:
-          - Galera database dumps (PVCs created by GaleraBackup CRs - must be manually labeled with openstack.org/backup-volume=true)
+          - Galera database dumps (PVCs created by GaleraBackup CRs - must be manually labeled with openstack.org/backup=true)
           - Glance images (if labeled)
           - Cinder volumes (if labeled)
           - Swift objects (if labeled)

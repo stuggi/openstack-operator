@@ -378,19 +378,19 @@ oc get galerabackup -n openstack
 
 **Verify GaleraBackup PVCs are labeled:**
 
-The backup procedure uses OADP to back up PVCs containing Galera database dumps. These PVCs must be labeled with `openstack.org/backup-volume: "true"`.
+The backup procedure uses OADP to back up PVCs containing Galera database dumps. These PVCs must be labeled with `openstack.org/backup: "true"`.
 
 ```bash
 # Check if backup PVCs are labeled
-oc get pvc -n openstack -l openstack.org/backup-volume=true | grep mysql-backup
+oc get pvc -n openstack -l openstack.org/backup=true | grep mysql-backup
 
 # If not labeled, label them manually:
 oc label pvc mysql-backup-openstack-backup-openstack -n openstack \
-  openstack.org/backup-volume=true
+  openstack.org/backup=true
 
 # For additional Galera instances (e.g., cell1):
 oc label pvc mysql-backup-openstack-cell1-backup-openstack-cell1 -n openstack \
-  openstack.org/backup-volume=true
+  openstack.org/backup=true
 ```
 
 See [Storage Volume Backup Labels](../README.md#storage-volume-backup-labels) for the future enhancement to automate this labeling.
@@ -854,7 +854,7 @@ echo "Detailed operator info saved: csv-backup.json, subscription-backup.json, i
 
 **Prerequisites**:
 - GaleraBackup CRs must be created (user-created configuration defining backup PVCs and schedules)
-- Galera backup PVCs must be labeled with `openstack.org/backup-volume=true` (see [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md#labeling-existing-pvcs))
+- Galera backup PVCs must be labeled with `openstack.org/backup=true` (see [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md#labeling-existing-pvcs))
 
 Trigger Galera backup jobs to dump databases to PVCs:
 
@@ -890,7 +890,7 @@ For detailed instructions on OADP storage volumes backup, see **[backup-restore-
 oc get deployment velero -n openshift-adp &>/dev/null && echo "OADP installed" || echo "OADP not installed"
 
 # Check if any PVCs are labeled for backup
-oc get pvc -n openstack -l openstack.org/backup-volume=true
+oc get pvc -n openstack -l openstack.org/backup=true
 
 # If OADP is installed and PVCs exist, create a backup (using global BACKUP_DATE)
 OADP_BACKUP_NAME="openstack-volumes-${BACKUP_DATE}"
@@ -906,7 +906,7 @@ spec:
   - openstack
   labelSelector:
     matchLabels:
-      openstack.org/backup-volume: "true"
+      openstack.org/backup: "true"
   defaultVolumesToRestic: true
   storageLocation: velero-1
   ttl: 720h  # 30 days
@@ -1551,7 +1551,7 @@ EOF
     echo "OADP restore completed"
 
     # Verify PVCs were restored
-    oc get pvc -n openstack -l openstack.org/backup-volume=true
+    oc get pvc -n openstack -l openstack.org/backup=true
   else
     echo "OADP not installed. Skipping PVC restore."
     echo "To set up OADP, see: docs/dev/setup-oadp-minio.md"
@@ -1570,10 +1570,10 @@ fi
 
 ```bash
 # Check for existing service PVCs
-oc get pvc -n openstack -l openstack.org/backup-volume=true
+oc get pvc -n openstack -l openstack.org/backup=true
 
 # If they exist, delete them before OADP restore
-oc delete pvc -n openstack -l openstack.org/backup-volume=true
+oc delete pvc -n openstack -l openstack.org/backup=true
 ```
 
 See [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md#oadp-restore-creates-new-pvcs) for more details.
@@ -1592,7 +1592,7 @@ Check reclaim policy:
 oc get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
 
 # Check existing PVs bound to service PVCs
-oc get pvc -n openstack -l openstack.org/backup-volume=true -o custom-columns=NAME:.metadata.name,VOLUME:.spec.volumeName,STORAGECLASS:.spec.storageClassName
+oc get pvc -n openstack -l openstack.org/backup=true -o custom-columns=NAME:.metadata.name,VOLUME:.spec.volumeName,STORAGECLASS:.spec.storageClassName
 ```
 
 After OADP restore completes, if using Retain policy, clean up orphaned PVs:

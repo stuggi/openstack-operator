@@ -382,7 +382,7 @@ oc get pvc -n openstack -l service=manila
 
 ```bash
 # Add missing labels
-oc label pvc <pvc-name> -n openstack openstack.org/backup-volume=true
+oc label pvc <pvc-name> -n openstack openstack.org/backup=true
 
 # Verify label was added
 oc get pvc <pvc-name> -n openstack --show-labels
