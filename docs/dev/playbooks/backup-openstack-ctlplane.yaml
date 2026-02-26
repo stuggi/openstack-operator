@@ -35,6 +35,7 @@
         skip_pvc_backup: "{{ skip_pvc_backup | default(false) | bool }}"
         oadp_namespace: "{{ oadp_namespace | default('openshift-adp') }}"
         pvc_backup_timeout: "{{ pvc_backup_timeout | default('60m') }}"
+        galera_backup_timeout: "{{ galera_backup_timeout | default('10m') }}"
 
     - name: Resolve absolute backup directory path
       ansible.builtin.set_fact:
@@ -245,6 +246,21 @@
         executable: /bin/bash
       changed_when: true
 
+    - name: Step 5 - Backup GaleraBackup CRs
+      ansible.builtin.shell: |
+        oc get galerabackup -n {{ openstack_namespace }} -o json | \
+          jq 'del(.items[].metadata.ownerReferences,
+                  .items[].metadata.uid,
+                  .items[].metadata.resourceVersion,
+                  .items[].metadata.creationTimestamp,
+                  .items[].metadata.managedFields,
+                  .items[].metadata.annotations."kubectl.kubernetes.io/last-applied-configuration",
+                  .items[].status,
+                  .metadata)' > {{ backup_dir }}/galerabackup-backup.json
+      args:
+        executable: /bin/bash
+      changed_when: true
+
     - name: Print Step 5 completion
       ansible.builtin.debug:
         msg: "✓ MariaDB resources backed up"
@@ -439,11 +455,61 @@
       ansible.builtin.debug:
         msg: "✓ Operator versions documented"
 
+    # Step 9: Trigger Galera Database Backups
     - name: Print Step 9 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 9: Backup Storage Volumes (OADP)"
+          - "Step 9: Trigger Galera Database Backups"
+          - "========================================"
+          - ""
+          - "Creating jobs from GaleraBackup cronjobs to dump databases to PVCs"
+          - "Prerequisites: GaleraBackup CRs must be created and backup PVCs must be labeled"
+          - "See future enhancement: docs/dev/README.md#storage-volume-backup-labels"
+
+    - name: Get list of GaleraBackup cronjobs
+      ansible.builtin.shell: |
+        oc get cronjob -n {{ openstack_namespace }} -l app=galera -o jsonpath='{.items[*].metadata.name}'
+      register: galera_backup_cronjobs
+      changed_when: false
+
+    - name: Print GaleraBackup cronjobs found
+      ansible.builtin.debug:
+        msg: "Found GaleraBackup cronjobs: {{ galera_backup_cronjobs.stdout.split() if galera_backup_cronjobs.stdout != '' else 'none' }}"
+
+    - name: Trigger Galera backup jobs
+      ansible.builtin.shell: |
+        BACKUP_JOB_NAME="{{ item }}-{{ backup_date }}"
+        oc -n {{ openstack_namespace }} create job --from=cronjob/{{ item }} ${BACKUP_JOB_NAME}
+        echo ${BACKUP_JOB_NAME}
+      loop: "{{ galera_backup_cronjobs.stdout.split() }}"
+      register: galera_backup_jobs
+      changed_when: true
+      when: galera_backup_cronjobs.stdout != ""
+
+    - name: Wait for Galera backup jobs to complete
+      ansible.builtin.shell: |
+        oc -n {{ openstack_namespace }} wait --for=condition=complete job/{{ item.stdout }} --timeout={{ galera_backup_timeout }}
+      loop: "{{ galera_backup_jobs.results }}"
+      changed_when: false
+      when: galera_backup_cronjobs.stdout != ""
+
+    - name: Print Step 9 completion
+      ansible.builtin.debug:
+        msg: "✓ Galera database backups completed"
+      when: galera_backup_cronjobs.stdout != ""
+
+    - name: Print Step 9 skip message
+      ansible.builtin.debug:
+        msg: "No GaleraBackup cronjobs found, skipping database backup"
+      when: galera_backup_cronjobs.stdout == ""
+
+    # Step 10: Backup Storage Volumes (OADP)
+    - name: Print Step 10 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 10: Backup Storage Volumes (OADP)"
           - "========================================"
           - ""
           - "Backing up PVCs with label openstack.org/backup-volume=true"
@@ -531,11 +597,11 @@
         msg: "Step 9 skipped (skip_pvc_backup=true)"
       when: skip_pvc_backup
 
-    - name: Print Step 10 header
+    - name: Print Step 11 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 10: Create Backup Archive"
+          - "Step 11: Create Backup Archive"
           - "========================================"
 
     - name: Create README.md
@@ -573,6 +639,7 @@
         ### MariaDB Resources (ownerReferences removed)
         - mariadbdatabase-backup.json: MariaDBDatabase CRs (database definitions)
         - mariadbaccount-backup.json: MariaDBAccount CRs (database account definitions, reference secrets for passwords)
+        - galerabackup-backup.json: GaleraBackup CRs (user-created backup configuration - defines backup PVCs and schedules)
 
         ### TLS Infrastructure (ownerReferences removed)
         - issuer-backup.json: cert-manager Issuer CRs
@@ -590,7 +657,16 @@
         ### Storage Volumes (OADP Backup Reference)
         - velero-backup.yaml: Velero Backup CR reference for storage volumes (if OADP backup was performed)
           The actual PVC data is stored in the OADP backup location (MinIO/S3).
+
+          Includes backups of:
+          - Galera database dumps (PVCs created by GaleraBackup CRs - must be manually labeled with openstack.org/backup-volume=true)
+          - Glance images (if labeled)
+          - Cinder volumes (if labeled)
+          - Swift objects (if labeled)
+          - Manila shares (if labeled)
+
           See: docs/dev/backup-restore-storage-volumes.md
+          Future enhancement (automatic labeling): docs/dev/README.md#storage-volume-backup-labels
 
         ## Restore Instructions
 

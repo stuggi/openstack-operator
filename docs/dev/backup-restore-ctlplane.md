@@ -417,6 +417,14 @@ The playbook follows the correct restore order and prompts for confirmation at c
 
 ## Backup Procedure
 
+**Set global timestamp** - Used consistently across all backup resources:
+
+```bash
+# Set backup timestamp (reuse throughout all steps)
+BACKUP_DATE=$(date +%Y%m%d-%H%M%S)
+echo "Backup timestamp: ${BACKUP_DATE}"
+```
+
 ### 1. Backup OpenStackControlPlane CR
 
 ```bash
@@ -773,9 +781,38 @@ echo "Operator versions documented in operator-versions.txt"
 echo "Detailed operator info saved: csv-backup.json, subscription-backup.json, installplan-backup.json"
 ```
 
-### 9. Backup Storage Volumes (OADP)
+### 9. Trigger Galera Database Backups
 
-**Optional**: If you have persistent volumes for services (Glance images, Cinder volumes, Swift objects, Manila shares, etc.), back them up using OADP.
+**Prerequisites**:
+- GaleraBackup CRs must be created (user-created configuration defining backup PVCs and schedules)
+- Galera backup PVCs must be labeled with `openstack.org/backup-volume=true` (see [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md#labeling-existing-pvcs))
+
+Trigger Galera backup jobs to dump databases to PVCs:
+
+```bash
+# List GaleraBackup cronjobs
+oc get cronjob -n openstack -l app=galera
+
+# Trigger backup jobs from cronjobs (using global BACKUP_DATE)
+oc -n openstack create job --from=cronjob/openstack-backup-openstack backup-openstack-${BACKUP_DATE}
+oc -n openstack create job --from=cronjob/openstack-cell1-backup-openstack-cell1 backup-openstack-cell1-${BACKUP_DATE}
+# For additional cells (cell2, cell3, etc.) - add similar commands as needed
+
+# Wait for backup jobs to complete
+oc -n openstack wait --for=condition=complete job/backup-openstack-${BACKUP_DATE} --timeout=10m
+oc -n openstack wait --for=condition=complete job/backup-openstack-cell1-${BACKUP_DATE} --timeout=10m
+
+# Verify backups completed successfully
+oc get job -n openstack | grep backup-openstack
+```
+
+**Note**: Database dumps are written to PVCs created by the GaleraBackup CRs. These PVCs will be backed up by OADP in the next step.
+
+**Future enhancement**: Automatic labeling of backup PVCs - see [README.md#storage-volume-backup-labels](README.md#storage-volume-backup-labels)
+
+### 10. Backup Storage Volumes (OADP)
+
+**Optional**: If you have persistent volumes for services (Glance images, Cinder volumes, Swift objects, Manila shares, Galera database dumps, etc.), back them up using OADP.
 
 For detailed instructions on OADP storage volumes backup, see **[backup-restore-storage-volumes.md](backup-restore-storage-volumes.md)**.
 
@@ -786,8 +823,7 @@ oc get deployment velero -n openshift-adp &>/dev/null && echo "OADP installed" |
 # Check if any PVCs are labeled for backup
 oc get pvc -n openstack -l openstack.org/backup-volume=true
 
-# If OADP is installed and PVCs exist, create a backup
-BACKUP_DATE=$(date +%Y%m%d-%H%M%S)
+# If OADP is installed and PVCs exist, create a backup (using global BACKUP_DATE)
 OADP_BACKUP_NAME="openstack-volumes-${BACKUP_DATE}"
 
 cat <<EOF | oc apply -f -
@@ -826,11 +862,11 @@ echo "Backup reference saved: backups/velero-backup-${BACKUP_DATE}.yaml"
 
 If OADP is not installed or you don't have PVCs to backup, skip this step.
 
-### 10. Create Backup Archive
+### 11. Create Backup Archive
 
 ```bash
-# Create timestamped backup directory (reuse BACKUP_DATE if running from step 9)
-BACKUP_DATE=${BACKUP_DATE:-$(date +%Y%m%d-%H%M%S)}
+# Create timestamped backup directory (using global BACKUP_DATE)
+BACKUP_DATE=${BACKUP_DATE:-$(date +%Y%m%d-%H%M%S)}  # Fallback if not set
 BACKUP_DIR="openstack-ctlplane-backup-${BACKUP_DATE}"
 mkdir -p ${BACKUP_DIR}
 

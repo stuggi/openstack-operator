@@ -55,6 +55,19 @@ PVCs already have an existing `service: <service-name>` label for service identi
 Add the backup label to PVCs that need to be backed up:
 
 ```bash
+# Label Galera backup PVCs (database dumps) manually by name
+# These contain database dumps from GaleraBackup CRs - NOT the production database PVCs
+# List backup PVCs first
+oc get pvc -n openstack | grep mysql-backup
+
+# Label each backup PVC by name (until automatic labeling is implemented)
+oc label pvc mysql-backup-openstack-backup-openstack -n openstack \
+  openstack.org/backup-volume=true
+
+# For multiple Galera instances (e.g., cell1)
+oc label pvc mysql-backup-openstack-cell1-backup-openstack-cell1 -n openstack \
+  openstack.org/backup-volume=true
+
 # Label Glance PVCs
 oc label pvc -n openstack -l service=glance \
   openstack.org/backup-volume=true
