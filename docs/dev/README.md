@@ -95,7 +95,7 @@ The following enhancements were implemented to enable reliable backup and restor
 
 | Component | What's Backed Up | What's NOT Backed Up |
 |-----------|------------------|---------------------|
-| ControlPlane | OpenStackControlPlane CR<br>OpenStackVersion CR<br>NetworkAttachmentDefinitions<br>Secrets (all application secrets)<br>ConfigMaps (user-provided only)<br>MariaDBDatabase/MariaDBAccount CRs<br>Issuer CRs (TLS)<br>Topology<br>BGPConfiguration<br>DNSData<br>InstanceHa | Individual service CRs (Keystone, Nova, etc. - recreated by controller)<br>Certificate CRs (recreated by operators)<br>Running pods<br>Database contents<br>OVN database contents<br>RabbitMQ messages |
+| ControlPlane | OpenStackControlPlane CR<br>OpenStackVersion CR<br>NetworkAttachmentDefinitions<br>Secrets (all application secrets)<br>ConfigMaps (user-provided only)<br>MariaDBDatabase/MariaDBAccount CRs<br>GaleraBackup CRs<br>Issuer CRs (TLS)<br>Topology<br>BGPConfiguration<br>DNSData<br>InstanceHa<br>**Database contents** (Galera/MariaDB dumps)<br>**PVCs/PVs** (Glance, Cinder, Swift, Manila - via OADP)<br>**RabbitMQ user credentials** (for fresh cluster recreation) | Individual service CRs (Keystone, Nova, etc. - recreated by controller)<br>Certificate CRs (recreated by operators)<br>Running pods<br>OVN database contents<br>RabbitMQ queue data (fresh cluster created) |
 | DataPlane | NetConfig (network topology)<br>OpenStackDataPlaneNodeSet<br>OpenStackDataPlaneService<br>Reservation (IP reservations)<br>IPSet (IP allocations)<br>OpenStackDataPlaneDeployment (reference only) | OpenStackDataPlaneDeployment status (not restored to avoid triggering new deployments) |
 
 ### Restore Order
