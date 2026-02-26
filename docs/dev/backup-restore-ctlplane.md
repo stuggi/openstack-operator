@@ -356,6 +356,63 @@ oc get openstackcontrolplane -n openstack -o jsonpath='{.items[0].spec.storageCl
 # - Other service-specific storage configurations
 ```
 
+### Backup-Specific Prerequisites
+
+#### GaleraBackup Configuration (Database Backups)
+
+Before performing a backup, you must have **GaleraBackup CRs configured** for each Galera database instance. These CRs define the backup configuration and create CronJobs that can be triggered on-demand during backup.
+
+**Verify GaleraBackup CRs exist:**
+
+```bash
+# Check for GaleraBackup CRs
+oc get galerabackup -n openstack
+
+# Example output:
+# NAME      AGE
+# openstack        10d
+# openstack-cell1  10d
+```
+
+**If GaleraBackup CRs are missing**, you must create them before proceeding with backup. Refer to your deployment documentation for GaleraBackup configuration.
+
+**Verify GaleraBackup PVCs are labeled:**
+
+The backup procedure uses OADP to back up PVCs containing Galera database dumps. These PVCs must be labeled with `openstack.org/backup-volume: "true"`.
+
+```bash
+# Check if backup PVCs are labeled
+oc get pvc -n openstack -l openstack.org/backup-volume=true | grep mysql-backup
+
+# If not labeled, label them manually:
+oc label pvc mysql-backup-openstack-backup-openstack -n openstack \
+  openstack.org/backup-volume=true
+
+# For additional Galera instances (e.g., cell1):
+oc label pvc mysql-backup-openstack-cell1-backup-openstack-cell1 -n openstack \
+  openstack.org/backup-volume=true
+```
+
+See [Storage Volume Backup Labels](../README.md#storage-volume-backup-labels) for the future enhancement to automate this labeling.
+
+#### OADP Setup (Storage Volumes)
+
+**Optional**: If you want to back up persistent volumes for services (Glance images, Cinder volumes, Swift objects, Manila shares, Galera database dumps), you must have OADP installed and configured.
+
+For OADP setup instructions, see **[setup-oadp-minio.md](setup-oadp-minio.md)**.
+
+**Verify OADP is installed:**
+
+```bash
+# Check if OADP operator is installed
+oc get deployment velero -n openshift-adp &>/dev/null && echo "OADP installed" || echo "OADP not installed"
+
+# Check BackupStorageLocation is available
+oc get backupstoragelocation -n openshift-adp
+```
+
+If OADP is not installed, you can still perform control plane backup (CRs, secrets, configmaps) but storage volumes will not be backed up.
+
 ---
 
 ## Ansible Playbooks
