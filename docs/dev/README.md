@@ -253,3 +253,59 @@ pvc.Labels = map[string]string{
 
 **Related Issues:**
 - [OSPRH-27012](https://issues.redhat.com/browse/OSPRH-27012) - Storage Volume Backup Labels
+
+### Galera Backup Timestamp Tracking
+
+**Current Limitation:**
+When performing Galera database backups during the control plane backup procedure, the timestamp on the database dump files does not exactly match the control plane backup timestamp. This creates a manual step during restore where users must exec into the restore pod and find the dump file with the closest timestamp to the backup.
+
+**Example:**
+- Control plane backup triggered: `2026-02-26_10-12-00` (global BACKUP_DATE)
+- Galera backup job created: `backup-openstack-2026-02-26_10-12-00`
+- Actual dump file created: `openstack_backup_2026-02-26_10-12-59.sql.gz` (59 seconds later)
+
+During restore, users must:
+1. List dump files: `oc exec openstack-restore-openstackrestore -- ls -la /backup/data/`
+2. Manually find the closest timestamp to the control plane backup
+3. Execute restore with the correct timestamp
+
+**Proposed Enhancement:**
+Pass the global `BACKUP_DATE` timestamp as an environment variable when creating Galera backup jobs:
+
+```bash
+# Updated job creation command
+oc create job backup-openstack-${BACKUP_DATE} \
+  --from=cronjob/openstack-backup-openstack \
+  --env="BACKUP_TIMESTAMP=${BACKUP_DATE}" \
+  -n openstack
+```
+
+The Galera backup script would check for the `BACKUP_TIMESTAMP` environment variable:
+
+```bash
+# In the Galera backup script
+TIMESTAMP=${BACKUP_TIMESTAMP:-$(date +%Y-%m-%d_%H-%M-%S)}
+DUMP_FILE="openstack_backup_${TIMESTAMP}.sql.gz"
+GRANTS_FILE="openstack_backup-grants_${TIMESTAMP}.sql.gz"
+```
+
+**Benefits:**
+- Eliminates manual timestamp matching during restore
+- Dump filenames exactly match control plane backup timestamp
+- Simple implementation (just pass environment variable)
+- Backward compatible (falls back to auto-generated timestamp if env var not set)
+- No metadata tracking or additional CRs needed
+- Fully automated restore without user intervention
+
+**Result:**
+- Backup archive: `openstack-ctlplane-backup-2026-02-26_10-12-00.tar.gz`
+- Dump files: `openstack_backup_2026-02-26_10-12-00.sql.gz` (exact match!)
+- Restore: Can automatically construct dump file path from archive name
+
+**Implementation:**
+- Update backup playbook to pass `BACKUP_TIMESTAMP` env var when creating jobs
+- Update Galera backup script to use env var if present
+- Update restore docs to use exact timestamp from backup archive name
+
+**Related Issues:**
+- [OSPRH-27069](https://issues.redhat.com/browse/OSPRH-27069) - Allow passing backup timestamp to backup_galera

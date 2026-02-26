@@ -499,9 +499,59 @@
         executable: /bin/bash
       changed_when: true
 
-    - name: Print Step 8 completion
+    - name: Print Step 7 completion
       ansible.builtin.debug:
         msg: "✓ MariaDBAccount CRs restored"
+
+    # Step 7a: Restore GaleraBackup CRs
+    - name: Print Step 7a header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 7a: Restore GaleraBackup CRs"
+          - "========================================"
+          - "Restoring GaleraBackup configuration CRs (user-created)"
+
+    - name: Check if GaleraBackup backup exists
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/galerabackup-backup.json"
+      register: galerabackup_backup_file
+
+    - name: Apply GaleraBackup CRs
+      ansible.builtin.shell: |
+        item_count=$(jq '.items | length' {{ backup_dir }}/galerabackup-backup.json)
+
+        for i in $(seq 0 $((item_count - 1))); do
+          item_name=$(jq -r ".items[${i}].metadata.name" {{ backup_dir }}/galerabackup-backup.json)
+          item_kind=$(jq -r ".items[${i}].kind" {{ backup_dir }}/galerabackup-backup.json)
+          has_annotation=$(jq -r ".items[${i}].metadata.annotations.\"kubectl.kubernetes.io/last-applied-configuration\" // empty" {{ backup_dir }}/galerabackup-backup.json)
+
+          temp_file=$(mktemp)
+          jq ".items[${i}]" {{ backup_dir }}/galerabackup-backup.json > "${temp_file}"
+
+          echo "  Applying: ${item_kind}/${item_name}"
+          if [ -n "${has_annotation}" ]; then
+            oc apply -f "${temp_file}" -n {{ openstack_namespace }} 2>&1 | grep -v "Warning: resource" || true
+          else
+            oc apply --server-side=true -f "${temp_file}" -n {{ openstack_namespace }} 2>&1 | grep -v "Warning: resource" || true
+          fi
+
+          rm -f "${temp_file}"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true
+      when: galerabackup_backup_file.stat.exists
+
+    - name: Print Step 7a completion
+      ansible.builtin.debug:
+        msg: "✓ GaleraBackup CRs restored"
+      when: galerabackup_backup_file.stat.exists
+
+    - name: Print Step 7a skip message
+      ansible.builtin.debug:
+        msg: "No GaleraBackup backup found, skipping..."
+      when: not galerabackup_backup_file.stat.exists
 
     # Step 8: Restore Related CRs
     - name: Print Step 8 header
@@ -781,9 +831,33 @@
           - "CRITICAL: Restore database contents while services are NOT running."
           - "This is only possible because of the staged deployment pause."
           - ""
-          - "You must restore databases using separate procedures:"
-          - "  - MariaDB: Use backup-mariadb.sh and restore-mariadb.sh"
-          - "  - OVN Databases: Use OVN database backup/restore procedures"
+          - "For each Galera instance, you must:"
+          - "  1. Create GaleraRestore CR referencing the GaleraBackup"
+          - "  2. Find the matching dump file in the restore pod (timestamp may not match exactly)"
+          - "  3. Execute restore command in the pod"
+          - ""
+          - "Example for main galera instance:"
+          - "  cat <<EOF | oc apply -f -"
+          - "  apiVersion: mariadb.openstack.org/v1beta1"
+          - "  kind: GaleraRestore"
+          - "  metadata:"
+          - "    name: openstackrestore"
+          - "  spec:"
+          - "    backupSource: openstack"
+          - "  EOF"
+          - ""
+          - "  # List dump files to find closest timestamp to backup"
+          - "  oc exec -n {{ openstack_namespace }} openstack-restore-openstackrestore -- ls -la /backup/data/"
+          - ""
+          - "  # Restore using the matching timestamp file"
+          - "  oc exec -n {{ openstack_namespace }} openstack-restore-openstackrestore -- \\"
+          - "    /var/lib/backup-scripts/restore_galera --yes /backup/data/*_YYYY-MM-DD_HH-MM-SS.sql.gz"
+          - ""
+          - "Repeat for cell1 and any additional galeras."
+          - ""
+          - "LIMITATION: Dump file timestamps may not exactly match the control plane backup timestamp."
+          - "You must manually find the dump file with the closest timestamp."
+          - "Future enhancement: See docs/dev/README.md#galera-backup-timestamp-tracking"
 
     - name: Confirm database restore completion
       ansible.builtin.pause:

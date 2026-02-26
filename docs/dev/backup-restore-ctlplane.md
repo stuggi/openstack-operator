@@ -1353,15 +1353,81 @@ oc get memcached -n openstack
 - Ensures clean database restore without service restarts
 - Services start with already-restored databases (no db_sync race conditions)
 
-#### 11. Restore Database Contents (MariaDB and OVN)
+#### 11. Restore Database Contents (Galera/MariaDB and OVN)
 
 **CRITICAL**: Restore database contents while services are NOT running. This is only possible because of the staged deployment pause.
 
-Follow the separate database restore procedures:
-- **MariaDB**: Use MariaDB-specific backup/restore procedures
-- **OVN Databases**: Use OVN database backup/restore procedures
+##### Galera/MariaDB Restore
 
-After database restore is complete, proceed to the next step.
+For each Galera instance, restore the database dumps:
+
+**1. Create GaleraRestore CR:**
+
+```bash
+# Main galera instance
+cat <<EOF | oc apply -f -
+apiVersion: mariadb.openstack.org/v1beta1
+kind: GaleraRestore
+metadata:
+  name: openstackrestore
+  namespace: openstack
+spec:
+  backupSource: openstack
+EOF
+
+# Cell1 (always present)
+cat <<EOF | oc apply -f -
+apiVersion: mariadb.openstack.org/v1beta1
+kind: GaleraRestore
+metadata:
+  name: openstackrestorecell1
+  namespace: openstack
+spec:
+  backupSource: openstack-cell1
+EOF
+
+# For additional galeras, create similar GaleraRestore CRs
+```
+
+**2. Find matching dump files:**
+
+⚠️ **LIMITATION**: Dump file timestamps may not exactly match the control plane backup timestamp. The dump is created when the Galera backup job runs, which is slightly later than when the job was triggered.
+
+```bash
+# List dump files in the restore pod for main instance
+oc exec -n openstack openstack-restore-openstackrestore -- ls -la /backup/data/
+
+# Expected output:
+# -rw-rw-r--. 1 mysql mysql 256515 Feb 26 10:13 openstack_backup_2026-02-26_10-12-59.sql.gz
+# -rw-rw-r--. 1 mysql mysql    837 Feb 26 10:13 openstack_backup-grants_2026-02-26_10-12-59.sql.gz
+
+# Find the dump file with the closest timestamp to your backup
+# Example: If backup is from 2026-02-26_10-12-00, the dump might be 2026-02-26_10-12-59
+```
+
+**3. Execute restore:**
+
+```bash
+# Restore main galera instance (replace timestamp with your actual dump file timestamp)
+oc exec -n openstack openstack-restore-openstackrestore -- \
+  /var/lib/backup-scripts/restore_galera --yes /backup/data/*_2026-02-26_10-12-59.sql.gz
+
+# Restore cell1 (replace timestamp)
+oc exec -n openstack openstack-restore-openstackrestorecell1 -- \
+  /var/lib/backup-scripts/restore_galera --yes /backup/data/*_2026-02-26_10-12-59.sql.gz
+
+# Repeat for additional galeras as needed
+```
+
+The restore script automatically handles both the database dump and grants file.
+
+**Future enhancement**: See [README.md#galera-backup-timestamp-tracking](README.md#galera-backup-timestamp-tracking) for proposed solution to timestamp tracking.
+
+##### OVN Database Restore
+
+Follow OVN-specific backup/restore procedures for OVN NB and SB databases.
+
+After all database restores are complete, proceed to the next step.
 
 #### 12. Restore Storage Volumes (OADP)
 
