@@ -721,7 +721,3 @@
           - "2. Store backup archive securely"
           - "3. Ensure OADP backup is also available in MinIO/S3"
           - "4. Test restore on a test cluster before relying on this backup"
-          - ""
-          - "Example storage commands:"
-          - "  scp {{ backup_dir_base }}/openstack-ctlplane-backup-{{ backup_date }}.tar.gz backup-server:/backups/"
-          - "  oc create secret generic openstack-backup-{{ backup_date }} --from-file={{ backup_dir_base }}/openstack-ctlplane-backup-{{ backup_date }}.tar.gz -n openstack-backups"
