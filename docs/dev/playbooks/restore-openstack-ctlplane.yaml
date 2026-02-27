@@ -21,10 +21,15 @@
 # 7. Related CRs (OpenStackVersion, Topology, BGPConfiguration, DNSData without ownerRefs, InstanceHa)
 # 8. OpenStackControlPlane CR with staged deployment annotation
 # 9. Wait for OpenStackControlPlaneInfrastructureReady condition
-# 10. Restore database contents (MariaDB and OVN)
-# 11. Restore RabbitMQ user credentials
-# 12. Resume deployment (remove annotation)
-# 13. Operators create Certificate CRs → cert-manager issues fresh certificates
+# 10. Restore RabbitMQUser CRs (user-created)
+# 11. Restore storage volumes (OADP)
+# 12. Restore database contents
+#     12a. Restore GaleraBackup CRs
+#     12b. Restore Galera/MariaDB
+# 13. Restore OVN database contents (placeholder)
+# 14. Restore RabbitMQ user credentials
+# 15. Resume deployment (remove annotation)
+# 16. Operators create Certificate CRs → cert-manager issues fresh certificates
 #
 # Usage:
 #   # First, cleanup existing resources (if needed):
@@ -503,56 +508,6 @@
       ansible.builtin.debug:
         msg: "✓ MariaDBAccount CRs restored"
 
-    # Step 7a: Restore GaleraBackup CRs
-    - name: Print Step 7a header
-      ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 7a: Restore GaleraBackup CRs"
-          - "========================================"
-          - "Restoring GaleraBackup configuration CRs (user-created)"
-
-    - name: Check if GaleraBackup backup exists
-      ansible.builtin.stat:
-        path: "{{ backup_dir }}/galerabackup-backup.json"
-      register: galerabackup_backup_file
-
-    - name: Apply GaleraBackup CRs
-      ansible.builtin.shell: |
-        item_count=$(jq '.items | length' {{ backup_dir }}/galerabackup-backup.json)
-
-        for i in $(seq 0 $((item_count - 1))); do
-          item_name=$(jq -r ".items[${i}].metadata.name" {{ backup_dir }}/galerabackup-backup.json)
-          item_kind=$(jq -r ".items[${i}].kind" {{ backup_dir }}/galerabackup-backup.json)
-          has_annotation=$(jq -r ".items[${i}].metadata.annotations.\"kubectl.kubernetes.io/last-applied-configuration\" // empty" {{ backup_dir }}/galerabackup-backup.json)
-
-          temp_file=$(mktemp)
-          jq ".items[${i}]" {{ backup_dir }}/galerabackup-backup.json > "${temp_file}"
-
-          echo "  Applying: ${item_kind}/${item_name}"
-          if [ -n "${has_annotation}" ]; then
-            oc apply -f "${temp_file}" -n {{ openstack_namespace }} 2>&1 | grep -v "Warning: resource" || true
-          else
-            oc apply --server-side=true -f "${temp_file}" -n {{ openstack_namespace }} 2>&1 | grep -v "Warning: resource" || true
-          fi
-
-          rm -f "${temp_file}"
-        done
-      args:
-        executable: /bin/bash
-      changed_when: true
-      when: galerabackup_backup_file.stat.exists
-
-    - name: Print Step 7a completion
-      ansible.builtin.debug:
-        msg: "✓ GaleraBackup CRs restored"
-      when: galerabackup_backup_file.stat.exists
-
-    - name: Print Step 7a skip message
-      ansible.builtin.debug:
-        msg: "No GaleraBackup backup found, skipping..."
-      when: not galerabackup_backup_file.stat.exists
-
     # Step 8: Restore Related CRs
     - name: Print Step 8 header
       ansible.builtin.debug:
@@ -820,81 +775,12 @@
         msg: "No RabbitMQUser backup found, skipping..."
       when: not rabbitmquser_backup_file.stat.exists
 
-    # Step 11: Database Restore
+    # Step 11: Restore Storage Volumes (OADP)
     - name: Print Step 11 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 11: Restore Database Contents"
-          - "========================================"
-          - ""
-          - "CRITICAL: Restore database contents while services are NOT running."
-          - "This is only possible because of the staged deployment pause."
-          - ""
-          - "For each Galera instance, you must:"
-          - "  1. Create GaleraRestore CR referencing the GaleraBackup"
-          - "  2. Find the matching dump file in the restore pod (timestamp may not match exactly)"
-          - "  3. Execute restore command in the pod"
-          - ""
-          - "Example for main galera instance:"
-          - "  cat <<EOF | oc apply -f -"
-          - "  apiVersion: mariadb.openstack.org/v1beta1"
-          - "  kind: GaleraRestore"
-          - "  metadata:"
-          - "    name: openstackrestore"
-          - "  spec:"
-          - "    backupSource: openstack"
-          - "  EOF"
-          - ""
-          - "  # List dump files to find closest timestamp to backup"
-          - "  oc exec -n {{ openstack_namespace }} openstack-restore-openstackrestore -- ls -la /backup/data/"
-          - ""
-          - "  # Restore using the matching timestamp file"
-          - "  oc exec -n {{ openstack_namespace }} openstack-restore-openstackrestore -- \\"
-          - "    /var/lib/backup-scripts/restore_galera --yes /backup/data/*_YYYY-MM-DD_HH-MM-SS.sql.gz"
-          - ""
-          - "Repeat for cell1 and any additional galeras."
-          - ""
-          - "LIMITATION: Dump file timestamps may not exactly match the control plane backup timestamp."
-          - "You must manually find the dump file with the closest timestamp."
-          - "Future enhancement: See docs/dev/README.md#galera-backup-timestamp-tracking"
-
-    - name: Confirm database restore completion
-      ansible.builtin.pause:
-        prompt: |
-
-          Have you completed database restore? (yes/no)
-      register: db_restore_confirm
-
-    - name: Warn about missing database restore
-      ansible.builtin.pause:
-        prompt: |
-
-          ⚠️  WARNING: Database restore is required before continuing!
-          Without database restore, OpenStack services will initialize fresh schemas.
-
-          Continue anyway without database restore? (yes/no)
-      register: skip_db_confirm
-      when: db_restore_confirm.user_input != "yes"
-
-    - name: Fail if database restore not completed
-      ansible.builtin.fail:
-        msg: |
-          Aborting. Restore databases and then resume with:
-            oc annotate openstackcontrolplane {{ ctlplane_name }} -n {{ openstack_namespace }} core.openstack.org/deployment-stage-
-      when: db_restore_confirm.user_input != "yes" and skip_db_confirm.user_input != "yes"
-
-    - name: Print database restore status
-      ansible.builtin.debug:
-        msg: "✓ Database restore completed"
-      when: db_restore_confirm.user_input == "yes"
-
-    # Step 12: Restore Storage Volumes (OADP)
-    - name: Print Step 12 header
-      ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 12: Restore Storage Volumes (OADP)"
+          - "Step 11: Restore Storage Volumes (OADP)"
           - "========================================"
           - ""
           - "Restoring PVCs for services (Glance, Cinder, Swift, Manila, ...)."
@@ -985,7 +871,7 @@
       changed_when: false
       when: velero_backup_file.stat.exists and oadp_restore_check.stdout == "installed"
 
-    - name: Print Step 12 completion
+    - name: Print Step 11 completion
       ansible.builtin.debug:
         msg:
           - "✓ Storage volumes restored from OADP backup"
@@ -993,12 +879,149 @@
           - "  Restore: {{ oadp_restore_name }}"
       when: velero_backup_file.stat.exists and oadp_restore_check.stdout == "installed"
 
-    # Step 13: RabbitMQ User Restoration
-    - name: Print Step 13 header (if not skipping)
+    # Step 12: Database Restore
+    - name: Print Step 12 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 13: Restore RabbitMQ User Credentials"
+          - "Step 12: Database Restore"
+          - "========================================"
+
+    # Step 12a: Restore GaleraBackup CRs
+    - name: Print Step 12a header
+      ansible.builtin.debug:
+        msg:
+          - "----------------------------------------"
+          - "Step 12a: Restore GaleraBackup CRs"
+          - "----------------------------------------"
+          - "Restoring GaleraBackup configuration CRs (user-created)"
+
+    - name: Check if GaleraBackup backup exists
+      ansible.builtin.stat:
+        path: "{{ backup_dir }}/galerabackup-backup.json"
+      register: galerabackup_backup_file
+
+    - name: Apply GaleraBackup CRs
+      ansible.builtin.shell: |
+        item_count=$(jq '.items | length' {{ backup_dir }}/galerabackup-backup.json)
+
+        for i in $(seq 0 $((item_count - 1))); do
+          item_name=$(jq -r ".items[${i}].metadata.name" {{ backup_dir }}/galerabackup-backup.json)
+          item_kind=$(jq -r ".items[${i}].kind" {{ backup_dir }}/galerabackup-backup.json)
+          has_annotation=$(jq -r ".items[${i}].metadata.annotations.\"kubectl.kubernetes.io/last-applied-configuration\" // empty" {{ backup_dir }}/galerabackup-backup.json)
+
+          temp_file=$(mktemp)
+          jq ".items[${i}]" {{ backup_dir }}/galerabackup-backup.json > "${temp_file}"
+
+          echo "  Applying: ${item_kind}/${item_name}"
+          if [ -n "${has_annotation}" ]; then
+            oc apply -f "${temp_file}" -n {{ openstack_namespace }} 2>&1 | grep -v "Warning: resource" || true
+          else
+            oc apply --server-side=true -f "${temp_file}" -n {{ openstack_namespace }} 2>&1 | grep -v "Warning: resource" || true
+          fi
+
+          rm -f "${temp_file}"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: true
+      when: galerabackup_backup_file.stat.exists
+
+    - name: Print Step 12a completion
+      ansible.builtin.debug:
+        msg: "✓ GaleraBackup CRs restored"
+      when: galerabackup_backup_file.stat.exists
+
+    - name: Print Step 12a skip message
+      ansible.builtin.debug:
+        msg: "No GaleraBackup backup found, skipping..."
+      when: not galerabackup_backup_file.stat.exists
+
+    # Step 12b: Restore Galera/MariaDB
+    - name: Print Step 12b header
+      ansible.builtin.debug:
+        msg:
+          - "----------------------------------------"
+          - "Step 12b: Restore Galera/MariaDB Database Contents"
+          - "----------------------------------------"
+          - ""
+          - "CRITICAL: Restore database contents while services are NOT running."
+          - "This is only possible because of the staged deployment pause."
+          - ""
+          - "For each Galera instance, you must:"
+          - "  1. Create GaleraRestore CR referencing the GaleraBackup"
+          - "  2. Find the matching dump file in the restore pod (timestamp may not match exactly)"
+          - "  3. Execute restore command in the pod"
+          - ""
+          - "Example for main galera instance:"
+          - "  cat <<EOF | oc apply -f -"
+          - "  apiVersion: mariadb.openstack.org/v1beta1"
+          - "  kind: GaleraRestore"
+          - "  metadata:"
+          - "    name: openstackrestore"
+          - "  spec:"
+          - "    backupSource: openstack"
+          - "  EOF"
+          - ""
+          - "  # List dump files to find closest timestamp to backup"
+          - "  oc exec -n {{ openstack_namespace }} openstack-restore-openstackrestore -- ls -la /backup/data/"
+          - ""
+          - "  # Restore using the matching timestamp file"
+          - "  oc exec -n {{ openstack_namespace }} openstack-restore-openstackrestore -- \\"
+          - "    /var/lib/backup-scripts/restore_galera --yes /backup/data/*_YYYY-MM-DD_HH-MM-SS.sql.gz"
+          - ""
+          - "Repeat for cell1 and any additional galeras."
+          - ""
+          - "LIMITATION: Dump file timestamps may not exactly match the control plane backup timestamp."
+          - "You must manually find the dump file with the closest timestamp."
+          - "Future enhancement: See docs/dev/README.md#galera-backup-timestamp-tracking"
+
+    - name: Confirm database restore completion
+      ansible.builtin.pause:
+        prompt: |
+
+          Have you completed database restore? (yes/no)
+      register: db_restore_confirm
+
+    - name: Warn about missing database restore
+      ansible.builtin.pause:
+        prompt: |
+
+          ⚠️  WARNING: Database restore is required before continuing!
+          Without database restore, OpenStack services will initialize fresh schemas.
+
+          Continue anyway without database restore? (yes/no)
+      register: skip_db_confirm
+      when: db_restore_confirm.user_input != "yes"
+
+    - name: Fail if database restore not completed
+      ansible.builtin.fail:
+        msg: |
+          Aborting. Restore databases and then resume with:
+            oc annotate openstackcontrolplane {{ ctlplane_name }} -n {{ openstack_namespace }} core.openstack.org/deployment-stage-
+      when: db_restore_confirm.user_input != "yes" and skip_db_confirm.user_input != "yes"
+
+    - name: Print Step 12b completion
+      ansible.builtin.debug:
+        msg: "✓ Database restore completed"
+      when: db_restore_confirm.user_input == "yes"
+
+    # Step 13: Restore OVN Database Contents
+    - name: Print Step 13 header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 13: Restore OVN Database Contents"
+          - "========================================"
+          - ""
+          - "Placeholder: OVN database restore procedures not yet documented"
+
+    # Step 14: RabbitMQ User Restoration
+    - name: Print Step 14 header (if not skipping)
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 14: Restore RabbitMQ User Credentials"
           - "========================================"
           - ""
           - "⚠️  CRITICAL FOR EDPM/DATA PLANE DEPLOYMENTS ⚠️"
@@ -1140,12 +1163,12 @@
         msg: "Skipping RabbitMQ user restoration (skip_rabbitmq_restore=true)"
       when: skip_rabbitmq_restore
 
-    # Step 14: Resume Deployment
-    - name: Print Step 14 header
+    # Step 15: Resume Deployment
+    - name: Print Step 15 header
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 14: Resume Deployment"
+          - "Step 15: Resume Deployment"
           - "========================================"
           - ""
           - "Now that databases, storage volumes, and RabbitMQ credentials are restored,"
