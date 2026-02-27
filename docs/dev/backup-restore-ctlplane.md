@@ -80,7 +80,7 @@ This procedure creates a **brand new RabbitMQ cluster** instead of restoring the
 1. Old RabbitMQ clusters are deleted during cleanup
 2. New RabbitMQ clusters are created when OpenStackControlPlane CR is restored
 3. New default admin credentials are automatically generated (different from backup)
-4. **MANUAL STEP**: You restore the backed-up user credentials by exec'ing into RabbitMQ pods
+4. You restore the backed-up user credentials by creating RabbitMQUser CRs
 5. Service operators reconcile and TransportURL CRs are created/updated
 6. Operator automatically generates new transport URL secrets referencing the restored credentials
 7. All services connect to new RabbitMQ using the restored credentials
