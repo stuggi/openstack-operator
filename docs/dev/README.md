@@ -38,7 +38,7 @@ oc project openstack
 
 | Document | Description |
 |----------|-------------|
-| [setup-oadp-minio.md](setup-oadp-minio.md) | **OADP Setup** - Set up OADP (OpenShift API for Data Protection) with MinIO storage (not ODF) for storage volume backups |
+| [setup-oadp-minio.md](setup-oadp-minio.md) | **OADP Setup** - Set up OADP (OpenShift API for Data Protection) for storage volume backups. Uses MinIO as S3-compatible storage (ODF or other S3-compatible storage can also be used) |
 
 See also: [OADP Setup Playbooks](#oadp-setup-playbooks) for automated installation using Ansible.
 
