@@ -153,6 +153,32 @@ The restore order is important due to dependencies:
 
 ## Limitations and Known Issues
 
+### ⚠️ Fully Updated Environments Only
+
+**CRITICAL**: This backup/restore procedure is only supported for environments that are **fully updated**.
+
+Backup and restore is **NOT supported** for environments in a partial update state. For example:
+- ❌ Operators have been updated to the next version, but the minor update has NOT been performed on the ControlPlane services themselves
+- ❌ Some services are running one version while others are running a different version
+- ✅ All operators and services are at the same consistent version (fully updated)
+
+**Before performing a backup**, ensure that:
+1. All operator updates are complete
+2. Any in-progress ControlPlane minor updates have finished
+3. All services are running at the same version
+
+**Why this matters:**
+If a minor update is in progress (e.g., operators updated but ControlPlane or DataPlane CRs not yet updated), the OpenStackVersion CR does not correctly restore the in-flight update state. This results in loss of service container images from older releases.
+
+**Impact:**
+- Attempting to restore from a partially updated environment may result in version mismatches and unpredictable behavior
+- Backup during partial update will lose version tracking information
+- Restore will fail or result in incorrect service image versions
+
+**Related Issues:**
+- [OSPRH-26244](https://issues.redhat.com/browse/OSPRH-26244)
+- [OSPRH-26246](https://issues.redhat.com/browse/OSPRH-26246)
+
 ### DataPlane Deployment History
 
 When restoring DataPlane, the OpenStackDataPlaneDeployment history is lost. NodeSets will show:
@@ -184,13 +210,7 @@ These scenarios are theoretically possible but require additional testing and va
 
 ### Backup/Restore During Partial Updates
 
-**Current Limitation:**
-Backup/restore does **not work** when the environment is in a partially updated state. If a minor update is in progress (e.g., operators updated but ControlPlane or DataPlane CRs not yet updated), the OpenStackVersion CR does not correctly restore the in-flight update state. This results in loss of service container images from older releases.
-
-**Impact:**
-- **Must complete updates fully** before backup (operators + ControlPlane + DataPlane all at the same version)
-- Backup during partial update will lose version tracking information
-- Restore will fail or result in incorrect service image versions
+See [Limitations and Known Issues](#️-fully-updated-environments-only) for the current limitation requiring fully updated environments.
 
 **Proposed Enhancement:**
 - Properly handle OpenStackVersion CR in-flight state during backup/restore

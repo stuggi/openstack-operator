@@ -29,23 +29,12 @@ This procedure does **NOT** cover:
 
 ### Important Limitation: Fully Updated Environments Only
 
-⚠️ **This procedure is only supported for environments that are fully updated.**
-
-Backup and restore is **NOT supported** for environments in a partial update state. For example:
-- ❌ Operators have been updated to the next version, but the minor update has NOT been performed on the ControlPlane services themselves
-- ❌ Some services are running one version while others are running a different version
-- ✅ All operators and services are at the same consistent version (fully updated)
+⚠️ **CRITICAL**: This procedure is only supported for fully updated environments. See [Fully Updated Environments Only](README.md#️-fully-updated-environments-only) for complete details.
 
 **Before performing a backup**, ensure that:
 1. All operator updates are complete
 2. Any in-progress ControlPlane minor updates have finished
 3. All services are running at the same version
-
-Attempting to restore from a partially updated environment may result in version mismatches and unpredictable behavior.
-
-**Related Issues:**
-- [OSPRH-26244](https://issues.redhat.com/browse/OSPRH-26244)
-- [OSPRH-26246](https://issues.redhat.com/browse/OSPRH-26246)
 
 ### Relationship to DataPlane Backup
 This ControlPlane backup includes **all Secrets and ConfigMaps** from the namespace, including those used by DataPlane resources (SSH keys, certificates for compute nodes, etc.). This is because there is today no reliable way to separate ControlPlane vs DataPlane secrets/configmaps, and some may be shared between both. See [backup-restore-dataplane.md](backup-restore-dataplane.md) for DataPlane-specific backup (NetConfig, NodeSets, IPSets, etc.).
