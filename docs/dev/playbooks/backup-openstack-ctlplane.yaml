@@ -489,7 +489,7 @@
 
     - name: Wait for Galera backup jobs to complete
       ansible.builtin.shell: |
-        oc -n {{ openstack_namespace }} wait --for=condition=complete job/{{ item.stdout }} --timeout={{ galera_backup_timeout }}
+        oc -n {{ openstack_namespace }} wait --for=condition=complete job/{{ item.stdout_lines[-1] }} --timeout={{ galera_backup_timeout }}
       loop: "{{ galera_backup_jobs.results }}"
       changed_when: false
       when: galera_backup_cronjobs.stdout != ""
