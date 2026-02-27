@@ -200,39 +200,16 @@ flowchart TD
 
 ## Prerequisites
 
-Before starting the backup or restore procedure, ensure you have:
+Before starting the backup or restore procedure, ensure you have met the general prerequisites in the [Prerequisites and Setup](README.md#prerequisites-and-setup) section:
+- [General Requirements](README.md#general-requirements) - OpenShift CLI, cluster access, permissions
+- [Operator Version Matching](README.md#operator-version-matching) - Critical for restore success
+- [Storage Class Availability](README.md#storage-class-availability) - Required for PVC restoration
 
-### General Requirements
-
-1. **OpenShift CLI (`oc`) installed** - Version compatible with your cluster
-2. **Cluster access** - Valid credentials with appropriate permissions
-3. **Logged into the cluster**:
-
-```bash
-# Login to your OpenShift cluster
-oc login https://api.your-cluster.example.com:6443 --username <username> --password <password>
-
-# Or use token-based authentication
-oc login --token=<token> --server=https://api.your-cluster.example.com:6443
-
-# Verify you're connected
-oc whoami
-oc project openstack
-```
-
-4. **Sufficient permissions** - Cluster admin or namespace admin rights for the `openstack` namespace
-5. **Storage for backups** - Local or remote location to store backup archives
+The sections below provide detailed procedures for checking and documenting these requirements.
 
 ### Operator Version Requirements
 
 **CRITICAL**: The target cluster (where you restore) must have the **same versions** of the OpenStack operators as the source cluster (where you backed up).
-
-#### Why Version Matching is Critical:
-
-1. **CRD Schema Changes**: Operator upgrades may change Custom Resource Definition schemas
-2. **API Compatibility**: Different operator versions may expect different CR field structures
-3. **Feature Compatibility**: New operators may have different default behaviors
-4. **Container Images**: OpenStackVersion CR tracks specific container image versions
 
 #### Check Operator Versions Before Backup:
 

@@ -11,11 +11,57 @@ For a complete OpenStack backup and restore:
 
 ## Prerequisites and Setup
 
+### General Requirements
+
+Before starting any backup or restore procedure, ensure you have:
+
+1. **OpenShift CLI (`oc`) installed** - Version compatible with your cluster
+2. **Cluster access** - Valid credentials with appropriate permissions
+3. **Logged into the cluster**:
+
+```bash
+# Login to your OpenShift cluster
+oc login https://api.your-cluster.example.com:6443 --username <username> --password <password>
+
+# Or use token-based authentication
+oc login --token=<token> --server=https://api.your-cluster.example.com:6443
+
+# Verify you're connected
+oc whoami
+oc project openstack
+```
+
+4. **Sufficient permissions** - Cluster admin or namespace admin rights for the `openstack` namespace
+5. **Storage for backups** - Local or remote location to store backup archives
+
+### OADP Setup
+
 | Document | Description |
 |----------|-------------|
 | [setup-oadp-minio.md](setup-oadp-minio.md) | **OADP Setup** - Set up OADP (OpenShift API for Data Protection) with MinIO storage (not ODF) for storage volume backups |
 
 See also: [OADP Setup Playbooks](#oadp-setup-playbooks) for automated installation using Ansible.
+
+### Restore Prerequisites
+
+#### Operator Version Matching
+
+**CRITICAL**: The target cluster (where you restore) must have the **same versions** of the OpenStack operators as the source cluster (where you backed up).
+
+**Why this is critical:**
+- CRD schema changes between operator versions can break restore
+- Different operator versions may expect different CR field structures
+- Container image versions tracked in OpenStackVersion CR must match operator versions
+
+See [Operator Version Requirements](backup-restore-ctlplane.md#operator-version-requirements) for detailed procedures on checking, documenting, and verifying operator versions.
+
+#### Storage Class Availability
+
+The target cluster must have the same storage classes available as the source cluster, or you must update the backup files before restore.
+
+**Note**: The OpenStackControlPlane CR defines a global `storageClass`, but individual services (Galera, RabbitMQ, OVN, etc.) can override this with service-specific storage class parameters.
+
+See [Storage Class Requirements](backup-restore-ctlplane.md#storage-class-requirements) for detailed procedures.
 
 ## Core Backup/Restore Procedures
 
