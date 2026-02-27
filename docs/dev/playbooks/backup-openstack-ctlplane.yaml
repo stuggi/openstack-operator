@@ -581,7 +581,7 @@
 
     - name: Save Velero Backup CR for restore reference
       ansible.builtin.shell: |
-        oc get backup {{ oadp_backup.stdout_lines[-1] }} -n {{ oadp_namespace }} -o yaml > "{{ backup_dir }}/velero-backup.yaml"
+        oc get backup {{ oadp_backup.stdout_lines[-1] }} -n {{ oadp_namespace }} -o json > "{{ backup_dir }}/velero-backup.json"
       changed_when: true
       when: not skip_pvc_backup and oadp_check.stdout == "installed" and pvc_count.stdout|int > 0
 
@@ -589,7 +589,7 @@
       ansible.builtin.debug:
         msg:
           - "✓ Storage volumes backed up: {{ oadp_backup.stdout_lines[-1] }}"
-          - "✓ Backup CR saved to: velero-backup.yaml"
+          - "✓ Backup CR saved to: velero-backup.json"
       when: not skip_pvc_backup and oadp_check.stdout == "installed" and pvc_count.stdout|int > 0
 
     - name: Print Step 9 skipped
@@ -655,7 +655,7 @@
         - rabbitmquser-backup.json: RabbitMQUser CRs (user-created ones without ownerReferences will be restored, operator-managed ones with ownerReferences will be filtered out)
 
         ### Storage Volumes (OADP Backup Reference)
-        - velero-backup.yaml: Velero Backup CR reference for storage volumes (if OADP backup was performed)
+        - velero-backup.json: Velero Backup CR reference for storage volumes (if OADP backup was performed)
           The actual PVC data is stored in the OADP backup location (MinIO/S3).
 
           Includes backups of:

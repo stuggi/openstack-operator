@@ -921,13 +921,13 @@ oc wait --for=jsonpath='{.status.phase}'=Completed \
 
 # Save the Velero Backup CR for restore reference
 mkdir -p backups
-oc get backup ${OADP_BACKUP_NAME} -n openshift-adp -o yaml > backups/velero-backup-${BACKUP_DATE}.yaml
+oc get backup ${OADP_BACKUP_NAME} -n openshift-adp -o json > backups/velero-backup-${BACKUP_DATE}.json
 
 echo "OADP backup completed: ${OADP_BACKUP_NAME}"
-echo "Backup reference saved: backups/velero-backup-${BACKUP_DATE}.yaml"
+echo "Backup reference saved: backups/velero-backup-${BACKUP_DATE}.json"
 ```
 
-**Note**: The `velero-backup-*.yaml` file contains the reference to the OADP backup and will be included in the backup archive. During restore, this reference will be used to restore the correct storage volumes backup.
+**Note**: The `velero-backup-*.json` file contains the reference to the OADP backup and will be included in the backup archive. During restore, this reference will be used to restore the correct storage volumes backup.
 
 If OADP is not installed or you don't have PVCs to backup, skip this step.
 
@@ -944,8 +944,8 @@ mv *-backup.json ${BACKUP_DIR}/
 mv operator-versions.txt ${BACKUP_DIR}/
 
 # Move OADP backup reference if it exists
-if [ -f backups/velero-backup-${BACKUP_DATE}.yaml ]; then
-  mv backups/velero-backup-${BACKUP_DATE}.yaml ${BACKUP_DIR}/velero-backup.yaml
+if [ -f backups/velero-backup-${BACKUP_DATE}.json ]; then
+  mv backups/velero-backup-${BACKUP_DATE}.json ${BACKUP_DIR}/velero-backup.json
   echo "OADP backup reference included in archive"
 fi
 
@@ -990,7 +990,7 @@ All backup files are in JSON format for consistency.
 - rabbitmquser-backup.json: RabbitMQUser CRs (user-created ones without ownerReferences will be restored, operator-managed ones with ownerReferences will be filtered out)
 
 ### Storage Volumes (Optional)
-- velero-backup.yaml: OADP Velero Backup CR reference (if PVC backup was performed)
+- velero-backup.json: OADP Velero Backup CR reference (if PVC backup was performed)
   - References the OADP backup for restoring storage volumes (Glance, Cinder, Swift, Manila, ...)
   - See docs/dev/backup-restore-storage-volumes.md for details
 
@@ -1508,11 +1508,11 @@ For detailed instructions on OADP storage volumes restore, see **[backup-restore
 
 ```bash
 # Check if OADP backup reference exists in backup
-if [ -f velero-backup.yaml ]; then
+if [ -f velero-backup.json ]; then
   echo "OADP backup reference found"
 
   # Get backup name from the reference
-  VELERO_BACKUP_NAME=$(grep 'name:' velero-backup.yaml | head -1 | awk '{print $2}')
+  VELERO_BACKUP_NAME=$(jq -r '.metadata.name' velero-backup.json)
   echo "Backup name: ${VELERO_BACKUP_NAME}"
 
   # Check if OADP is installed

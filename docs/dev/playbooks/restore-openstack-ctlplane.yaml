@@ -900,14 +900,14 @@
           - "Restoring PVCs for services (Glance, Cinder, Swift, Manila, ...)."
           - "See: docs/dev/backup-restore-storage-volumes.md"
 
-    - name: Check if velero-backup.yaml exists in backup
+    - name: Check if velero-backup.json exists in backup
       ansible.builtin.stat:
-        path: "{{ backup_dir }}/velero-backup.yaml"
+        path: "{{ backup_dir }}/velero-backup.json"
       register: velero_backup_file
 
-    - name: Get OADP backup name from velero-backup.yaml
+    - name: Get OADP backup name from velero-backup.json
       ansible.builtin.shell: |
-        grep 'name:' {{ backup_dir }}/velero-backup.yaml | head -1 | awk '{print $2}'
+        jq -r '.metadata.name' {{ backup_dir }}/velero-backup.json
       register: velero_backup_name
       changed_when: false
       when: velero_backup_file.stat.exists
@@ -922,7 +922,7 @@
     - name: Print OADP not installed message
       ansible.builtin.debug:
         msg:
-          - "OADP backup reference found (velero-backup.yaml)"
+          - "OADP backup reference found (velero-backup.json)"
           - "But OADP not found in namespace {{ oadp_namespace | default('openshift-adp') }}"
           - "Skipping PVC restore. To set up OADP, see: docs/dev/setup-oadp-minio.md"
       when: velero_backup_file.stat.exists and oadp_restore_check.stdout == "not_installed"
@@ -930,7 +930,7 @@
     - name: Print no OADP backup message
       ansible.builtin.debug:
         msg:
-          - "No OADP backup reference found (velero-backup.yaml not in backup)"
+          - "No OADP backup reference found (velero-backup.json not in backup)"
           - "Skipping PVC restore."
       when: not velero_backup_file.stat.exists
 
