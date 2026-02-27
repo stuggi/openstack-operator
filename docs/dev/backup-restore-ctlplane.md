@@ -169,7 +169,7 @@ flowchart TD
     WaitServices -->|Not Ready| WaitServices
     WaitServices -->|Ready| ServicesReady[Services Ready:<br/>✓ Keystone<br/>✓ Nova<br/>✓ Neutron<br/>✓ Glance<br/>etc.]
 
-    ServicesReady --> Verify[Verify:<br/>1. Database contents<br/>2. OVN state<br/>3. Service functionality]
+    ServicesReady --> Verify[Verify functionality]
     Verify --> End([Restore Complete])
 
     style PreReq fill:#FFA07A
