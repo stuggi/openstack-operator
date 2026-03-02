@@ -64,10 +64,12 @@
           Found {{ ctlplane_count.stdout }} OpenStackControlPlane CR(s) in namespace {{ openstack_namespace }}
 
           This will DELETE:
-          - RabbitMQUser CRs (all)
-          - RabbitMQ restored-user secrets
           - OpenStackControlPlane CR
           - All operator-managed pods and services
+          - GaleraRestore CRs
+          - GaleraBackup CRs
+          - RabbitMQUser CRs (all)
+          - RabbitMQ restored-user secrets
           - Certificates and secrets (excluding EDPM/compute certs and Ceph)
           - CA bundles
 
@@ -153,7 +155,34 @@
         msg: "✓ All pods terminated"
       when: ctlplane_count.stdout|int > 0
 
-    - name: Step 3 - Delete RabbitMQUser CRs and restored secrets
+    - name: Step 3 - Delete GaleraRestore and GaleraBackup CRs
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 3: Deleting GaleraRestore and GaleraBackup CRs"
+          - "========================================"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Delete GaleraRestore CRs
+      ansible.builtin.shell: |
+        oc delete galerarestore --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Delete GaleraBackup CRs
+      ansible.builtin.shell: |
+        oc delete galerabackup --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Print Galera cleanup status
+      ansible.builtin.debug:
+        msg: "✓ GaleraRestore and GaleraBackup CRs deleted"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Step 4 - Delete RabbitMQUser CRs and restored secrets
       ansible.builtin.debug:
         msg:
           - "========================================"
@@ -182,11 +211,11 @@
         msg: "✓ RabbitMQUser CRs and restored secrets deleted"
       when: ctlplane_count.stdout|int > 0
 
-    - name: Step 4 - Delete certificate secrets
+    - name: Step 5 - Delete certificate secrets
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 4: Deleting certificate secrets"
+          - "Step 5: Deleting certificate secrets"
           - "========================================"
           - "(Excluding EDPM, compute node, and Ceph certs)"
       when: ctlplane_count.stdout|int > 0
