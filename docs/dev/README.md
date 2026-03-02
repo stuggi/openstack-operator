@@ -375,3 +375,124 @@ GRANTS_FILE="openstack_backup-grants_${TIMESTAMP}.sql.gz"
 
 **Related Issues:**
 - [OSPRH-27069](https://issues.redhat.com/browse/OSPRH-27069) - Allow passing backup timestamp to backup_galera
+
+### Backup Storage on PVC with OADP Integration
+
+**Current Limitation:**
+The backup playbook currently writes backup archives to the local filesystem of the client running the playbook. This requires:
+- An external system to run the playbook
+- Manual transfer of backup archives to secure storage
+- Separate management of the control plane backup archive and OADP volume backups
+
+**Proposed Enhancement:**
+Store the control plane backup archive (JSON files, operator versions, etc.) on a PVC within the cluster:
+
+```yaml
+# Create a backup storage PVC
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: openstack-backup-storage
+  namespace: openstack
+  labels:
+    openstack.org/backup: "true"  # Include in OADP backup
+spec:
+  accessModes:
+  - ReadWriteMany  # Allow multiple backup jobs
+  resources:
+    requests:
+      storage: 10Gi
+```
+
+The backup playbook would:
+1. Mount the PVC in the backup job
+2. Write backup archive to `/backup/openstack-ctlplane-backup-TIMESTAMP.tar.gz`
+3. The PVC (with all backup archives) gets included in the OADP backup
+
+**Benefits:**
+- Unified backup solution: all backup data in one OADP backup
+  - Control plane backup archives
+  - Galera database dumps
+  - Glance/Cinder/Swift/Manila storage volumes
+- No external storage management needed
+- Backup process entirely self-contained within the cluster
+- Simplified disaster recovery (single OADP restore)
+
+**Considerations:**
+- PVC size planning (retain multiple backup versions)
+- Cleanup/retention policy for old backups
+- RWX access mode if multiple backup jobs need concurrent access
+- Storage class requirements
+
+### Backup Automation with Job/CronJob
+
+**Current Limitation:**
+The backup playbook currently requires an external system with ansible, oc CLI, and jq to run the backup. This creates operational overhead:
+- External client system management
+- Authentication and credential management
+- Manual execution or external scheduling system required
+
+**Proposed Enhancement:**
+Package the backup playbook as a Kubernetes Job/CronJob:
+
+**Implementation:**
+1. Create container image with dependencies:
+   - oc CLI
+   - jq
+   - ansible
+   - backup playbook
+
+2. Create ServiceAccount with RBAC permissions:
+   ```yaml
+   apiVersion: v1
+   kind: ServiceAccount
+   metadata:
+     name: openstack-backup-job
+     namespace: openstack
+   ---
+   # ClusterRole with read permissions for all backup resources
+   # (CRs, secrets, configmaps, etc.)
+   ```
+
+3. Create CronJob for scheduled backups:
+   ```yaml
+   apiVersion: batch/v1
+   kind: CronJob
+   metadata:
+     name: openstack-backup
+     namespace: openstack
+   spec:
+     schedule: "0 2 * * *"  # Daily at 2 AM
+     jobTemplate:
+       spec:
+         template:
+           spec:
+             serviceAccountName: openstack-backup-job
+             containers:
+             - name: backup
+               image: quay.io/openstack-k8s-operators/openstack-backup:latest
+               volumeMounts:
+               - name: backup-storage
+                 mountPath: /backup
+             volumes:
+             - name: backup-storage
+               persistentVolumeClaim:
+                 claimName: openstack-backup-storage
+   ```
+
+4. Manual backups: create Job from CronJob template
+
+**Benefits:**
+- No external client system required
+- Native Kubernetes scheduling (CronJob)
+- Automated, scheduled backups
+- Consistent execution environment
+- RBAC-controlled access
+- Combined with PVC storage enhancement: fully automated, self-contained backup solution
+
+**Considerations:**
+- Container image build and maintenance
+- RBAC permissions (extensive read access needed)
+- Triggering manual backups (oc create job --from=cronjob/...)
+- Monitoring job success/failure
+- Log retention and troubleshooting
