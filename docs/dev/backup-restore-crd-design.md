@@ -164,6 +164,40 @@ status:
   completionTimestamp: "2026-03-02T08:32:00Z"
 ```
 
+### CRD Field Defaults and Validation
+
+**Backup CR defaults:**
+```yaml
+spec:
+  oadp:
+    enabled: true  # OADP integration enabled by default
+    snapshotMoveData: true  # Default: copy to S3 (production-safe)
+    ttl: 720h  # Default: 30 days retention
+    namespace: openshift-adp  # Default OADP namespace
+  storage:
+    pvc: openstack-backup-storage  # Default PVC name
+    size: 10Gi  # Default PVC size (if controller creates it)
+    storageClass: ""  # Default: use cluster default StorageClass
+```
+
+**Restore CR defaults:**
+```yaml
+spec:
+  oadp:
+    enabled: true  # OADP integration enabled by default
+    namespace: openshift-adp  # Default OADP namespace
+  storage:
+    pvc: openstack-backup-storage  # Default PVC name (must match backup)
+  validation:
+    enabled: false  # Default: no automatic validation
+```
+
+**Validation rules:**
+- `oadp.ttl` must be >= 1h
+- `storage.size` must be >= 1Gi
+- `storage.pvc` required (can be defaulted)
+- `backupName` required for restore
+
 ### Controller Implementation
 
 **Location:** openstack-operator
@@ -199,7 +233,7 @@ Each controller:
    - `docs/dev/playbooks/restore-openstack-ctlplane.yaml`
    - `docs/dev/playbooks/restore-openstack-dataplane.yaml`
 4. Updates CR status based on Job progress
-5. Handles cleanup (Job retention, old backup deletion based on retention policy)
+5. Handles Job cleanup (retention of completed ansible-runner Jobs)
 
 ### Playbook Override Mechanism
 
@@ -275,6 +309,79 @@ spec:
       credentialsSecret: s3-creds
 ```
 
+### Concurrent Backup Handling
+
+**Question:** What if hourly and daily backups run simultaneously?
+
+**Answer:** PVC with ReadWriteMany (RWX) supports concurrent access, but:
+
+**Archive file conflict:**
+- Hourly writes: `/backup/openstack-ctlplane-backup-TIMESTAMP1.tar.gz`
+- Daily writes: `/backup/openstack-ctlplane-backup-TIMESTAMP2.tar.gz`
+- Different timestamps = different files = no conflict
+
+**OADP backup naming:**
+- Each backup CR creates unique OADP backup:
+  - Hourly: `openstack-volumes-TIMESTAMP1`
+  - Daily: `openstack-volumes-TIMESTAMP2`
+- No OADP conflicts
+
+**Galera backup jobs:**
+- Each backup triggers separate Galera backup job
+- Job names include timestamp: `backup-openstack-TIMESTAMP`
+- No job conflicts
+
+**Best practices:**
+- **Stagger schedules** to avoid concurrent execution (recommended)
+- If concurrent execution occurs, it works but creates duplicate snapshots at same point-in-time
+- OADP can handle concurrent snapshot operations on different PVCs
+
+### CronJob Lifecycle
+
+**CronJob management:**
+
+**Creation:**
+- BackupController creates CronJob when backup CR has `schedule` field
+- CronJob name: `<backup-cr-name>-cronjob`
+- Example: `ctlplane-backup-daily-cronjob`
+
+**CronJob spec:**
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ctlplane-backup-daily-cronjob
+  namespace: openstack
+  ownerReferences:
+  - apiVersion: infra.openstack.org/v1beta1
+    kind: OpenStackControlPlaneBackup
+    name: ctlplane-backup-daily
+spec:
+  schedule: "0 2 * * *"
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          generateName: ctlplane-backup-daily-
+        # Creates backup CR instance for each run
+```
+
+**Schedule changes:**
+- Controller watches backup CR for changes
+- If `schedule` field updated, controller updates CronJob schedule
+- No recreation needed, just patch CronJob spec
+
+**Deletion:**
+- CronJob has ownerReference to backup CR
+- Deleting backup CR automatically deletes CronJob
+- Kubernetes garbage collection handles cleanup
+
+**Job instances:**
+- Each CronJob execution creates a backup CR instance
+- Instance name: `<backup-cr-name>-TIMESTAMP`
+- Example: `ctlplane-backup-daily-20260302-020000`
+- Instances are independent CRs (can be listed, monitored separately)
+
 ## Related Components
 
 These backup/restore capabilities complement but remain separate from:
@@ -282,7 +389,7 @@ These backup/restore capabilities complement but remain separate from:
 - **OVNBackup/OVNRestore** - To be implemented, OVN database-specific
 - **test-operator** - Used for post-restore validation (Tempest tests)
 
-The generic backup/restore controller in openstack-operator orchestrates the full backup/restore workflow using playbooks, while these components handle specific subsystems.
+The backup and restore controllers in openstack-operator orchestrate the full backup/restore workflow using playbooks, while these components handle specific subsystems.
 
 ## User Workflow
 
@@ -809,27 +916,40 @@ oc create namespace openstack-backup-inspection
 # 2. Restore archive PVC to temp namespace (see above)
 
 # 3. Create helper pod to inspect
-oc run -n openstack-backup-inspection archive-inspector \
-  --image=registry.redhat.io/ubi9/ubi:latest \
-  --command -- sleep infinity
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: archive-inspector
+  namespace: openstack-backup-inspection
+spec:
+  containers:
+  - name: inspector
+    image: registry.redhat.io/ubi9/ubi:latest
+    command: ["/bin/bash", "-c", "sleep infinity"]
+    volumeMounts:
+    - name: backup
+      mountPath: /backup
+  volumes:
+  - name: backup
+    persistentVolumeClaim:
+      claimName: openstack-backup-storage
+EOF
 
-oc set volume -n openstack-backup-inspection \
-  deployment/archive-inspector \
-  --add --mount-path=/backup \
-  --name=backup-pvc \
-  --claim-name=openstack-backup-storage
+# 4. Wait for pod to be ready
+oc wait -n openstack-backup-inspection pod/archive-inspector --for=condition=Ready --timeout=60s
 
-# 4. Inspect archive
+# 5. Inspect archive
 oc exec -n openstack-backup-inspection archive-inspector -- \
   tar -tzf /backup/openstack-ctlplane-backup-20260302.tar.gz
 
 oc exec -n openstack-backup-inspection archive-inspector -- \
   cat /backup/openstack-ctlplane-backup-20260302/operator-versions.txt
 
-# 5. If good, cleanup temp and do real restore
+# 6. If good, cleanup temp and do real restore
 oc delete namespace openstack-backup-inspection
 
-# 6. Full restore to production namespace
+# 7. Full restore to production namespace
 # (see disaster recovery workflow below)
 ```
 
@@ -850,6 +970,18 @@ spec:
 ### 8. Backup metadata and disaster recovery workflow
 
 **Decision:** No dedicated metadata PVC needed. Use OADP backup list + backup archive contents.
+
+**OADP restore workflow:**
+
+The restore process has two stages:
+1. **Manual OADP restore** - Restore PVCs from S3 snapshots (prerequisite)
+2. **OpenStackControlPlaneRestore CR** - Restore CRs, databases, resume deployment
+
+**Why manual OADP restore first?**
+- RestoreController needs backup archive from PVC to validate operator versions
+- Cannot trigger OADP restore automatically without reading metadata first
+- Chicken-and-egg: need PVC to read metadata, need metadata to know which OADP backup to restore
+- Solution: User manually restores PVCs, then RestoreController takes over
 
 **Disaster recovery workflow (fresh cluster):**
 
@@ -943,13 +1075,13 @@ Controller reads `operator-versions.txt` from restored archive and validates:
    - **Mitigation:** Validate playbook syntax before execution, provide clear error messages
 
 2. **Risk:** Backup job failure leaves cluster in unknown state
-   - **Mitigation:** Transactional approach, status tracking, rollback capability
+   - **Mitigation:** Transactional approach, status tracking, clear failure status
 
-3. **Risk:** Retention policy deletes backups too aggressively
-   - **Mitigation:** Clear defaults, user confirmation for manual deletes
+3. **Risk:** Incorrect OADP TTL configuration deletes backups too quickly
+   - **Mitigation:** Sensible defaults (30 days), clear documentation, validate TTL values
 
 4. **Risk:** Controller complexity (managing Jobs, CronJobs, OADP CRs)
-   - **Mitigation:** Start simple, iterate based on feedback
+   - **Mitigation:** Start simple, iterate based on feedback, maximum logic in playbooks
 
 ## Implementation Plan
 
@@ -970,8 +1102,9 @@ Controller reads `operator-versions.txt` from restored archive and validates:
 - Controller-managed CronJob lifecycle
 
 **Phase 4: DataPlane backup/restore**
-- Implement OpenStackDataPlaneBackup/Restore controllers
-- Follow same pattern as ControlPlane
+- Add DataPlane CR support to existing controllers
+- DataPlane playbooks (already exist)
+- Follow same pattern as ControlPlane (same controllers handle both)
 
 **Phase 5: Advanced features**
 - Playbook override support
