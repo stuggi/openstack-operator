@@ -512,7 +512,8 @@
           - "Step 10: Backup Storage Volumes (OADP)"
           - "========================================"
           - ""
-          - "Backing up PVCs with label openstack.org/backup=true"
+          - "Backing up PVCs with label openstack.org/backup=true using CSI Volume Snapshots"
+          - "REQUIRES: StorageClass with CSI snapshot support (LVM, Ceph RBD, cloud provider storage)"
           - "See: docs/dev/backup-restore-storage-volumes.md"
       when: not skip_pvc_backup
 
@@ -561,7 +562,8 @@
           labelSelector:
             matchLabels:
               openstack.org/backup: "true"
-          defaultVolumesToRestic: true
+          snapshotVolumes: true
+          defaultVolumesToFsBackup: false
           storageLocation: velero-1
           ttl: 720h
         EOF

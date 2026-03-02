@@ -8,11 +8,14 @@ This guide covers backing up and restoring persistent volumes for OpenStack serv
 
 ### What OADP Provides
 
-- ✅ **Automated PVC/PV backups** using Restic for file-level backups
+- ✅ **Automated PVC/PV backups** using CSI Volume Snapshots (requires CSI-capable StorageClass)
+- ✅ **Storage-level snapshots** that restore data before pods start (critical for staged deployment)
 - ✅ **Scheduled backups** (daily, weekly, etc.)
 - ✅ **Label-based selection** for backup filtering
 - ✅ **S3-compatible object storage** integration (MinIO, AWS S3, etc.)
 - ✅ **Retention policies** and automatic cleanup
+
+**Note:** Filesystem backup (Restic/Kopia) is not compatible with the staged deployment restore approach because it requires pods to mount PVCs during restore.
 
 ### What OADP Does NOT Handle
 
@@ -26,19 +29,56 @@ OADP complements, but does not replace, other backup methods:
 
 | Component | Backup Method | Reason |
 |-----------|---------------|--------|
-| **MariaDB/Galera** | Dedicated procedure | Ensures transactional consistency |
+| **MariaDB/Galera** | Dedicated procedure + OADP (backup PVCs only) | Ensures transactional consistency via dumps; OADP backs up dump files |
 | **OVN Databases** | Dedicated procedure | Ensures database consistency |
 | **RabbitMQ** | No backup | Ephemeral, recreated on restore |
-| **Glance** | **OADP/Restic** | Image storage needs file-level backup |
-| **Cinder** | **OADP/Restic** | Volume backend storage (depends on backend) |
-| **Swift** | **OADP/Restic** | Object storage (if using PVC backend) |
-| **Manila** | **OADP/Restic** | Share storage (depends on backend) |
+| **Glance** | **OADP/CSI Snapshots** | Image storage PVCs backed up at storage layer |
+| **Cinder** | **OADP/CSI Snapshots** | Volume backend storage PVCs (depends on backend) |
+| **Swift** | **OADP/CSI Snapshots** | Object storage PVCs (if using PVC backend) |
+| **Manila** | **OADP/CSI Snapshots** | Share storage PVCs (depends on backend) |
 
 ## Prerequisites
 
+**CRITICAL REQUIREMENT: CSI Volume Snapshot Support**
+
+The backup/restore procedure with staged deployment requires a StorageClass that supports **CSI Volume Snapshots**. This is because:
+- The restore procedure uses infrastructure-only staging (no service pods running)
+- PVCs must be restored with data **before** pods start
+- Filesystem backup (Restic/Kopia) requires pods to mount PVCs during restore
+- CSI snapshots restore data at the storage layer without needing pods
+
+**Supported StorageClasses:**
+- ✅ LVM storage (TopoLVM/LVMS) - supports CSI snapshots
+- ✅ Ceph RBD - supports CSI snapshots
+- ✅ Most cloud provider storage (AWS EBS, Azure Disk, GCP PD) - support CSI snapshots
+- ❌ Local storage (node-local directories) - **does NOT support CSI snapshots**
+
+**Required Setup:**
 - OADP operator installed and configured (see [setup-oadp-minio.md](setup-oadp-minio.md))
 - MinIO or other S3-compatible storage configured as backup location
+- **VolumeSnapshotClass configured** for your storage provider (see below)
 - PVCs labeled for backup (see labeling section below)
+
+**Verify CSI Snapshot Support:**
+
+```bash
+# Check if VolumeSnapshotClass exists
+oc get volumesnapshotclass
+
+# For LVM storage (TopoLVM/LVMS), create if missing:
+cat <<EOF | oc apply -f -
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: lvms-vsc
+  labels:
+    velero.io/csi-volumesnapshot-class: "true"
+driver: topolvm.io
+deletionPolicy: Delete
+EOF
+```
+
+**Note:** If your storage does not support CSI snapshots, you cannot use the staged deployment restore approach. See [backup-restore-ctlplane.md](backup-restore-ctlplane.md) for alternative restore strategies.
 
 ## Label Convention
 

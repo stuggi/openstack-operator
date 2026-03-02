@@ -42,6 +42,8 @@ oc project openstack
 
 See also: [OADP Setup Playbooks](#oadp-setup-playbooks) for automated installation using Ansible.
 
+**IMPORTANT:** OADP backup/restore requires a StorageClass that supports **CSI Volume Snapshots**. See [Storage Volume Prerequisites](#csi-volume-snapshot-support) below.
+
 ### Restore Prerequisites
 
 #### Operator Version Matching
@@ -62,6 +64,29 @@ The target cluster must have the same storage classes available as the source cl
 **Note**: The OpenStackControlPlane CR defines a global `storageClass`, but individual services (Galera, RabbitMQ, OVN, etc.) can override this with service-specific storage class parameters.
 
 See [Storage Class Requirements](backup-restore-ctlplane.md#storage-class-requirements) for detailed procedures.
+
+#### CSI Volume Snapshot Support
+
+**CRITICAL REQUIREMENT**: Both source and target clusters must have a StorageClass that supports **CSI Volume Snapshots**.
+
+**Why this is critical:**
+- The staged deployment restore approach requires PVCs to be restored **before** service pods start
+- Filesystem backup (Restic/Kopia) requires pods to mount PVCs during restore, which breaks the staged approach
+- CSI snapshots restore data at the storage layer without needing pods
+
+**Supported StorageClasses:**
+- ✅ LVM storage (TopoLVM/LVMS)
+- ✅ Ceph RBD
+- ✅ Cloud provider storage (AWS EBS, Azure Disk, GCP PD)
+- ❌ Local storage (node-local directories) - **NOT supported**
+
+**Verification:**
+```bash
+# Check if VolumeSnapshotClass exists
+oc get volumesnapshotclass
+```
+
+See [Storage Volume Backup Prerequisites](backup-restore-storage-volumes.md#prerequisites) for detailed setup instructions including VolumeSnapshotClass creation.
 
 ## Core Backup/Restore Procedures
 
