@@ -111,7 +111,7 @@
 
     - name: Wait for cleanup to complete
       ansible.builtin.shell: |
-        oc get pods -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l
+        oc get pods -n {{ openstack_namespace }} --field-selector='status.phase!=Succeeded' --no-headers 2>/dev/null | wc -l
       register: pod_count
       until: pod_count.stdout|int == 0
       retries: 60
@@ -141,7 +141,7 @@
 
     - name: Wait again after force delete
       ansible.builtin.shell: |
-        oc get pods -n {{ openstack_namespace }} --no-headers 2>/dev/null | wc -l
+        oc get pods -n {{ openstack_namespace }} --field-selector='status.phase!=Succeeded' --no-headers 2>/dev/null | wc -l
       register: pod_count_final
       until: pod_count_final.stdout|int == 0
       retries: 30
