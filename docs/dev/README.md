@@ -521,3 +521,48 @@ Package the backup playbook as a Kubernetes Job/CronJob:
 - Triggering manual backups (oc create job --from=cronjob/...)
 - Monitoring job success/failure
 - Log retention and troubleshooting
+
+### Alternative Restore Procedure for Filesystem-Level Backup
+
+**Current Limitation:**
+The documented restore procedure requires CSI Volume Snapshots, which restore PVC data at the storage layer before pods start. This is necessary for the staged deployment approach (infrastructure-only → restore PVCs → restore database → resume deployment).
+
+Filesystem-level backup (Restic/Kopia in OADP) requires pods to mount PVCs during restore, which conflicts with the infrastructure-only stage where service pods are not running.
+
+**Proposed Enhancement:**
+Document an alternative restore procedure for environments that cannot use CSI snapshots (e.g., local storage, environments where CSI snapshots are not available):
+
+**Approach 1: Helper Pods During Restore**
+1. Create long-running helper pods that mount PVCs
+2. Trigger OADP restore → filesystem restore via init containers
+3. Once data is restored, terminate helper pods
+4. Continue with normal restore procedure
+
+**Approach 2: Modified Restore Order**
+1. Restore ControlPlane CR without infrastructure-only staging
+2. Allow services to start with empty PVCs
+3. Trigger OADP restore → filesystem restore populates data
+4. Restart services to pick up restored data
+5. Restore database from dumps
+
+**Approach 3: External Backup Integration**
+1. Instead of OADP, use traditional backup tools (tar, rsync)
+2. Backup procedure: tar PVC contents, store externally
+3. Restore procedure: extract tarballs into PVs before starting pods
+4. Continue with staged deployment
+
+**Trade-offs:**
+- Approach 1: Most aligned with staged deployment, but complex
+- Approach 2: Simpler, but services start before data is ready
+- Approach 3: Works without OADP, but requires external storage management
+
+**Why this enhancement:**
+- Not all environments have CSI snapshot support
+- Local storage (common in dev/test) doesn't support CSI snapshots
+- Provides flexibility for different deployment scenarios
+
+**Implementation:**
+- Document detailed restore procedure for each approach
+- Provide example helper pod manifests for Approach 1
+- Create playbook tasks for Approach 3 (external backup/restore)
+- Add decision tree: CSI snapshots available? → Use staged deployment; Otherwise → Use alternative approach
