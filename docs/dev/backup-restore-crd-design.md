@@ -32,7 +32,7 @@ Design for implementing CRD-based backup/restore automation for OpenStack contro
 
 ### CRDs
 
-Four new CRDs in infra-operator (or new backup-operator):
+Four new CRDs in openstack-operator:
 
 ```yaml
 # 1. OpenStackControlPlaneBackup
@@ -56,14 +56,12 @@ spec:
   oadp:
     enabled: true
     namespace: openshift-adp
+    snapshotMoveData: true  # Copy snapshot data to S3 (default: true)
+    ttl: 720h  # Backup retention (default: 30 days)
 
   # Backup storage location
   storage:
     pvc: openstack-backup-storage  # PVC to store backup archives
-
-  # Retention policy
-  retentionPolicy:
-    keep: 7  # Keep last 7 backups
 
 status:
   phase: Completed  # Pending, Running, Completed, Failed
@@ -89,10 +87,13 @@ spec:
   namespace: openstack
   schedule: "0 3 * * *"
   playbookOverride: my-custom-dataplane-backup
+  oadp:
+    enabled: true
+    namespace: openshift-adp
+    snapshotMoveData: true
+    ttl: 720h
   storage:
     pvc: openstack-backup-storage
-  retentionPolicy:
-    keep: 7
 
 status:
   phase: Completed
@@ -165,13 +166,27 @@ status:
 
 ### Controller Implementation
 
-**Location:** infra-operator (or new backup-operator if it grows large)
+**Location:** openstack-operator
 
-**Controllers:**
-1. `OpenStackControlPlaneBackup` controller
-2. `OpenStackDataPlaneBackup` controller
-3. `OpenStackControlPlaneRestore` controller
-4. `OpenStackDataPlaneRestore` controller
+**Two Controllers:**
+
+1. **BackupController** - Handles backup operations
+   - Watches: `OpenStackControlPlaneBackup` and `OpenStackDataPlaneBackup` CRs
+   - Responsibilities:
+     - Create/manage backup storage PVC
+     - Create ansible-runner Job with backup playbook
+     - Trigger OADP backup
+     - Update backup CR status
+     - Manage CronJobs for scheduled backups
+
+2. **RestoreController** - Handles restore operations
+   - Watches: `OpenStackControlPlaneRestore` and `OpenStackDataPlaneRestore` CRs
+   - Responsibilities:
+     - Validate backup exists and is compatible
+     - Create ansible-runner Job with restore playbook
+     - Monitor multi-stage restore progress
+     - Update restore CR status
+     - Trigger post-restore validation (optional)
 
 **Execution Model:** Ansible Runner (like OpenStackDataPlaneDeployment)
 
@@ -233,9 +248,21 @@ data:
 spec:
   storage:
     pvc: openstack-backup-storage
+    size: 10Gi  # Optional, default: 10Gi
+    storageClass: lvms-vg1  # Optional, uses default if not specified
 ```
 
-Controller mounts this PVC into ansible-runner Job. Backup archives written to `/backup/`.
+**PVC Management:**
+- **BackupController creates PVC** if it doesn't exist
+- PVC labeled with `openstack.org/backup=true` (included in OADP backup)
+- Access mode: `ReadWriteMany` (for concurrent backup jobs)
+- Controller mounts PVC into ansible-runner Job
+- Backup archives written to `/backup/`
+
+**PVC lifecycle:**
+- Created on first backup
+- Persists across backups (archives overwritten)
+- User can pre-create PVC with specific settings if needed
 
 **Future:** Could support external storage (S3, NFS) directly:
 
@@ -248,19 +275,14 @@ spec:
       credentialsSecret: s3-creds
 ```
 
-## Separation of Concerns
+## Related Components
 
-Keep controllers separate initially:
-- **GaleraBackup/GaleraRestore** - Already in mariadb-operator, database-specific
+These backup/restore capabilities complement but remain separate from:
+- **GaleraBackup/GaleraRestore** - In mariadb-operator, database-specific dumps
 - **OVNBackup/OVNRestore** - To be implemented, OVN database-specific
-- **OpenStackControlPlaneBackup/Restore** - New, orchestrates full control plane backup
-- **OpenStackDataPlaneBackup/Restore** - New, handles data plane backup
+- **test-operator** - Used for post-restore validation (Tempest tests)
 
-**Rationale:**
-- Each has different concerns (database dump vs CR backup vs network topology)
-- Different playbooks and logic
-- Different status tracking needs
-- Can evaluate generic backup controller later if patterns emerge
+The generic backup/restore controller in openstack-operator orchestrates the full backup/restore workflow using playbooks, while these components handle specific subsystems.
 
 ## User Workflow
 
@@ -306,10 +328,10 @@ spec:
   oadp:
     enabled: true
     namespace: openshift-adp
+    snapshotMoveData: true
+    ttl: 720h  # 30 days
   storage:
     pvc: openstack-backup-storage
-  retentionPolicy:
-    keep: 7
 EOF
 
 # Controller creates CronJob, which creates backup CR instances daily
@@ -646,23 +668,36 @@ status:
 
 **Future enhancement:** Support custom validation workflows (user-provided tests).
 
-### 6. Generic vs specialized controllers: **Start with generic, separate if needed**
+### 6. Controller architecture: **Two controllers (Backup and Restore)**
 
-**Decision:** Start with one generic controller. Keep logic in playbooks for flexibility.
+**Decision:** Two controllers - BackupController and RestoreController.
 
 **Rationale:**
+
+**Different responsibilities:**
+- **Backup:** Resource creation (PVCs, Jobs, OADP backups, CronJobs)
+- **Restore:** Resource consumption, multi-stage orchestration, validation
+- Different reconciliation patterns justify separate controllers
+
+**BackupController responsibilities (minimal Go logic):**
+- Create/manage backup storage PVC (if doesn't exist)
+- Watch ControlPlane and DataPlane Backup CRs
+- Create ansible-runner Job with backup playbook
+- Trigger OADP backup via playbook
+- Create CronJob for scheduled backups
+- Update backup CR status
+
+**RestoreController responsibilities (minimal Go logic):**
+- Watch ControlPlane and DataPlane Restore CRs
+- Validate backup compatibility (operator versions)
+- Create ansible-runner Job with restore playbook
+- Monitor multi-stage restore (via playbook status)
+- Update restore CR status with stage tracking
 
 **Key operational requirement: Customizability**
 - If customer hits bug in production → needs immediate fix without operator release
 - Playbook override allows emergency fixes, skipping broken steps, environment-specific logic
 - Same pattern as EDPM (proven in production)
-
-**Controller responsibility (minimal Go logic):**
-- Watch for Backup/Restore CRs (any type)
-- Create ansible-runner Job with correct playbook + variables
-- Monitor Job completion
-- Update CR status from Job output
-- Basic error handling and retries
 
 **Playbook responsibility (maximum logic, customizable):**
 - All backup/restore steps
@@ -672,36 +707,57 @@ status:
 - Deployment resumption (`oc annotate`)
 - Validation (trigger Tempest via `oc apply`)
 
-**Generic controller approach:**
+**Controller pseudo-code:**
 ```go
-// Simplified pseudo-code
-func Reconcile(cr BackupOrRestoreCR) {
+// BackupController
+func (r *BackupController) Reconcile(backup *Backup) {
+  // Ensure PVC exists
+  ensurePVCExists(backup.Spec.Storage.PVC)
+
   // Determine playbook based on CR kind
-  playbook := getPlaybook(cr.Kind)
+  playbook := getBackupPlaybook(backup.Kind)
   // backup-openstack-ctlplane.yaml
   // backup-openstack-dataplane.yaml
+
+  // Create ansible-runner Job
+  job := createAnsibleRunnerJob(playbook, backup.Spec)
+
+  // Update status
+  updateStatusFromJob(backup, job)
+
+  // Create CronJob if schedule specified
+  if backup.Spec.Schedule != "" {
+    ensureCronJobExists(backup)
+  }
+}
+
+// RestoreController
+func (r *RestoreController) Reconcile(restore *Restore) {
+  // Validate backup
+  if err := validateBackupCompatibility(restore); err != nil {
+    return err
+  }
+
+  // Determine playbook
+  playbook := getRestorePlaybook(restore.Kind)
   // restore-openstack-ctlplane.yaml
   // restore-openstack-dataplane.yaml
 
   // Create ansible-runner Job
-  job := createAnsibleRunnerJob(playbook, cr.Spec)
+  job := createAnsibleRunnerJob(playbook, restore.Spec)
 
-  // Monitor and update status
-  updateStatusFromJob(cr, job)
+  // Update status with stage tracking
+  updateStatusFromJob(restore, job)
 }
 ```
 
 **Benefits:**
-- ✅ Simple controller implementation
+- ✅ Clear separation: backup creates, restore consumes
+- ✅ BackupController manages PVC lifecycle
+- ✅ Different reconciliation logic per controller
 - ✅ Maximum flexibility via playbook override
 - ✅ Customer can fix bugs immediately
-- ✅ Less Go code to maintain
-- ✅ Shared logic for all backup/restore types
-
-**When to separate:**
-If we find significant Go logic is needed per-type (complex OADP orchestration, different reconciliation patterns), we can split into separate controllers later.
-
-**Start simple, separate if complexity demands it.**
+- ✅ Each controller handles both ControlPlane and DataPlane (similar logic)
 
 ### 7. OADP backup strategy: **One atomic backup for all PVCs**
 
@@ -908,10 +964,10 @@ Controller reads `operator-versions.txt` from restored archive and validates:
 - Execute existing restore playbook
 - Multi-stage status tracking
 
-**Phase 3: Scheduling and retention**
+**Phase 3: Scheduling**
 - Add schedule support (CronJob-based)
-- Implement retention policy
-- Auto-cleanup old backups
+- Configure OADP TTL from CR spec
+- Controller-managed CronJob lifecycle
 
 **Phase 4: DataPlane backup/restore**
 - Implement OpenStackDataPlaneBackup/Restore controllers
@@ -930,10 +986,11 @@ Controller reads `operator-versions.txt` from restored archive and validates:
 - OpenStackDataPlaneDeployment: `dataplane-operator` repository
 - OADP Backup/Restore: Velero CRDs
 
-## Discussion Topics
+## Open Implementation Questions
 
-1. Should we start with ControlPlane backup/restore or do Galera/OVN first?
-2. Where should these controllers live (which operator)?
-3. Do we need a separate backup-operator or can it live in infra-operator?
-4. Should playbook override be in Phase 1 or later?
-5. How should we handle OADP backup retention separately from archive retention?
+1. Should playbook override be in Phase 1 or later phases?
+2. How to handle ansible-runner Job cleanup (retention of completed jobs)?
+3. Status update frequency during long-running operations?
+4. Error handling strategy: retries, backoff, manual intervention?
+5. RBAC model: cluster-admin or limited permissions?
+6. Should we support backing up to multiple OADP backends simultaneously?
