@@ -162,26 +162,22 @@
           - "========================================"
           - "Step 3: Deleting GaleraRestore and GaleraBackup CRs"
           - "========================================"
-      when: ctlplane_count.stdout|int > 0
 
     - name: Delete GaleraRestore CRs
       ansible.builtin.shell: |
         oc delete galerarestore --all -n {{ openstack_namespace }}
       changed_when: true
       failed_when: false
-      when: ctlplane_count.stdout|int > 0
 
     - name: Delete GaleraBackup CRs
       ansible.builtin.shell: |
         oc delete galerabackup --all -n {{ openstack_namespace }}
       changed_when: true
       failed_when: false
-      when: ctlplane_count.stdout|int > 0
 
     - name: Print Galera cleanup status
       ansible.builtin.debug:
         msg: "✓ GaleraRestore and GaleraBackup CRs deleted"
-      when: ctlplane_count.stdout|int > 0
 
     - name: Step 4 - Delete PVCs with backup label
       ansible.builtin.debug:
@@ -190,19 +186,16 @@
           - "Step 4: Deleting PVCs with backup label"
           - "========================================"
           - "(Galera backups, Glance, Cinder, Swift, Manila)"
-      when: ctlplane_count.stdout|int > 0
 
     - name: Delete PVCs labeled for backup
       ansible.builtin.shell: |
         oc delete pvc -n {{ openstack_namespace }} -l openstack.org/backup=true
       changed_when: true
       failed_when: false
-      when: ctlplane_count.stdout|int > 0
 
     - name: Print PVC cleanup status
       ansible.builtin.debug:
         msg: "✓ PVCs with openstack.org/backup=true label deleted"
-      when: ctlplane_count.stdout|int > 0
 
     - name: Step 5 - Delete RabbitMQUser CRs and restored secrets
       ansible.builtin.debug:
@@ -210,14 +203,12 @@
           - "========================================"
           - "Step 5: Deleting RabbitMQUser CRs and Restored Secrets"
           - "========================================"
-      when: ctlplane_count.stdout|int > 0
 
     - name: Delete all RabbitMQUser CRs
       ansible.builtin.shell: |
         oc delete rabbitmquser --all -n {{ openstack_namespace }}
       changed_when: true
       failed_when: false
-      when: ctlplane_count.stdout|int > 0
 
     - name: Delete RabbitMQ restored-user secrets
       ansible.builtin.shell: |
@@ -226,12 +217,10 @@
         done
       changed_when: true
       failed_when: false
-      when: ctlplane_count.stdout|int > 0
 
     - name: Print RabbitMQ cleanup status
       ansible.builtin.debug:
         msg: "✓ RabbitMQUser CRs and restored secrets deleted"
-      when: ctlplane_count.stdout|int > 0
 
     - name: Step 6 - Delete certificate secrets
       ansible.builtin.debug:
@@ -240,7 +229,6 @@
           - "Step 6: Deleting certificate secrets"
           - "========================================"
           - "(Excluding EDPM, compute node, and Ceph certs)"
-      when: ctlplane_count.stdout|int > 0
 
     - name: Get compute node prefixes from dataplanes
       ansible.builtin.shell: |
@@ -255,7 +243,7 @@
           oc delete -n {{ openstack_namespace }} $i
         done
       changed_when: true
-      when: ctlplane_count.stdout|int > 0 and compute_prefixes.stdout != ""
+      when: compute_prefixes.stdout != ""
 
     - name: Delete cert secrets (fallback without compute prefix)
       ansible.builtin.shell: |
@@ -263,18 +251,16 @@
           oc delete -n {{ openstack_namespace }} $i
         done
       changed_when: true
-      when: ctlplane_count.stdout|int > 0 and compute_prefixes.stdout == ""
+      when: compute_prefixes.stdout == ""
 
     - name: Delete CA bundle secrets
       ansible.builtin.shell: |
         oc delete secret -n {{ openstack_namespace }} rootca-internal rootca-libvirt rootca-ovn rootca-public combined-ca-bundle 2>/dev/null || true
       changed_when: true
-      when: ctlplane_count.stdout|int > 0
 
     - name: Print certificate cleanup status
       ansible.builtin.debug:
         msg: "✓ Certificate secrets deleted"
-      when: ctlplane_count.stdout|int > 0
 
     - name: Verify cleanup
       ansible.builtin.shell: |
