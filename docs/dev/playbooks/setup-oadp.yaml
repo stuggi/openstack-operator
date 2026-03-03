@@ -108,7 +108,7 @@
         oc wait --for=condition=ready --timeout=300s pod -l control-plane=controller-manager -n {{ oadp_namespace }}
       changed_when: false
       register: operator_wait
-      retries: 3
+      retries: 30
       delay: 10
       until: operator_wait.rc == 0
 
@@ -187,7 +187,7 @@
         oc wait --for=condition=ready --timeout=300s pod -l app.kubernetes.io/name=velero -n {{ oadp_namespace }}
       changed_when: false
       register: velero_wait
-      retries: 3
+      retries: 30
       delay: 10
       until: velero_wait.rc == 0
 
