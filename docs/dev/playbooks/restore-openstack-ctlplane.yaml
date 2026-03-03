@@ -1126,6 +1126,22 @@
         msg: "✓ All database restores completed ({{ galerabackup_names.stdout_lines | length }} instance(s))"
       when: automated_db_restore and galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0
 
+    - name: Cleanup GaleraRestore CRs after successful restore
+      ansible.builtin.shell: |
+        RESTORE_NAME="{{ item }}restore"
+        echo "Deleting GaleraRestore CR: ${RESTORE_NAME}"
+        oc delete galerarestore "${RESTORE_NAME}" -n {{ openstack_namespace }} --ignore-not-found=true
+      args:
+        executable: /bin/bash
+      loop: "{{ galerabackup_names.stdout_lines }}"
+      changed_when: true
+      when: automated_db_restore and galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0
+
+    - name: Print GaleraRestore cleanup status
+      ansible.builtin.debug:
+        msg: "✓ GaleraRestore CRs deleted (restore pods will terminate)"
+      when: automated_db_restore and galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0
+
     - name: Confirm database restore completion (manual mode)
       ansible.builtin.pause:
         prompt: |

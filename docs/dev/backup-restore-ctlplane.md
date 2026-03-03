@@ -1616,6 +1616,21 @@ oc exec -n openstack openstack-restore-openstackrestorecell1 -- \
 
 The restore script automatically handles both the database dump and grants file.
 
+**3. Clean up GaleraRestore CRs:**
+
+After successful restore, delete the GaleraRestore CRs to stop the restore pods:
+
+```bash
+# Delete GaleraRestore CRs (automatically done in Ansible playbook)
+oc delete galerarestore openstackrestore -n openstack
+oc delete galerarestore openstackrestorecell1 -n openstack
+
+# Or delete all at once
+oc delete galerarestore --all -n openstack
+```
+
+The restore pods will terminate once the CRs are deleted.
+
 **Future enhancement**: See [README.md#galera-backup-timestamp-tracking](README.md#galera-backup-timestamp-tracking) for proposed solution to timestamp tracking.
 
 After Galera database restore is complete, proceed to the next step.

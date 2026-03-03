@@ -14,6 +14,7 @@ set -e
 # Configuration
 RESTORE_NAME="${1}"
 OPENSTACK_NAMESPACE="${2:-openstack}"
+DELETE_CR="${3:-yes}"  # Delete GaleraRestore CR after successful restore (yes/no)
 
 # Colors for output
 RED='\033[0;31m'
@@ -51,11 +52,17 @@ if [ -z "$RESTORE_NAME" ]; then
     print_error "Restore name is required"
     echo ""
     echo "Usage:"
-    echo "  $0 <restore-name> [namespace]"
+    echo "  $0 <restore-name> [namespace] [delete-cr]"
+    echo ""
+    echo "Arguments:"
+    echo "  restore-name  - Name of the GaleraRestore CR (e.g., openstackrestore)"
+    echo "  namespace     - OpenStack namespace (default: openstack)"
+    echo "  delete-cr     - Delete GaleraRestore CR after successful restore (default: yes)"
     echo ""
     echo "Examples:"
     echo "  $0 openstackrestore"
     echo "  $0 openstackrestorecell1 openstack"
+    echo "  $0 openstackrestore openstack no  # Keep GaleraRestore CR"
     exit 1
 fi
 
@@ -162,6 +169,23 @@ if [ $RESTORE_EXIT_CODE -eq 0 ]; then
     print_header "Restore Completed Successfully"
     print_success "Database restored from: $LATEST_BACKUP"
     print_success "Timestamp: $TIMESTAMP"
+
+    # Clean up GaleraRestore CR if requested
+    if [ "$DELETE_CR" == "yes" ]; then
+        echo ""
+        print_info "Cleaning up GaleraRestore CR..."
+        if oc delete galerarestore "$RESTORE_NAME" -n "$OPENSTACK_NAMESPACE" --ignore-not-found=true; then
+            print_success "GaleraRestore CR deleted: $RESTORE_NAME"
+            print_info "Restore pod will terminate"
+        else
+            print_warning "Failed to delete GaleraRestore CR: $RESTORE_NAME"
+        fi
+    else
+        echo ""
+        print_info "GaleraRestore CR preserved (delete-cr=no)"
+        print_info "To delete manually:"
+        print_info "  oc delete galerarestore $RESTORE_NAME -n $OPENSTACK_NAMESPACE"
+    fi
 else
     print_header "Restore Failed"
     print_error "restore_galera exited with code: $RESTORE_EXIT_CODE"
