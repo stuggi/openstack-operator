@@ -430,10 +430,15 @@ oc edit pvc <pvc-name> -n openstack
 #       requests:
 #         storage: 5Gi
 
-# 2. Restart pods using the PVC to apply the resize
-# For Galera backup PVCs, restart the backup job or wait for next scheduled backup
-# For other service PVCs, restart the service pods:
-oc delete pod -n openstack -l service=<service-name>
+# 2. Wait for resize to complete
+# For PVCs with pods currently running (e.g., Glance, Cinder):
+#   - Resize happens automatically, no pod restart needed
+#   - Kubernetes and CSI driver handle online resize
+
+# For PVCs with NO pods running (e.g., Galera backup PVCs):
+#   - Resize is applied when the PVC is next mounted
+#   - Either wait for next backup job or trigger one manually:
+oc create job manual-backup --from=cronjob/<backup-cronjob-name> -n openstack
 
 # 3. Verify the PVC capacity was updated
 oc get pvc <pvc-name> -n openstack -o jsonpath='{.status.capacity.storage}'
