@@ -452,6 +452,7 @@ The playbook follows the correct restore order and prompts for confirmation at c
 - `openstack_namespace`: Target namespace (default: `openstack`)
 - `backup_file`: Path to backup file (required)
 - `skip_rabbitmq_restore`: Skip RabbitMQ user restoration (default: `false`)
+- `automated_db_restore`: Automatically restore databases from latest backup (default: `true`)
 
 ---
 
@@ -1568,26 +1569,41 @@ Alternatively, use the provided helper script:
 ../scripts/create-galerarestore-crs.sh .
 ```
 
-**2. Find matching dump files:**
+**2. Find matching dump files and execute restore:**
 
 ⚠️ **LIMITATION**: Dump file timestamps may not exactly match the control plane backup timestamp. The dump is created when the Galera backup job runs, which is slightly later than when the job was triggered.
 
+**Automated Approach (Recommended for Testing/CI):**
+
+Use the helper script to automatically find and restore from the latest backup:
+
 ```bash
-# List dump files in the restore pod for main instance
+# Restore main galera instance (uses latest backup automatically)
+../scripts/restore-galera-latest.sh openstackrestore
+
+# Restore cell1 (uses latest backup automatically)
+../scripts/restore-galera-latest.sh openstackrestorecell1
+
+# For additional cells
+../scripts/restore-galera-latest.sh openstackrestorecell2
+```
+
+**Manual Approach:**
+
+If you need to restore from a specific timestamp (not the latest):
+
+```bash
+# Step 1: List dump files in the restore pod
 oc exec -n openstack openstack-restore-openstackrestore -- ls -la /backup/data/
 
 # Expected output:
 # -rw-rw-r--. 1 mysql mysql 256515 Feb 26 10:13 openstack_backup_2026-02-26_10-12-59.sql.gz
 # -rw-rw-r--. 1 mysql mysql    837 Feb 26 10:13 openstack_backup-grants_2026-02-26_10-12-59.sql.gz
 
-# Find the dump file with the closest timestamp to your backup
+# Step 2: Find the dump file with the closest timestamp to your backup
 # Example: If backup is from 2026-02-26_10-12-00, the dump might be 2026-02-26_10-12-59
-```
 
-**3. Execute restore:**
-
-```bash
-# Restore main galera instance (replace timestamp with your actual dump file timestamp)
+# Step 3: Execute restore (replace timestamp with your actual dump file timestamp)
 oc exec -n openstack openstack-restore-openstackrestore -- \
   /var/lib/backup-scripts/restore_galera --yes /backup/data/*_2026-02-26_10-12-59.sql.gz
 

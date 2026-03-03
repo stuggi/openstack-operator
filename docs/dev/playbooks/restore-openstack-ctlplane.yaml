@@ -40,6 +40,7 @@
 #   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=openstack-ctlplane-backup-20260119-120000.tar.gz
 #   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e openstack_namespace=my-openstack
 #   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e skip_rabbitmq_restore=true
+#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e automated_db_restore=false  # Manual DB restore
 
 - name: Restore OpenStack Control Plane
   hosts: localhost
@@ -52,6 +53,7 @@
       ansible.builtin.set_fact:
         openstack_namespace: "{{ openstack_namespace | default('openstack') }}"
         skip_rabbitmq_restore: "{{ skip_rabbitmq_restore | default(false) | bool }}"
+        automated_db_restore: "{{ automated_db_restore | default(true) | bool }}"
 
     - name: Check if backup_file is provided
       ansible.builtin.fail:
@@ -82,6 +84,7 @@
           - "Target Namespace: {{ openstack_namespace }}"
           - "Backup File: {{ backup_file_abs }}"
           - "Skip RabbitMQ Restore: {{ skip_rabbitmq_restore }}"
+          - "Automated Database Restore: {{ automated_db_restore }}"
           - ""
           - "NOTE: This playbook assumes cleanup was already done."
           - "If not, run cleanup-openstack-ctlplane.yaml first."
@@ -996,43 +999,142 @@
       when: galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0 and galerarestore_list.rc == 0
 
     # Step 12b: Restore Galera/MariaDB
-    - name: Print Step 12b header
+    - name: Print Step 12b header (automated mode)
       ansible.builtin.debug:
         msg:
           - "----------------------------------------"
-          - "Step 12b: Restore Galera/MariaDB Database Contents"
+          - "Step 12b: Restore Galera/MariaDB Database Contents (Automated)"
           - "----------------------------------------"
           - ""
           - "CRITICAL: Restore database contents while services are NOT running."
           - "This is only possible because of the staged deployment pause."
           - ""
           - "GaleraRestore CRs have been automatically created."
-          - "For each Galera instance, you must now:"
-          - "  1. Find the matching dump file in the restore pod (timestamp may not match exactly)"
-          - "  2. Execute restore command in the pod"
+          - "Now executing automated database restore (uses latest backup from each instance)."
           - ""
-          - "Example for main galera instance:"
-          - "  # List dump files to find closest timestamp to backup"
-          - "  oc exec -n {{ openstack_namespace }} openstack-restore-openstackrestore -- ls -la /backup/data/"
+          - "To disable automation, run with: -e automated_db_restore=false"
+      when: automated_db_restore
+
+    - name: Print Step 12b header (manual mode)
+      ansible.builtin.debug:
+        msg:
+          - "----------------------------------------"
+          - "Step 12b: Restore Galera/MariaDB Database Contents (Manual)"
+          - "----------------------------------------"
           - ""
-          - "  # Restore using the matching timestamp file"
-          - "  oc exec -n {{ openstack_namespace }} openstack-restore-openstackrestore -- \\"
-          - "    /var/lib/backup-scripts/restore_galera --yes /backup/data/*_YYYY-MM-DD_HH-MM-SS.sql.gz"
+          - "CRITICAL: Restore database contents while services are NOT running."
+          - "This is only possible because of the staged deployment pause."
           - ""
-          - "Repeat for cell1 and any additional galeras."
+          - "GaleraRestore CRs have been automatically created."
+          - "For each Galera instance, you must now execute the database restore."
+          - ""
+          - "AUTOMATED APPROACH:"
+          - "  Use the helper script to automatically restore from latest backup:"
+          - "    ../scripts/restore-galera-latest.sh openstackrestore"
+          - "    ../scripts/restore-galera-latest.sh openstackrestorecell1"
+          - ""
+          - "MANUAL APPROACH:"
+          - "  If you need to restore from a specific timestamp (not the latest):"
+          - ""
+          - "  1. List dump files to find the closest timestamp to backup:"
+          - "     oc exec -n {{ openstack_namespace }} openstack-restore-openstackrestore -- ls -la /backup/data/"
+          - ""
+          - "  2. Execute restore using the matching timestamp file:"
+          - "     oc exec -n {{ openstack_namespace }} openstack-restore-openstackrestore -- \\"
+          - "       /var/lib/backup-scripts/restore_galera --yes /backup/data/*_YYYY-MM-DD_HH-MM-SS.sql.gz"
+          - ""
+          - "  3. Repeat for cell1 and any additional galeras."
           - ""
           - "LIMITATION: Dump file timestamps may not exactly match the control plane backup timestamp."
-          - "You must manually find the dump file with the closest timestamp."
-          - "Future enhancement: See docs/dev/README.md#galera-backup-timestamp-tracking"
+          - "The dump is created when the backup job runs, slightly later than when triggered."
+      when: not automated_db_restore
 
-    - name: Confirm database restore completion
+    - name: Automated database restore
+      ansible.builtin.shell: |
+        set -e
+        RESTORE_NAME="{{ item }}"
+        POD_NAME="openstack-restore-${RESTORE_NAME}"
+
+        echo "Processing restore: ${RESTORE_NAME}"
+        echo "Pod name: ${POD_NAME}"
+
+        # Check if pod exists and is running
+        if ! oc get pod "${POD_NAME}" -n {{ openstack_namespace }} &>/dev/null; then
+          echo "ERROR: Restore pod not found: ${POD_NAME}"
+          exit 1
+        fi
+
+        POD_PHASE=$(oc get pod "${POD_NAME}" -n {{ openstack_namespace }} -o jsonpath='{.status.phase}')
+        if [ "$POD_PHASE" != "Running" ]; then
+          echo "ERROR: Restore pod is not running (phase: ${POD_PHASE})"
+          exit 1
+        fi
+
+        echo "Pod is running, finding latest backup..."
+
+        # List backup files (excluding grants)
+        BACKUP_FILES=$(oc exec -n {{ openstack_namespace }} "${POD_NAME}" -- ls -1 /backup/data/*_backup_*.sql.gz 2>/dev/null | grep -v grants || true)
+
+        if [ -z "${BACKUP_FILES}" ]; then
+          echo "ERROR: No backup files found in /backup/data/"
+          exit 1
+        fi
+
+        # Get latest backup
+        LATEST_BACKUP=$(echo "${BACKUP_FILES}" | sort | tail -1)
+        echo "Latest backup: ${LATEST_BACKUP}"
+
+        # Extract timestamp from filename
+        TIMESTAMP=$(basename "${LATEST_BACKUP}" | sed -E 's/.*_backup_(.*)\.sql\.gz/\1/')
+
+        if [ -z "${TIMESTAMP}" ]; then
+          echo "ERROR: Could not extract timestamp from filename: ${LATEST_BACKUP}"
+          exit 1
+        fi
+
+        echo "Extracted timestamp: ${TIMESTAMP}"
+
+        # Construct restore pattern
+        RESTORE_PATTERN="/backup/data/*_${TIMESTAMP}.sql.gz"
+        echo "Restore pattern: ${RESTORE_PATTERN}"
+
+        # Verify files exist
+        MATCHED_FILES=$(oc exec -n {{ openstack_namespace }} "${POD_NAME}" -- ls -1 "${RESTORE_PATTERN}" 2>/dev/null || true)
+
+        if [ -z "${MATCHED_FILES}" ]; then
+          echo "ERROR: No files match pattern: ${RESTORE_PATTERN}"
+          exit 1
+        fi
+
+        FILE_COUNT=$(echo "${MATCHED_FILES}" | wc -l)
+        echo "Found ${FILE_COUNT} file(s) matching pattern"
+
+        # Execute restore
+        echo "Executing database restore..."
+        oc exec -n {{ openstack_namespace }} "${POD_NAME}" -- \
+          /var/lib/backup-scripts/restore_galera --yes "${RESTORE_PATTERN}"
+
+        echo "✓ Database restore completed for: ${RESTORE_NAME}"
+      args:
+        executable: /bin/bash
+      loop: "{{ galerabackup_names.stdout_lines }}"
+      changed_when: true
+      when: automated_db_restore and galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0
+
+    - name: Print Step 12b completion (automated)
+      ansible.builtin.debug:
+        msg: "✓ All database restores completed ({{ galerabackup_names.stdout_lines | length }} instance(s))"
+      when: automated_db_restore and galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0
+
+    - name: Confirm database restore completion (manual mode)
       ansible.builtin.pause:
         prompt: |
 
           Have you completed database restore? (yes/no)
       register: db_restore_confirm
+      when: not automated_db_restore and galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0
 
-    - name: Warn about missing database restore
+    - name: Warn about missing database restore (manual mode)
       ansible.builtin.pause:
         prompt: |
 
@@ -1041,19 +1143,24 @@
 
           Continue anyway without database restore? (yes/no)
       register: skip_db_confirm
-      when: db_restore_confirm.user_input != "yes"
+      when: not automated_db_restore and galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0 and db_restore_confirm.user_input != "yes"
 
-    - name: Fail if database restore not completed
+    - name: Fail if database restore not completed (manual mode)
       ansible.builtin.fail:
         msg: |
           Aborting. Restore databases and then resume with:
             oc annotate openstackcontrolplane {{ ctlplane_name }} -n {{ openstack_namespace }} core.openstack.org/deployment-stage-
-      when: db_restore_confirm.user_input != "yes" and skip_db_confirm.user_input != "yes"
+      when: not automated_db_restore and galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0 and db_restore_confirm.user_input != "yes" and skip_db_confirm.user_input != "yes"
 
-    - name: Print Step 12b completion
+    - name: Print Step 12b completion (manual)
       ansible.builtin.debug:
         msg: "✓ Database restore completed"
-      when: db_restore_confirm.user_input == "yes"
+      when: not automated_db_restore and galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0 and db_restore_confirm.user_input == "yes"
+
+    - name: Print Step 12b skip message
+      ansible.builtin.debug:
+        msg: "No GaleraBackup CRs found, skipping database restore..."
+      when: not galerabackup_backup_file.stat.exists or galerabackup_names.stdout_lines | length == 0
 
     # Step 13: Restore OVN Database Contents
     - name: Print Step 13 header
