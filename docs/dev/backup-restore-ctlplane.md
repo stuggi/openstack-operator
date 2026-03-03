@@ -150,7 +150,8 @@ flowchart TD
 
     InfraReady --> RestorePVC[Restore Storage Volumes<br/>OADP restore for PVCs<br/>Includes Galera dump PVCs, Glance, Cinder, Swift, Manila]
     RestorePVC --> RestoreGaleraBackup[Restore GaleraBackup CRs<br/>Database backup configuration]
-    RestoreGaleraBackup --> RestoreMariaDB[Restore MariaDB Database Contents<br/>Create GaleraRestore CR & execute<br/>Reads from restored dump PVCs]
+    RestoreGaleraBackup --> CreateGaleraRestore[Auto-create GaleraRestore CRs<br/>From GaleraBackup CRs in backup]
+    CreateGaleraRestore --> RestoreMariaDB[Restore MariaDB Database Contents<br/>Execute restore in pods<br/>Reads from restored dump PVCs]
     RestoreMariaDB --> RestoreOVN[Restore OVN Database Contents<br/>NB & SB databases]
     RestoreOVN --> RestoreRabbitMQ[Restore RabbitMQ User Credentials<br/>Create RabbitMQUser CRs<br/>for EDPM compatibility]
 
@@ -180,7 +181,8 @@ flowchart TD
 - **OpenStackControlPlaneInfrastructureReady Condition**: Single condition check validates all infrastructure components are ready
 - **Storage Volumes Restore**: OADP restores PVCs containing Galera dumps and service data - Step 11 (must be done first)
 - **GaleraBackup CRs Restore**: Database backup configurations restored after PVCs - Step 12a
-- **Database Restore**: GaleraRestore reads from restored dump PVCs while OpenStack services are NOT yet created - Step 12b
+- **GaleraRestore CRs Auto-Creation**: GaleraRestore CRs automatically created from GaleraBackup CRs (eliminates manual CR creation) - Step 12a.1
+- **Database Restore**: Execute restore commands in GaleraRestore pods to read from restored dump PVCs while OpenStack services are NOT yet created - Step 12b
 - **OVN Database Restore**: Dedicated procedure (not yet documented) - Step 13
 - **RabbitMQ User Restore**: Original user credentials restored for EDPM compatibility - Step 14
 - **Resume Deployment**: Removing the `core.openstack.org/deployment-stage` annotation triggers creation of OpenStack services - Step 15
@@ -1495,10 +1497,42 @@ fi
 
 For each Galera instance, restore the database dumps from the PVCs that were just restored by OADP:
 
-**1. Create GaleraRestore CR:**
+**1. Create GaleraRestore CRs:**
+
+For each GaleraBackup CR in the backup, you need to create a corresponding GaleraRestore CR.
+
+**Automated Creation (Recommended):**
 
 ```bash
-# Main galera instance
+# Automatically create GaleraRestore CRs for all GaleraBackup CRs in backup
+if [ -f galerabackup-backup.json ]; then
+  jq -r '.items[] | .metadata.name' galerabackup-backup.json | while read -r backup_name; do
+    # Generate restore name (e.g., "openstack" → "openstackrestore")
+    restore_name="${backup_name}restore"
+
+    echo "Creating GaleraRestore CR: ${restore_name} (for backup: ${backup_name})"
+
+    cat <<EOF | oc apply -f -
+apiVersion: mariadb.openstack.org/v1beta1
+kind: GaleraRestore
+metadata:
+  name: ${restore_name}
+  namespace: openstack
+spec:
+  backupSource: ${backup_name}
+EOF
+  done
+else
+  echo "No GaleraBackup CRs found in backup, skipping GaleraRestore creation"
+fi
+```
+
+**Manual Creation (if not using automation):**
+
+For typical deployments with main galera and cell1:
+
+```bash
+# Main galera instance (openstack)
 cat <<EOF | oc apply -f -
 apiVersion: mariadb.openstack.org/v1beta1
 kind: GaleraRestore
@@ -1509,7 +1543,7 @@ spec:
   backupSource: openstack
 EOF
 
-# Cell1 (always present)
+# Cell1 galera instance (openstack-cell1)
 cat <<EOF | oc apply -f -
 apiVersion: mariadb.openstack.org/v1beta1
 kind: GaleraRestore
@@ -1520,7 +1554,18 @@ spec:
   backupSource: openstack-cell1
 EOF
 
-# For additional galeras, create similar GaleraRestore CRs
+# For additional cells (cell2, cell3, etc.), create similar CRs:
+# - name: openstackrestorecell2, backupSource: openstack-cell2
+# - name: openstackrestorecell3, backupSource: openstack-cell3
+```
+
+**Helper Script:**
+
+Alternatively, use the provided helper script:
+
+```bash
+# From the backup directory
+../scripts/create-galerarestore-crs.sh .
 ```
 
 **2. Find matching dump files:**

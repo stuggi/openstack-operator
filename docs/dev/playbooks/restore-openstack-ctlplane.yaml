@@ -25,7 +25,8 @@
 # 11. Restore storage volumes (OADP)
 # 12. Restore database contents
 #     12a. Restore GaleraBackup CRs
-#     12b. Restore Galera/MariaDB
+#     12a.1. Auto-create GaleraRestore CRs from GaleraBackup CRs
+#     12b. Restore Galera/MariaDB (execute restore commands)
 # 13. Restore OVN database contents (placeholder)
 # 14. Restore RabbitMQ user credentials
 # 15. Resume deployment (remove annotation)
@@ -937,6 +938,63 @@
         msg: "No GaleraBackup backup found, skipping..."
       when: not galerabackup_backup_file.stat.exists
 
+    # Step 12a.1: Automatically create GaleraRestore CRs
+    - name: Print Step 12a.1 header
+      ansible.builtin.debug:
+        msg:
+          - "----------------------------------------"
+          - "Step 12a.1: Create GaleraRestore CRs (Automated)"
+          - "----------------------------------------"
+          - "Automatically creating GaleraRestore CRs from GaleraBackup CRs"
+      when: galerabackup_backup_file.stat.exists
+
+    - name: Get list of GaleraBackup names
+      ansible.builtin.shell: |
+        jq -r '.items[].metadata.name' {{ backup_dir }}/galerabackup-backup.json
+      register: galerabackup_names
+      changed_when: false
+      when: galerabackup_backup_file.stat.exists
+
+    - name: Create GaleraRestore CRs automatically
+      ansible.builtin.shell: |
+        BACKUP_NAME="{{ item }}"
+        RESTORE_NAME="${BACKUP_NAME}restore"
+
+        echo "Creating GaleraRestore CR: ${RESTORE_NAME} (for backup: ${BACKUP_NAME})"
+
+        cat <<EOF | oc apply -f -
+        apiVersion: mariadb.openstack.org/v1beta1
+        kind: GaleraRestore
+        metadata:
+          name: ${RESTORE_NAME}
+          namespace: {{ openstack_namespace }}
+        spec:
+          backupSource: ${BACKUP_NAME}
+        EOF
+      args:
+        executable: /bin/bash
+      loop: "{{ galerabackup_names.stdout_lines }}"
+      changed_when: true
+      when: galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0
+
+    - name: Print Step 12a.1 completion
+      ansible.builtin.debug:
+        msg: "✓ GaleraRestore CRs created automatically ({{ galerabackup_names.stdout_lines | length }} restore(s))"
+      when: galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0
+
+    - name: List created GaleraRestore CRs
+      ansible.builtin.shell: |
+        oc get galerarestore -n {{ openstack_namespace }}
+      register: galerarestore_list
+      changed_when: false
+      failed_when: false
+      when: galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0
+
+    - name: Display created GaleraRestore CRs
+      ansible.builtin.debug:
+        msg: "{{ galerarestore_list.stdout_lines }}"
+      when: galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0 and galerarestore_list.rc == 0
+
     # Step 12b: Restore Galera/MariaDB
     - name: Print Step 12b header
       ansible.builtin.debug:
@@ -948,21 +1006,12 @@
           - "CRITICAL: Restore database contents while services are NOT running."
           - "This is only possible because of the staged deployment pause."
           - ""
-          - "For each Galera instance, you must:"
-          - "  1. Create GaleraRestore CR referencing the GaleraBackup"
-          - "  2. Find the matching dump file in the restore pod (timestamp may not match exactly)"
-          - "  3. Execute restore command in the pod"
+          - "GaleraRestore CRs have been automatically created."
+          - "For each Galera instance, you must now:"
+          - "  1. Find the matching dump file in the restore pod (timestamp may not match exactly)"
+          - "  2. Execute restore command in the pod"
           - ""
           - "Example for main galera instance:"
-          - "  cat <<EOF | oc apply -f -"
-          - "  apiVersion: mariadb.openstack.org/v1beta1"
-          - "  kind: GaleraRestore"
-          - "  metadata:"
-          - "    name: openstackrestore"
-          - "  spec:"
-          - "    backupSource: openstack"
-          - "  EOF"
-          - ""
           - "  # List dump files to find closest timestamp to backup"
           - "  oc exec -n {{ openstack_namespace }} openstack-restore-openstackrestore -- ls -la /backup/data/"
           - ""
