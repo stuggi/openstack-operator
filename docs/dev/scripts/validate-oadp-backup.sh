@@ -40,6 +40,10 @@ print_error() {
     echo -e "${RED}✗${NC} $1"
 }
 
+print_info() {
+    echo "  $1"
+}
+
 # Get backup name
 if [ -z "$1" ]; then
     echo "No backup name provided, using latest backup..."
@@ -115,19 +119,35 @@ else
     print_warning "Not all CSI snapshots completed (${CSI_COMPLETED}/${CSI_ATTEMPTED})"
 fi
 
-# Check VolumeSnapshots
-print_header "VolumeSnapshots Created"
+# Check VolumeSnapshots (may be cleaned up after backup)
+print_header "VolumeSnapshot Status"
 
 VOLUMESNAPSHOT_COUNT=$(oc get volumesnapshot -n "$OPENSTACK_NAMESPACE" -l velero.io/backup-name="$BACKUP_NAME" --no-headers 2>/dev/null | wc -l)
-echo "VolumeSnapshots found: $VOLUMESNAPSHOT_COUNT"
+echo "VolumeSnapshots currently present: $VOLUMESNAPSHOT_COUNT"
 
 if [ "$VOLUMESNAPSHOT_COUNT" -gt 0 ]; then
-    print_success "VolumeSnapshots created"
+    print_warning "VolumeSnapshots still exist (may be in-progress or cleanup delayed)"
     echo ""
     oc get volumesnapshot -n "$OPENSTACK_NAMESPACE" -l velero.io/backup-name="$BACKUP_NAME" \
         -o custom-columns=NAME:.metadata.name,PVC:.spec.source.persistentVolumeClaimName,READY:.status.readyToUse,CLASS:.spec.volumeSnapshotClassName 2>/dev/null || true
 else
-    print_error "No VolumeSnapshots found for this backup"
+    print_info "VolumeSnapshots cleaned up (expected after backup completes)"
+fi
+
+# Check VolumeSnapshotContents (should persist with deletionPolicy: Retain)
+echo ""
+echo "Checking VolumeSnapshotContents (actual snapshots)..."
+VOLUMESNAPSHOTCONTENT_COUNT=$(oc get volumesnapshotcontent -l velero.io/backup-name="$BACKUP_NAME" --no-headers 2>/dev/null | wc -l)
+echo "VolumeSnapshotContents found: $VOLUMESNAPSHOTCONTENT_COUNT"
+
+if [ "$VOLUMESNAPSHOTCONTENT_COUNT" -gt 0 ]; then
+    print_success "VolumeSnapshotContents preserved (snapshot data available for restore)"
+    echo ""
+    oc get volumesnapshotcontent -l velero.io/backup-name="$BACKUP_NAME" \
+        -o custom-columns=NAME:.metadata.name,READY:.status.readyToUse,DELETIONPOLICY:.spec.deletionPolicy 2>/dev/null || true
+elif [ "${CSI_COMPLETED:-0}" -gt 0 ]; then
+    print_warning "VolumeSnapshotContents not found, but CSI snapshots were created"
+    print_info "Snapshot data may have been moved to S3 (snapshotMoveData) or cleaned up"
 fi
 
 # Check expected PVCs
@@ -209,11 +229,13 @@ EXIT_CODE=0
 if [ "$PHASE" == "Completed" ] && \
    [ "${ERRORS:-0}" -eq 0 ] && \
    [ "${CSI_ATTEMPTED:-0}" -gt 0 ] && \
-   [ "${CSI_ATTEMPTED}" -eq "${CSI_COMPLETED}" ] && \
-   [ "$VOLUMESNAPSHOT_COUNT" -gt 0 ]; then
+   [ "${CSI_ATTEMPTED}" -eq "${CSI_COMPLETED}" ]; then
     print_success "Backup completed successfully with CSI snapshots!"
     if [ "${WARNINGS:-0}" -gt 0 ]; then
         print_warning "However, there were $WARNINGS warning(s) - review above for details"
+    fi
+    if [ "$VOLUMESNAPSHOT_COUNT" -eq 0 ]; then
+        print_info "VolumeSnapshots cleaned up after backup (expected behavior)"
     fi
 elif [ "$PHASE" == "InProgress" ]; then
     print_warning "Backup is still in progress - run this script again when it completes"

@@ -267,10 +267,13 @@ The script checks:
 - Backup phase (Completed/InProgress/Failed)
 - Warnings and errors
 - CSI snapshot statistics (attempted vs completed)
-- VolumeSnapshots created
+- VolumeSnapshot status (normally cleaned up after backup - expected)
+- VolumeSnapshotContent status (actual snapshot data - should persist)
 - VolumeSnapshotClass configuration
 - Backup CR spec validation
 - Expected PVCs with backup label
+
+**Note:** VolumeSnapshots are transient resources that OADP creates during backup and cleans up afterward. The actual snapshot data persists in VolumeSnapshotContents (if `deletionPolicy: Retain`) or is moved to S3 (if `snapshotMoveData: true`). Don't be alarmed if VolumeSnapshots are gone after backup completes.
 
 Exit codes:
 - `0` - Backup successful with CSI snapshots
