@@ -338,6 +338,7 @@ spec:
       defaultPlugins:
       - openshift
       - aws
+      - csi
     restic:
       enable: true
   backupLocations:
@@ -355,19 +356,20 @@ spec:
       credential:
         name: cloud-credentials
         key: cloud
-  snapshotLocations:
-  - velero:
-      provider: aws
-      config:
-        region: minio
-        profile: default
 EOF
 ```
 
-**Notes**:
+**Important Configuration Notes**:
+
 - `s3ForcePathStyle: "true"` is required for MinIO
 - `insecureSkipTLSVerify: "true"` is used because the MinIO route uses OpenShift's self-signed certificate. In production, you may want to configure proper TLS.
-- This configuration uses **Restic** for volume backups (not CSI snapshots, which would require ODF)
+- **defaultPlugins includes "csi"** - The CSI plugin is REQUIRED for CSI volume snapshots. Without it, OADP will not create VolumeSnapshots even if everything else is configured correctly. The three plugins are:
+  - `openshift` - OpenShift-specific resources
+  - `aws` - S3 backup storage (works with MinIO)
+  - `csi` - CSI volume snapshots (CRITICAL for OpenStack backups)
+- **snapshotLocations is NOT included** - This is intentional! For CSI volume snapshots (used with LVMS/TopoLVM, Ceph RBD, etc.), you must NOT configure `snapshotLocations`. The `snapshotLocations` field is only for cloud provider snapshots (AWS EBS, Azure Disk, GCP PD). If you include it, OADP will try to use provider snapshots instead of CSI snapshots, which will fail for local storage.
+- **backupLocations** is for storing backup metadata in S3 (MinIO), which is separate from how volumes are snapshotted
+- **Restic/Kopia** is enabled but not used for OpenStack backups. OpenStack uses CSI volume snapshots instead (configured via VolumeSnapshotClass with `velero.io/csi-volumesnapshot-class: "true"` label)
 
 ### Step 4: Verify OADP Installation
 

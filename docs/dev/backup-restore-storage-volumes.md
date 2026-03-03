@@ -58,6 +58,7 @@ The backup/restore procedure with staged deployment requires a StorageClass that
 - MinIO or other S3-compatible storage configured as backup location
 - **VolumeSnapshotClass configured** for your storage provider (see below)
 - PVCs labeled for backup (see labeling section below)
+- **CRITICAL for LVMS:** PVC sizes must use binary units (Gi, Mi, Ti) not decimal units (G, M, T). Using decimal units causes LVM extent rounding issues that break CSI snapshots. Example: use `5Gi` not `5G`
 
 **Verify CSI Snapshot Support:**
 
@@ -65,20 +66,93 @@ The backup/restore procedure with staged deployment requires a StorageClass that
 # Check if VolumeSnapshotClass exists
 oc get volumesnapshotclass
 
-# For LVM storage (TopoLVM/LVMS), create if missing:
+# Check if any VolumeSnapshotClass has the required velero label
+oc get volumesnapshotclass -l velero.io/csi-volumesnapshot-class=true
+```
+
+**Create VolumeSnapshotClass for OADP:**
+
+OADP requires a VolumeSnapshotClass with the label `velero.io/csi-volumesnapshot-class: "true"`. If your storage operator (like LVMS) manages the VolumeSnapshotClass and prevents manual labeling, you must create a separate VolumeSnapshotClass for OADP:
+
+```bash
+# For LVM storage (TopoLVM/LVMS), create a dedicated VolumeSnapshotClass for OADP:
 cat <<EOF | oc apply -f -
 apiVersion: snapshot.storage.k8s.io/v1
 kind: VolumeSnapshotClass
 metadata:
-  name: lvms-vsc
+  name: lvms-velero
   labels:
     velero.io/csi-volumesnapshot-class: "true"
+  annotations:
+    snapshot.storage.kubernetes.io/is-default-class: "false"
 driver: topolvm.io
-deletionPolicy: Delete
+deletionPolicy: Retain
 EOF
+
+# Verify it was created
+oc get volumesnapshotclass lvms-velero --show-labels
 ```
 
+**Important Notes:**
+
+- **deletionPolicy: Retain** - Red Hat recommendation to preserve snapshots even if VolumeSnapshot objects are deleted
+- **velero.io/csi-volumesnapshot-class label** - Required for OADP to identify which VolumeSnapshotClass to use
+- **Only one VolumeSnapshotClass per driver** should have the velero label. If your operator-managed class has the label, remove it: `oc label volumesnapshotclass <name> velero.io/csi-volumesnapshot-class-`
+- **Operator-managed classes** - Some operators (like LVMS) manage VolumeSnapshotClasses and may revert manual label changes. In this case, create a separate class as shown above.
+
 **Note:** If your storage does not support CSI snapshots, you cannot use the staged deployment restore approach. See [backup-restore-ctlplane.md](backup-restore-ctlplane.md) for alternative restore strategies.
+
+**CSI Snapshots vs Provider Snapshots:**
+
+OADP supports two snapshot mechanisms:
+1. **CSI Volume Snapshots** - Uses Kubernetes CSI VolumeSnapshot API (what we use for LVMS/TopoLVM, Ceph RBD, etc.)
+2. **Provider Snapshots** - Uses cloud provider APIs (AWS EBS, Azure Disk, GCP PD)
+
+**CRITICAL: DataProtectionApplication Configuration**
+
+For CSI snapshots to work, the DataProtectionApplication (DPA) must **NOT** include `snapshotLocations`. The `snapshotLocations` field is only for cloud provider snapshots. If present in the DPA, OADP will try to use provider snapshots instead of CSI, which fails for local storage.
+
+**Correct DPA configuration (no snapshotLocations):**
+```yaml
+apiVersion: oadp.openshift.io/v1alpha1
+kind: DataProtectionApplication
+spec:
+  backupLocations:
+  - velero:
+      provider: aws
+      objectStorage:
+        bucket: velero
+  # snapshotLocations: NOT INCLUDED for CSI snapshots
+```
+
+**Required Backup CR fields for CSI snapshots:**
+- `snapshotVolumes: true` - Enable volume snapshots
+- `defaultVolumesToFsBackup: false` - Disable filesystem backup (Restic/Kopia)
+- `volumeSnapshotLocations: []` - Optional but recommended to explicitly disable provider snapshots
+
+**Note:** Even if you set `volumeSnapshotLocations: []` in the Backup CR, if the DPA has `snapshotLocations` configured, OADP may override your setting. The safest approach is to not configure `snapshotLocations` in the DPA at all.
+
+**Troubleshooting CSI Snapshot Configuration:**
+
+If CSI snapshots are not being created, run the diagnostic script to check all prerequisites:
+
+```bash
+docs/dev/scripts/diagnose-csi-snapshots.sh
+```
+
+This checks:
+- VolumeSnapshotClass with velero label
+- DataProtectionApplication configuration:
+  - **CSI plugin in defaultPlugins (CRITICAL!)** - Most common issue
+  - No snapshotLocations configured (critical!)
+  - BackupLocations configured
+- Velero pod status and CSI plugin loading in logs
+- BackupStorageLocation availability
+- PVCs labeled for backup
+- StorageClass and VolumeSnapshotClass driver matching
+- Recent backup CSI snapshot statistics
+
+The script will provide specific fix commands for any issues found.
 
 ## Label Convention
 
@@ -153,7 +227,9 @@ spec:
   labelSelector:
     matchLabels:
       openstack.org/backup: "true"
-  defaultVolumesToRestic: true
+  snapshotVolumes: true
+  defaultVolumesToFsBackup: false
+  volumeSnapshotLocations: []
   storageLocation: velero-1
   ttl: 720h  # 30 days
 EOF
@@ -171,6 +247,35 @@ oc describe backup openstack-volumes-20260225-140530 -n openshift-adp
 # Check for errors
 oc get backup openstack-volumes-20260225-140530 -n openshift-adp -o jsonpath='{.status.phase}'
 ```
+
+### Validate Backup with Automated Script
+
+Use the validation script to check if the backup completed successfully with CSI snapshots:
+
+```bash
+# Validate the latest backup
+docs/dev/scripts/validate-oadp-backup.sh
+
+# Validate a specific backup
+docs/dev/scripts/validate-oadp-backup.sh openstack-volumes-20260303-093007
+
+# With custom namespaces
+OADP_NAMESPACE=openshift-adp OPENSTACK_NAMESPACE=openstack docs/dev/scripts/validate-oadp-backup.sh
+```
+
+The script checks:
+- Backup phase (Completed/InProgress/Failed)
+- Warnings and errors
+- CSI snapshot statistics (attempted vs completed)
+- VolumeSnapshots created
+- VolumeSnapshotClass configuration
+- Backup CR spec validation
+- Expected PVCs with backup label
+
+Exit codes:
+- `0` - Backup successful with CSI snapshots
+- `1` - Backup failed or has issues
+- `2` - Backup still in progress
 
 ### Trigger from Ansible Playbook
 
@@ -192,7 +297,9 @@ Example task to trigger ad-hoc backup:
       labelSelector:
         matchLabels:
           openstack.org/backup: "true"
-      defaultVolumesToRestic: true
+      snapshotVolumes: true
+      defaultVolumesToFsBackup: false
+      volumeSnapshotLocations: []
       storageLocation: velero-1
       ttl: 720h
     EOF
@@ -228,7 +335,9 @@ spec:
     labelSelector:
       matchLabels:
         openstack.org/backup: "true"
-    defaultVolumesToRestic: true
+    snapshotVolumes: true
+    defaultVolumesToFsBackup: false
+    volumeSnapshotLocations: []
     storageLocation: velero-1
     ttl: 168h  # 7 days retention
 EOF
@@ -297,6 +406,41 @@ Common issues:
 - PVCs not being backed up
 - Restore creates new PVCs
 - BackupStorageLocation unavailable
+- **LVMS snapshot fails with "requested size is smaller than source logical volume"** - See detailed fix below
+
+### Fix: LVMS Snapshot Size Mismatch Error
+
+If you see the error `requested size is smaller than source logical volume`, this means your PVC is using decimal units (G, M, T) instead of binary units (Gi, Mi, Ti). The LVM extent rounding causes the actual logical volume to be slightly larger than the requested size, breaking snapshots.
+
+**To fix existing PVCs:**
+
+```bash
+# 1. Edit the PVC to change storage units from decimal to binary
+# Example: Change "5G" to "5Gi"
+oc edit pvc <pvc-name> -n openstack
+
+# In the editor, change:
+#   spec:
+#     resources:
+#       requests:
+#         storage: 5G
+# To:
+#   spec:
+#     resources:
+#       requests:
+#         storage: 5Gi
+
+# 2. Restart pods using the PVC to apply the resize
+# For Galera backup PVCs, restart the backup job or wait for next scheduled backup
+# For other service PVCs, restart the service pods:
+oc delete pod -n openstack -l service=<service-name>
+
+# 3. Verify the PVC capacity was updated
+oc get pvc <pvc-name> -n openstack -o jsonpath='{.status.capacity.storage}'
+echo ""
+```
+
+**Prevention:** Always use binary units (Gi, Mi, Ti) when creating PVCs for LVMS storage, especially if you plan to use CSI snapshots.
 
 ## Performance Considerations
 

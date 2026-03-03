@@ -142,6 +142,19 @@
       register: minio_api_url
       changed_when: false
 
+    - name: Print DPA configuration note
+      ansible.builtin.debug:
+        msg:
+          - "Creating DataProtectionApplication (DPA) for CSI snapshots..."
+          - ""
+          - "Note: snapshotLocations is NOT configured in this DPA."
+          - "This is intentional! snapshotLocations is only for cloud provider snapshots"
+          - "(AWS EBS, Azure Disk, GCP PD). For CSI snapshots (LVMS, Ceph, etc.),"
+          - "omitting snapshotLocations allows OADP to use the CSI VolumeSnapshot API."
+          - ""
+          - "CSI snapshots are configured via VolumeSnapshotClass with the"
+          - "velero.io/csi-volumesnapshot-class=true label (created later in this playbook)."
+
     - name: Create DataProtectionApplication
       ansible.builtin.shell: |
         cat <<EOF | oc apply -f -
@@ -156,6 +169,7 @@
               defaultPlugins:
               - openshift
               - aws
+              - csi
             restic:
               enable: {{ enable_restic | lower }}
           backupLocations:
@@ -173,12 +187,6 @@
               credential:
                 name: cloud-credentials
                 key: cloud
-          snapshotLocations:
-          - velero:
-              provider: aws
-              config:
-                region: {{ minio_region }}
-                profile: default
         EOF
       changed_when: true
 
@@ -211,6 +219,40 @@
     - name: Display OADP pods
       ansible.builtin.debug:
         msg: "{{ oadp_pods.stdout_lines }}"
+
+    - name: Check for existing VolumeSnapshotClass
+      ansible.builtin.shell: |
+        oc get volumesnapshotclass -o json
+      register: vsc_list
+      changed_when: false
+      failed_when: false
+
+    - name: Create VolumeSnapshotClass for OADP (TopoLVM/LVMS)
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: snapshot.storage.k8s.io/v1
+        kind: VolumeSnapshotClass
+        metadata:
+          name: lvms-velero
+          labels:
+            velero.io/csi-volumesnapshot-class: "true"
+          annotations:
+            snapshot.storage.kubernetes.io/is-default-class: "false"
+        driver: topolvm.io
+        deletionPolicy: Retain
+        EOF
+      changed_when: true
+      when: vsc_list.stdout | from_json | json_query('items[?driver==`topolvm.io`]') | length > 0
+
+    - name: Print VolumeSnapshotClass status
+      ansible.builtin.debug:
+        msg: "✓ VolumeSnapshotClass 'lvms-velero' created for OADP CSI snapshots"
+      when: vsc_list.stdout | from_json | json_query('items[?driver==`topolvm.io`]') | length > 0
+
+    - name: Skip VolumeSnapshotClass creation
+      ansible.builtin.debug:
+        msg: "⚠️  No TopoLVM driver found. If using different CSI driver, manually create VolumeSnapshotClass with velero.io/csi-volumesnapshot-class=true label"
+      when: vsc_list.stdout | from_json | json_query('items[?driver==`topolvm.io`]') | length == 0
 
     - name: Wait for BackupStorageLocation to be available
       ansible.builtin.shell: |

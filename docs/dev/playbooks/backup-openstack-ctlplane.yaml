@@ -564,6 +564,7 @@
               openstack.org/backup: "true"
           snapshotVolumes: true
           defaultVolumesToFsBackup: false
+          volumeSnapshotLocations: []
           storageLocation: velero-1
           ttl: 720h
         EOF
@@ -592,6 +593,9 @@
         msg:
           - "✓ Storage volumes backed up: {{ oadp_backup.stdout_lines[-1] }}"
           - "✓ Backup CR saved to: velero-backup.json"
+          - ""
+          - "To validate CSI snapshots were created, run:"
+          - "  docs/dev/scripts/validate-oadp-backup.sh {{ oadp_backup.stdout_lines[-1] }}"
       when: not skip_pvc_backup and oadp_check.stdout == "installed" and pvc_count.stdout|int > 0
 
     - name: Print Step 9 skipped

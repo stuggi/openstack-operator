@@ -876,7 +876,9 @@ spec:
   labelSelector:
     matchLabels:
       openstack.org/backup: "true"
-  defaultVolumesToRestic: true
+  snapshotVolumes: true
+  defaultVolumesToFsBackup: false
+  volumeSnapshotLocations: []
   storageLocation: velero-1
   ttl: 720h  # 30 days
 EOF

@@ -80,6 +80,16 @@ See [Storage Class Requirements](backup-restore-ctlplane.md#storage-class-requir
 - ✅ Cloud provider storage (AWS EBS, Azure Disk, GCP PD)
 - ❌ Local storage (node-local directories) - **NOT supported**
 
+**CRITICAL for LVMS Storage:**
+
+PVC sizes **must use binary units (Gi, Mi, Ti)** not decimal units (G, M, T). Using decimal units causes LVM extent rounding issues that break CSI snapshots with the error: `requested size is smaller than source logical volume`.
+
+Examples:
+- ✅ Correct: `storage: 5Gi`, `storage: 100Gi`
+- ❌ Wrong: `storage: 5G`, `storage: 100G`
+
+To fix existing PVCs: Edit the PVC to change storage units (e.g., `5G` → `5Gi`), then restart pods using the PVC. See [Storage Volume Troubleshooting](backup-restore-storage-volumes.md#fix-lvms-snapshot-size-mismatch-error) for details.
+
 **Verification:**
 ```bash
 # Check if VolumeSnapshotClass exists
