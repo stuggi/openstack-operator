@@ -1032,6 +1032,38 @@
         msg: "{{ galerarestore_list.stdout_lines }}"
       when: galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0 and galerarestore_list.rc == 0
 
+    - name: Wait for GaleraRestore pods to be ready
+      ansible.builtin.shell: |
+        RESTORE_NAME="{{ item }}restore"
+        POD_NAME="openstack-restore-${RESTORE_NAME}"
+
+        echo "Waiting for pod: ${POD_NAME}"
+
+        # Wait for pod to exist
+        for i in {1..60}; do
+          if oc get pod "${POD_NAME}" -n {{ openstack_namespace }} &>/dev/null; then
+            echo "Pod found"
+            break
+          fi
+          echo "Waiting for pod to be created... ($i/60)"
+          sleep 5
+        done
+
+        # Wait for pod to be running
+        oc wait --for=condition=Ready pod/"${POD_NAME}" -n {{ openstack_namespace }} --timeout=300s
+
+        echo "✓ Pod ${POD_NAME} is ready"
+      args:
+        executable: /bin/bash
+      loop: "{{ galerabackup_names.stdout_lines }}"
+      changed_when: false
+      when: galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0
+
+    - name: Print wait completion
+      ansible.builtin.debug:
+        msg: "✓ All GaleraRestore pods are ready"
+      when: galerabackup_backup_file.stat.exists and galerabackup_names.stdout_lines | length > 0
+
     # Step 12b: Restore Galera/MariaDB
     - name: Print Step 12b header (automated mode)
       ansible.builtin.debug:
@@ -1086,13 +1118,15 @@
     - name: Automated database restore
       ansible.builtin.shell: |
         set -e
-        RESTORE_NAME="{{ item }}"
+        BACKUP_NAME="{{ item }}"
+        RESTORE_NAME="${BACKUP_NAME}restore"
         POD_NAME="openstack-restore-${RESTORE_NAME}"
 
-        echo "Processing restore: ${RESTORE_NAME}"
+        echo "Processing restore for backup: ${BACKUP_NAME}"
+        echo "Restore CR: ${RESTORE_NAME}"
         echo "Pod name: ${POD_NAME}"
 
-        # Check if pod exists and is running
+        # Verify pod exists and is running
         if ! oc get pod "${POD_NAME}" -n {{ openstack_namespace }} &>/dev/null; then
           echo "ERROR: Restore pod not found: ${POD_NAME}"
           exit 1
@@ -1148,7 +1182,7 @@
         oc exec -n {{ openstack_namespace }} "${POD_NAME}" -- \
           /var/lib/backup-scripts/restore_galera --yes "${RESTORE_PATTERN}"
 
-        echo "✓ Database restore completed for: ${RESTORE_NAME}"
+        echo "✓ Database restore completed for: ${BACKUP_NAME} (restore CR: ${RESTORE_NAME})"
       args:
         executable: /bin/bash
       loop: "{{ galerabackup_names.stdout_lines }}"
