@@ -6,18 +6,19 @@ This document describes a webhook-based approach to backup and restore for OpenS
 
 ## Goals
 
-1. **Dynamic Resource Discovery**: No hardcoded lists of resources - CRD annotations declare what needs backup
-2. **Single Backup Mechanism**: Use OADP for all resources (CRs, Secrets, ConfigMaps, PVCs)
-3. **Declarative Restore Order**: Restore order defined in CRD annotations, not in code
-4. **Kubernetes-Native**: Leverage OADP label selectors for filtering
-5. **No Controller Required (Initially)**: Can be used manually with OADP Restore CRs
-6. **Optional Automation**: Golang controller for full automation (future enhancement)
+1. **Full Namespace Backup**: Backup everything in the namespace to ensure complete snapshot
+2. **Selective Restore**: Use webhook-added labels to restore only necessary resources
+3. **Dynamic Resource Discovery**: No hardcoded lists - CRD annotations declare what needs restore
+4. **Declarative Restore Order**: Restore order defined in CRD annotations, not in code
+5. **Kubernetes-Native**: Leverage OADP label selectors for filtering
+6. **No Controller Required (Initially)**: Can be used manually with OADP Restore CRs
+7. **Optional Automation**: Golang controller for full automation (future enhancement)
 
 ## Key Concepts
 
 ### CRD Annotations
 
-CRD definitions declare backup/restore behavior using annotations:
+CRD definitions declare restore behavior using annotations (all prefixed with `openstack.org/backup-`):
 
 ```yaml
 apiVersion: apiextensions.k8s.io/v1
@@ -25,19 +26,19 @@ kind: CustomResourceDefinition
 metadata:
   name: openstackcontrolplanes.core.openstack.org
   annotations:
-    openstack.org/backup: "true"
+    openstack.org/backup-restore: "true"
     openstack.org/backup-category: "controlplane"
-    openstack.org/restore-order: "6"
+    openstack.org/backup-restore-order: "6"
 ```
 
 **Annotations:**
-- `openstack.org/backup`: Whether instances of this CRD should be backed up (`"true"` or `"false"`)
+- `openstack.org/backup-restore`: Whether instances of this CRD should be restored (`"true"` or `"false"`)
 - `openstack.org/backup-category`: Category for selective backup/restore
   - `"controlplane"`: Control plane resources
   - `"dataplane"`: Data plane resources
   - `"infrastructure"`: Infrastructure resources (RabbitMQ, MariaDB configs)
   - `"all"`: General resources needed by all deployments
-- `openstack.org/restore-order`: Numeric order for restore sequence (e.g., `"1"`, `"2"`, `"3"`)
+- `openstack.org/backup-restore-order`: Numeric order for restore sequence (e.g., `"1"`, `"2"`, `"3"`)
 
 ### Mutating Webhooks
 
@@ -64,27 +65,27 @@ In `keystone-operator/api/v1beta1/keystoneapi_webhook.go`:
 func (r *KeystoneAPI) ValidateCreate() error {
     // Existing validation logic...
 
-    // NEW: Add backup labels to user-provided resources
-    if err := r.labelUserProvidedResources(); err != nil {
+    // NEW: Add restore labels to user-provided resources
+    if err := r.labelUserProvidedResourcesForRestore(); err != nil {
         return err
     }
 
     return nil
 }
 
-func (r *KeystoneAPI) labelUserProvidedResources() error {
+func (r *KeystoneAPI) labelUserProvidedResourcesForRestore() error {
     ctx := context.Background()
 
     // Label Secret if user-provided (no ownerReferences)
     if r.Spec.Secret != "" {
-        if err := labelResourceIfUserProvided(ctx, r.Namespace, "Secret", r.Spec.Secret); err != nil {
+        if err := labelResourceForRestoreIfUserProvided(ctx, r.Namespace, "Secret", r.Spec.Secret); err != nil {
             return err
         }
     }
 
     // Label CustomConfigSecret if user-provided
     if r.Spec.HttpdCustomization != nil && r.Spec.HttpdCustomization.CustomConfigSecret != "" {
-        if err := labelResourceIfUserProvided(ctx, r.Namespace, "Secret",
+        if err := labelResourceForRestoreIfUserProvided(ctx, r.Namespace, "Secret",
             r.Spec.HttpdCustomization.CustomConfigSecret); err != nil {
             return err
         }
@@ -94,7 +95,7 @@ func (r *KeystoneAPI) labelUserProvidedResources() error {
     for _, mount := range r.Spec.ExtraMounts {
         for _, vol := range mount.Propagation {
             if vol.ConfigMap != nil {
-                if err := labelResourceIfUserProvided(ctx, r.Namespace, "ConfigMap",
+                if err := labelResourceForRestoreIfUserProvided(ctx, r.Namespace, "ConfigMap",
                     vol.ConfigMap.Name); err != nil {
                     return err
                 }
@@ -109,8 +110,8 @@ func (r *KeystoneAPI) labelUserProvidedResources() error {
 **Generic Helper Function (in lib-common):**
 
 ```go
-// labelResourceIfUserProvided adds backup label to resource if it has no ownerReferences
-func labelResourceIfUserProvided(ctx context.Context, namespace, kind, name string) error {
+// labelResourceForRestoreIfUserProvided adds restore labels to resource if it has no ownerReferences
+func labelResourceForRestoreIfUserProvided(ctx context.Context, namespace, kind, name string) error {
     // Get the resource
     var obj client.Object
     switch kind {
@@ -137,20 +138,20 @@ func labelResourceIfUserProvided(ctx context.Context, namespace, kind, name stri
         return nil
     }
 
-    // Add backup label (user-provided resource)
+    // Add restore labels (user-provided resource)
     labels := obj.GetLabels()
     if labels == nil {
         labels = make(map[string]string)
     }
 
     // Only add if not already labeled
-    if labels["openstack.org/backup"] == "true" {
+    if labels["openstack.org/backup-restore"] == "true" {
         return nil
     }
 
-    labels["openstack.org/backup"] = "true"
+    labels["openstack.org/backup-restore"] = "true"
     labels["openstack.org/backup-category"] = "all"
-    labels["openstack.org/restore-order"] = "1"  // Secrets/ConfigMaps always order 1
+    labels["openstack.org/backup-restore-order"] = "1"  // Secrets/ConfigMaps always order 1
     obj.SetLabels(labels)
 
     // Update the resource
@@ -168,9 +169,9 @@ func labelResourceIfUserProvided(ctx context.Context, namespace, kind, name stri
 
 ### OADP Integration
 
-#### Single Backup
+#### Full Namespace Backup
 
-One OADP Backup CR captures everything:
+One OADP Backup CR captures **everything** in the namespace (complete snapshot):
 
 ```yaml
 apiVersion: velero.io/v1
@@ -181,18 +182,34 @@ metadata:
 spec:
   includedNamespaces:
   - openstack
-  labelSelector:
-    matchLabels:
-      openstack.org/backup: "true"
-  snapshotVolumes: true
+  # NO labelSelector - backup everything
+  snapshotVolumes: true  # Backup PVCs with CSI snapshots
   defaultVolumesToFsBackup: false
   storageLocation: velero-1
   ttl: 720h
 ```
 
-#### Multiple Restores (By Order)
+**Optional: Exclude large PVC data** (if storage is limited):
 
-Multiple OADP Restore CRs, one per restore order:
+```yaml
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-backup-20260303-120000
+  namespace: openshift-adp
+spec:
+  includedNamespaces:
+  - openstack
+  # Backup all CRs, Secrets, ConfigMaps, but exclude PVC data
+  snapshotVolumes: false  # Skip PVC snapshots to reduce backup size
+  defaultVolumesToFsBackup: false
+  storageLocation: velero-1
+  ttl: 720h
+```
+
+#### Selective Restore (By Order)
+
+Multiple OADP Restore CRs, one per restore order, using labels added by webhooks:
 
 ```yaml
 # Restore Order 1: Secrets, ConfigMaps, NADs
@@ -205,9 +222,9 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
-      openstack.org/restore-order: "1"
-  restorePVs: false
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "1"
+  restorePVs: false  # Don't restore PVCs in this order
 ---
 # Restore Order 2: TLS Issuers
 apiVersion: velero.io/v1
@@ -219,12 +236,14 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
-      openstack.org/restore-order: "2"
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "2"
   restorePVs: false
 ---
 # And so on for each restore order...
 ```
+
+**Key Point**: Webhooks add `openstack.org/backup-restore: "true"` labels to resources that need restore. OADP restore uses these labels for selective restore, even though the backup contains everything.
 
 ## Restore Order
 
@@ -253,8 +272,8 @@ The restore sequence is critical for maintaining dependencies between resources.
 
 ### Core Operator CRDs
 
-| CRD | Backup | Category | Order | Notes |
-|-----|--------|----------|-------|-------|
+| CRD | Restore | Category | Order | Notes |
+|-----|---------|----------|-------|-------|
 | OpenStackControlPlane | true | controlplane | 6 | Main control plane CR |
 | OpenStackVersion | true | controlplane | 5 | Version tracking |
 
@@ -312,36 +331,36 @@ Categories enable selective backup/restore scenarios:
 ```yaml
 labelSelector:
   matchLabels:
-    openstack.org/backup: "true"
+    openstack.org/backup-restore: "true"
     openstack.org/backup-category: "controlplane"
 ```
-Use case: Control plane disaster recovery
+Use case: Control plane disaster recovery (restore only control plane resources)
 
 ### Data Plane Only
 ```yaml
 labelSelector:
   matchLabels:
-    openstack.org/backup: "true"
+    openstack.org/backup-restore: "true"
     openstack.org/backup-category: "dataplane"
 ```
-Use case: Data plane node replacement
+Use case: Data plane node replacement (restore only data plane resources)
 
 ### Infrastructure Only
 ```yaml
 labelSelector:
   matchLabels:
-    openstack.org/backup: "true"
+    openstack.org/backup-restore: "true"
     openstack.org/backup-category: "infrastructure"
 ```
-Use case: Network/messaging configuration backup
+Use case: Network/messaging configuration recovery
 
-### All Resources
+### All Labeled Resources
 ```yaml
 labelSelector:
   matchLabels:
-    openstack.org/backup: "true"
+    openstack.org/backup-restore: "true"
 ```
-Use case: Full cluster backup (default)
+Use case: Full restore of all labeled resources (default)
 
 ## Implementation Phases
 
