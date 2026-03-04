@@ -425,24 +425,31 @@ ansible-playbook cleanup-openstack-ctlplane.yaml -e openstack_namespace=openstac
 ### Restore Playbook
 
 ```bash
-# Basic usage
+# Fully automated (default - for CI/testing, no prompts)
 ansible-playbook restore-openstack-ctlplane.yaml \
-  -e openstack_namespace=openstack \
   -e backup_file=backups/openstack-ctlplane-backup-20260119-120000.tar.gz
+
+# Manual mode (prompts for all confirmations - for production)
+ansible-playbook restore-openstack-ctlplane.yaml \
+  -e backup_file=backups/openstack-ctlplane-backup-20260119-120000.tar.gz \
+  -e automated_restore=false
 
 # With custom namespace
 ansible-playbook restore-openstack-ctlplane.yaml \
   -e openstack_namespace=openstack-prod \
   -e backup_file=/mnt/backups/openstack-ctlplane-backup-20260119-120000.tar.gz
 
-# Skip RabbitMQ user restoration (not recommended for EDPM deployments)
+# Fine-grained automation control (disable specific steps)
 ansible-playbook restore-openstack-ctlplane.yaml \
-  -e openstack_namespace=openstack \
   -e backup_file=backups/openstack-ctlplane-backup-20260119-120000.tar.gz \
-  -e skip_rabbitmq_restore=true
+  -e automated_db_restore=false  # Prompt for DB restore only
+
+ansible-playbook restore-openstack-ctlplane.yaml \
+  -e backup_file=backups/openstack-ctlplane-backup-20260119-120000.tar.gz \
+  -e automated_rabbitmq_restore=false  # Prompt for RabbitMQ restore (can say no to skip)
 ```
 
-The playbook follows the correct restore order and prompts for confirmation at critical steps.
+The playbook defaults to fully automated mode (no prompts) for CI/testing. Use `automated_restore=false` for manual mode with confirmations at critical steps.
 
 **Note**: The restore playbook assumes cleanup was already done. Run the cleanup playbook first if restoring to an existing environment.
 
@@ -451,8 +458,14 @@ The playbook follows the correct restore order and prompts for confirmation at c
 **Variables**:
 - `openstack_namespace`: Target namespace (default: `openstack`)
 - `backup_file`: Path to backup file (required)
-- `skip_rabbitmq_restore`: Skip RabbitMQ user restoration (default: `false`)
-- `automated_db_restore`: Automatically restore databases from latest backup (default: `true`)
+
+**Automation Control** (all default to `true` for CI/testing):
+- `automated_restore`: Global automation flag - set to `false` for manual mode with all prompts
+- `automated_operator_version_check`: Skip operator version confirmation (default: `automated_restore`)
+- `automated_ctlplane_restore`: Skip ControlPlane restore confirmation (default: `automated_restore`)
+- `automated_db_restore`: Automatically restore databases from latest backup (default: `automated_restore`)
+- `automated_rabbitmq_restore`: Skip RabbitMQ restore confirmation (default: `automated_restore`)
+- `automated_resume_deployment`: Skip resume deployment confirmation (default: `automated_restore`)
 
 ---
 

@@ -37,10 +37,18 @@
 #   ansible-playbook cleanup-openstack-ctlplane.yaml -e openstack_namespace=openstack
 #
 #   # Then restore from backup:
-#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=openstack-ctlplane-backup-20260119-120000.tar.gz
+#   # Fully automated (default - for CI/testing):
+#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz
+#
+#   # With custom namespace:
 #   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e openstack_namespace=my-openstack
-#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e skip_rabbitmq_restore=true
-#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e automated_db_restore=false  # Manual DB restore
+#
+#   # Manual mode (prompts for all confirmations):
+#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e automated_restore=false
+#
+#   # Fine-grained control (disable specific automation):
+#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e automated_db_restore=false
+#   ansible-playbook restore-openstack-ctlplane.yaml -e backup_file=backup.tar.gz -e automated_rabbitmq_restore=false  # Prompts for RabbitMQ restore
 
 - name: Restore OpenStack Control Plane
   hosts: localhost
@@ -52,8 +60,14 @@
     - name: Set default variables
       ansible.builtin.set_fact:
         openstack_namespace: "{{ openstack_namespace | default('openstack') }}"
-        skip_rabbitmq_restore: "{{ skip_rabbitmq_restore | default(false) | bool }}"
-        automated_db_restore: "{{ automated_db_restore | default(true) | bool }}"
+        # Global automation flag (default: true for CI/testing)
+        automated_restore: "{{ automated_restore | default(true) | bool }}"
+        # Individual automation flags (default to global automated_restore)
+        automated_operator_version_check: "{{ automated_operator_version_check | default(automated_restore | default(true)) | bool }}"
+        automated_ctlplane_restore: "{{ automated_ctlplane_restore | default(automated_restore | default(true)) | bool }}"
+        automated_db_restore: "{{ automated_db_restore | default(automated_restore | default(true)) | bool }}"
+        automated_rabbitmq_restore: "{{ automated_rabbitmq_restore | default(automated_restore | default(true)) | bool }}"
+        automated_resume_deployment: "{{ automated_resume_deployment | default(automated_restore | default(true)) | bool }}"
 
     - name: Check if backup_file is provided
       ansible.builtin.fail:
@@ -83,8 +97,14 @@
           - "========================================"
           - "Target Namespace: {{ openstack_namespace }}"
           - "Backup File: {{ backup_file_abs }}"
-          - "Skip RabbitMQ Restore: {{ skip_rabbitmq_restore }}"
-          - "Automated Database Restore: {{ automated_db_restore }}"
+          - ""
+          - "Automation Flags:"
+          - "  Global: {{ automated_restore }}"
+          - "  Operator Version Check: {{ automated_operator_version_check }}"
+          - "  ControlPlane Restore: {{ automated_ctlplane_restore }}"
+          - "  Database Restore: {{ automated_db_restore }}"
+          - "  RabbitMQ Restore: {{ automated_rabbitmq_restore }}"
+          - "  Resume Deployment: {{ automated_resume_deployment }}"
           - ""
           - "NOTE: This playbook assumes cleanup was already done."
           - "If not, run cleanup-openstack-ctlplane.yaml first."
@@ -165,13 +185,20 @@
 
           Do the operator versions match? (yes/no)
       register: versions_match
+      when: not automated_operator_version_check
+
+    - name: Auto-confirm operator versions (automated mode)
+      ansible.builtin.set_fact:
+        versions_match:
+          user_input: "yes"
+      when: automated_operator_version_check
 
     - name: Fail if versions don't match
       ansible.builtin.fail:
         msg: |
           Operator versions do not match. Aborting restore.
           Install matching operator versions before proceeding.
-      when: versions_match.user_input != "yes"
+      when: not automated_operator_version_check and versions_match.user_input != "yes"
 
     # Check/Create namespace
     - name: Check if namespace exists
@@ -659,6 +686,13 @@
 
           Ready to restore OpenStackControlPlane CR with staged deployment? (yes/no)
       register: restore_confirm
+      when: not automated_ctlplane_restore
+
+    - name: Auto-confirm ControlPlane restore (automated mode)
+      ansible.builtin.set_fact:
+        restore_confirm:
+          user_input: "yes"
+      when: automated_ctlplane_restore
 
     - name: Fail if user doesn't confirm
       ansible.builtin.fail:
@@ -667,7 +701,7 @@
             cd {{ backup_dir }}
             jq '.items[0].metadata.annotations["core.openstack.org/deployment-stage"] = "infrastructure-only"' openstackcontrolplane-backup.json > openstackcontrolplane-staged.json
             oc apply -f openstackcontrolplane-staged.json -n {{ openstack_namespace }}
-      when: restore_confirm.user_input != "yes"
+      when: not automated_ctlplane_restore and restore_confirm.user_input != "yes"
 
     - name: Get OpenStackControlPlane CR name from backup
       ansible.builtin.shell: |
@@ -1189,7 +1223,7 @@
           - "Placeholder: OVN database restore procedures not yet documented"
 
     # Step 14: RabbitMQ User Restoration
-    - name: Print Step 14 header (if not skipping)
+    - name: Print Step 14 header
       ansible.builtin.debug:
         msg:
           - "========================================"
@@ -1203,7 +1237,6 @@
           - "This ensures:"
           - "  - Control plane services can authenticate"
           - "  - EDPM data plane nodes maintain connectivity"
-      when: not skip_rabbitmq_restore
 
     - name: Confirm RabbitMQ user restore
       ansible.builtin.pause:
@@ -1211,19 +1244,25 @@
 
           Restore RabbitMQ user credentials now? (yes/no)
       register: rabbitmq_confirm
-      when: not skip_rabbitmq_restore
+      when: not automated_rabbitmq_restore
+
+    - name: Auto-confirm RabbitMQ restore (automated mode)
+      ansible.builtin.set_fact:
+        rabbitmq_confirm:
+          user_input: "yes"
+      when: automated_rabbitmq_restore
 
     - name: Get list of RabbitMQ clusters
       ansible.builtin.shell: |
         oc get rabbitmqcluster -n {{ openstack_namespace }} -o jsonpath='{.items[*].metadata.name}'
       register: rabbitmq_clusters
       changed_when: false
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+      when: rabbitmq_confirm.user_input == "yes"
 
     - name: Print RabbitMQ clusters found
       ansible.builtin.debug:
         msg: "RabbitMQ clusters found: {{ rabbitmq_clusters.stdout }}"
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+      when: rabbitmq_confirm.user_input == "yes"
 
     - name: Restore RabbitMQ user secrets and create RabbitMQUser CRs
       ansible.builtin.shell: |
@@ -1294,12 +1333,12 @@
         executable: /bin/bash
       loop: "{{ rabbitmq_clusters.stdout.split() }}"
       changed_when: true
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes" and rabbitmq_clusters.stdout != ""
+      when: rabbitmq_confirm.user_input == "yes" and rabbitmq_clusters.stdout != ""
 
     - name: Wait for RabbitMQUser CRs to be ready
       ansible.builtin.pause:
         seconds: 5
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+      when: rabbitmq_confirm.user_input == "yes"
 
     - name: Get RabbitMQUser status
       ansible.builtin.shell: |
@@ -1307,12 +1346,12 @@
       register: rabbitmquser_status
       changed_when: false
       failed_when: false
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+      when: rabbitmq_confirm.user_input == "yes"
 
     - name: Display RabbitMQUser status
       ansible.builtin.debug:
         msg: "{{ rabbitmquser_status.stdout_lines }}"
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+      when: rabbitmq_confirm.user_input == "yes"
 
     - name: Print RabbitMQ completion
       ansible.builtin.debug:
@@ -1320,7 +1359,7 @@
           - "✓ RabbitMQ user credentials restored successfully using RabbitMQUser CRs!"
           - ""
           - "IMPORTANT: Data plane nodes will get updated credentials on their next EDPM deployment run."
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input == "yes"
+      when: rabbitmq_confirm.user_input == "yes"
 
     - name: Print RabbitMQ skip warning
       ansible.builtin.debug:
@@ -1328,12 +1367,7 @@
           - "⚠️  WARNING: Skipping RabbitMQ user restoration!"
           - "You must manually restore RabbitMQ users or data plane nodes will lose connectivity."
           - "See the documentation for manual restoration steps."
-      when: not skip_rabbitmq_restore and rabbitmq_confirm.user_input != "yes"
-
-    - name: Print RabbitMQ skip message
-      ansible.builtin.debug:
-        msg: "Skipping RabbitMQ user restoration (skip_rabbitmq_restore=true)"
-      when: skip_rabbitmq_restore
+      when: rabbitmq_confirm.user_input != "yes"
 
     # Step 15: Resume Deployment
     - name: Print Step 15 header
@@ -1358,6 +1392,13 @@
 
           Ready to resume deployment? (yes/no)
       register: resume_confirm
+      when: not automated_resume_deployment
+
+    - name: Auto-confirm resume deployment (automated mode)
+      ansible.builtin.set_fact:
+        resume_confirm:
+          user_input: "yes"
+      when: automated_resume_deployment
 
     - name: Print pause instructions if not resuming
       ansible.builtin.debug:
