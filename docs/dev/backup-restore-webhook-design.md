@@ -39,25 +39,132 @@ metadata:
   - `"all"`: General resources needed by all deployments
 - `openstack.org/restore-order`: Numeric order for restore sequence (e.g., `"1"`, `"2"`, `"3"`)
 
-### Mutating Webhook
+### Mutating Webhooks
 
-A mutating webhook in the openstack-operator watches resource creation and automatically adds labels based on CRD annotations.
+Reuse the existing webhook pattern where openstack-operator already calls `ValidateCreate` and `ValidateUpdate` functions from service operators.
 
-**Webhook Logic:**
-1. Resource CREATE request arrives
-2. Webhook looks up CRD for resource type
-3. If CRD has `openstack.org/backup: "true"`:
-   - For Secrets/ConfigMaps: Only label if no `ownerReferences` (user-provided resources)
-   - For all other resources: Add labels
-4. Labels added to resource:
-   - `openstack.org/backup: "true"`
-   - `openstack.org/backup-category: "<category>"`
-   - `openstack.org/restore-order: "<order>"`
+**Architecture:**
 
-**Special Handling for Secrets and ConfigMaps:**
-- Only label if `metadata.ownerReferences` is empty (user-provided)
-- Skip operator-managed resources (created by controllers)
-- This prevents backing up temporary/generated resources
+1. **OpenStack Operator Webhooks** (existing pattern):
+   - Existing webhooks in `api/core/v1beta1/openstackcontrolplane_webhook.go`
+   - Already calls `ValidateCreate` from service operators (e.g., `keystone.ValidateCreate`)
+   - Add backup labeling logic to these existing validation functions
+   - Works on both Create and Update (handles existing environments)
+
+2. **Infrastructure Operator Webhook** (independent):
+   - Runs its own separate mutating webhook
+   - Handles infrastructure resources (NetConfig, IPSet, RabbitMQUser, etc.)
+   - Independent from openstack-operator webhook
+
+**Example: Adding Backup Labeling to Existing Webhooks**
+
+In `keystone-operator/api/v1beta1/keystoneapi_webhook.go`:
+
+```go
+func (r *KeystoneAPI) ValidateCreate() error {
+    // Existing validation logic...
+
+    // NEW: Add backup labels to user-provided resources
+    if err := r.labelUserProvidedResources(); err != nil {
+        return err
+    }
+
+    return nil
+}
+
+func (r *KeystoneAPI) labelUserProvidedResources() error {
+    ctx := context.Background()
+
+    // Label Secret if user-provided (no ownerReferences)
+    if r.Spec.Secret != "" {
+        if err := labelResourceIfUserProvided(ctx, r.Namespace, "Secret", r.Spec.Secret); err != nil {
+            return err
+        }
+    }
+
+    // Label CustomConfigSecret if user-provided
+    if r.Spec.HttpdCustomization != nil && r.Spec.HttpdCustomization.CustomConfigSecret != "" {
+        if err := labelResourceIfUserProvided(ctx, r.Namespace, "Secret",
+            r.Spec.HttpdCustomization.CustomConfigSecret); err != nil {
+            return err
+        }
+    }
+
+    // Label referenced ConfigMaps in ExtraMounts if user-provided
+    for _, mount := range r.Spec.ExtraMounts {
+        for _, vol := range mount.Propagation {
+            if vol.ConfigMap != nil {
+                if err := labelResourceIfUserProvided(ctx, r.Namespace, "ConfigMap",
+                    vol.ConfigMap.Name); err != nil {
+                    return err
+                }
+            }
+        }
+    }
+
+    return nil
+}
+```
+
+**Generic Helper Function (in lib-common):**
+
+```go
+// labelResourceIfUserProvided adds backup label to resource if it has no ownerReferences
+func labelResourceIfUserProvided(ctx context.Context, namespace, kind, name string) error {
+    // Get the resource
+    var obj client.Object
+    switch kind {
+    case "Secret":
+        obj = &corev1.Secret{}
+    case "ConfigMap":
+        obj = &corev1.ConfigMap{}
+    default:
+        return fmt.Errorf("unsupported resource kind: %s", kind)
+    }
+
+    key := client.ObjectKey{Namespace: namespace, Name: name}
+    if err := k8sClient.Get(ctx, key, obj); err != nil {
+        if errors.IsNotFound(err) {
+            // Resource doesn't exist yet, skip labeling
+            return nil
+        }
+        return err
+    }
+
+    // Check if resource has ownerReferences
+    if len(obj.GetOwnerReferences()) > 0 {
+        // Resource is managed by controller, skip labeling
+        return nil
+    }
+
+    // Add backup label (user-provided resource)
+    labels := obj.GetLabels()
+    if labels == nil {
+        labels = make(map[string]string)
+    }
+
+    // Only add if not already labeled
+    if labels["openstack.org/backup"] == "true" {
+        return nil
+    }
+
+    labels["openstack.org/backup"] = "true"
+    labels["openstack.org/backup-category"] = "all"
+    labels["openstack.org/restore-order"] = "1"  // Secrets/ConfigMaps always order 1
+    obj.SetLabels(labels)
+
+    // Update the resource
+    return k8sClient.Update(ctx, obj)
+}
+```
+
+**Key Points:**
+
+1. **Reuse Existing Pattern**: No new webhook infrastructure needed
+2. **Service Operator Knowledge**: Each service operator knows what resources it references
+3. **Generic Helper**: Common logic to check ownerReferences and add labels
+4. **Works on Create and Update**: Handles both new and existing deployments
+5. **User-Provided Detection**: Only labels resources without ownerReferences
 
 ### OADP Integration
 
