@@ -198,26 +198,56 @@ metadata:
 spec:
   includedNamespaces:
   - openstack
-  # NO labelSelector - backup everything
-  snapshotVolumes: true  # Backup PVCs with CSI snapshots
+  # NO labelSelector - backup all CRs, Secrets, ConfigMaps
+  # PVC snapshots are filtered by the openstack.org/backup label (see note below)
+  snapshotVolumes: true  # Enable CSI snapshots for PVCs
   defaultVolumesToFsBackup: false
   storageLocation: velero-1
   ttl: 720h
 ```
 
-**Optional: Exclude large PVC data** (if storage is limited):
+**Note on PVC Backup:**
+- All CRs, Secrets, and ConfigMaps in the namespace are backed up (no label filtering)
+- **PVCs are selectively backed up** using the `openstack.org/backup: "true"` label
+- OADP's CSI snapshot logic respects the backup label when creating volume snapshots
+- Individual PVCs can be excluded using annotation: `backup.velero.io/backup-volumes: "false"`
+
+See [PVC Labeling Strategy](#pvc-labeling-strategy) for details on how PVCs are labeled for backup.
+
+**Alternative: Split Backup into CRs and PVCs** (if you want explicit separation):
 
 ```yaml
+# Backup 1: All CRs and core resources (no PVCs)
 apiVersion: velero.io/v1
 kind: Backup
 metadata:
-  name: openstack-backup-20260303-120000
+  name: openstack-crs-20260303-120000
   namespace: openshift-adp
 spec:
   includedNamespaces:
   - openstack
-  # Backup all CRs, Secrets, ConfigMaps, but exclude PVC data
-  snapshotVolumes: false  # Skip PVC snapshots to reduce backup size
+  excludedResources:
+  - persistentvolumeclaims
+  - persistentvolumes
+  snapshotVolumes: false
+  storageLocation: velero-1
+  ttl: 720h
+---
+# Backup 2: Only labeled PVCs with CSI snapshots
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-pvcs-20260303-120000
+  namespace: openshift-adp
+spec:
+  includedNamespaces:
+  - openstack
+  includedResources:
+  - persistentvolumeclaims
+  labelSelector:
+    matchLabels:
+      openstack.org/backup: "true"
+  snapshotVolumes: true
   defaultVolumesToFsBackup: false
   storageLocation: velero-1
   ttl: 720h
@@ -422,7 +452,97 @@ The restore sequence is critical for maintaining dependencies between resources.
 | PersistentVolumeClaim** | true | all | 8 | Service storage volumes |
 
 *Only resources without ownerReferences
-**Only PVCs with label `openstack.org/backup-restore: "true"`
+**PVCs use dual-label approach (see PVC Labeling Strategy below)
+
+### PVC Labeling Strategy
+
+PVCs use a **dual-label approach** to separate backup inclusion from restore inclusion:
+
+**Label Purposes:**
+- **`openstack.org/backup: "true"`** - Include PVC in backup snapshot (required for CSI snapshot)
+- **`openstack.org/backup-restore: "true"`** - Include PVC in restore operation (optional)
+
+**Common Scenarios:**
+
+1. **Production data (backup AND restore)** - Most PVCs:
+   ```yaml
+   metadata:
+     labels:
+       openstack.org/backup: "true"              # Snapshot during backup
+       openstack.org/backup-restore: "true"      # Restore during restore
+       openstack.org/backup-restore-order: "8"
+     annotations:
+       service: glance
+   ```
+   Examples: Glance images, Cinder volumes, Manila shares, Galera backup dumps
+
+2. **Backup-only data (backup but NOT restore)** - Logs, temporary data:
+   ```yaml
+   metadata:
+     labels:
+       openstack.org/backup: "true"              # Snapshot during backup
+       # NO backup-restore label → excluded from restore
+     annotations:
+       service: logging
+   ```
+   Examples: Log aggregation PVCs, audit logs, test data
+
+   Use case: Backup for audit/compliance, but don't restore old logs to new environment
+
+3. **Skip backup entirely** - Caches, ephemeral data:
+   ```yaml
+   metadata:
+     labels:
+       # NO backup label
+     annotations:
+       backup.velero.io/backup-volumes: "false"  # Explicitly skip even if labeled
+       service: memcached
+   ```
+   Examples: Cache storage, temporary workspaces
+
+**How Labels Are Used:**
+
+**Backup CR** - Uses `openstack.org/backup` label selector:
+```yaml
+apiVersion: velero.io/v1
+kind: Backup
+spec:
+  includedNamespaces:
+  - openstack
+  labelSelector:
+    matchLabels:
+      openstack.org/backup: "true"  # Only PVCs with backup label
+  snapshotVolumes: true
+```
+
+**Restore CR** - Uses `openstack.org/backup-restore` label selector:
+```yaml
+apiVersion: velero.io/v1
+kind: Restore
+spec:
+  labelSelector:
+    matchLabels:
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "8"
+  restorePVs: true
+```
+
+**Excluding Individual PVCs:**
+
+If a PVC has `openstack.org/backup: "true"` but should be skipped, add Velero's annotation:
+```yaml
+metadata:
+  labels:
+    openstack.org/backup: "true"
+  annotations:
+    backup.velero.io/backup-volumes: "false"  # Override: skip this PVC
+```
+
+**Who Sets These Labels:**
+
+- Service operators add `openstack.org/backup: "true"` when creating PVCs that need backup
+- Webhook (or operator) adds `openstack.org/backup-restore: "true"` + order to PVCs that should restore
+- Manual override via `backup.velero.io/backup-volumes: "false"` annotation when needed
 
 ## Backup Categories
 
@@ -749,24 +869,19 @@ status:
    - Automated mode: Controller execs into pods
    - Manual mode: User runs commands
 
-4. **PVC Labeling**: How do PVCs get the backup label?
-   - Service operators add label when creating PVCs?
-   - Separate webhook for PVCs?
-   - Manual labeling required?
-
-5. **Webhook Scope**: Should webhook run in openstack-operator or separate deployment?
+4. **Webhook Scope**: Should webhook run in openstack-operator or separate deployment?
    - openstack-operator: Simpler deployment (reuse existing webhooks)
    - Separate: Cleaner separation of concerns
 
-6. **OpenStackBackupConfig Scope**: Should the config CR be namespace-scoped or cluster-scoped?
+5. **OpenStackBackupConfig Scope**: Should the config CR be namespace-scoped or cluster-scoped?
    - Namespace-scoped: Different configs per OpenStack deployment
    - Cluster-scoped: Single config for all OpenStack deployments
 
-7. **Default vs Custom Order Precedence**: How should the order precedence work?
+6. **Default vs Custom Order Precedence**: How should the order precedence work?
    - Current proposal: Manual labels > OpenStackBackupConfig > Hardcoded defaults
    - Alternative: OpenStackBackupConfig > Manual labels > Hardcoded defaults
 
-8. **Webhook Update Logic**: Should webhook update resources on every reconcile?
+7. **Webhook Update Logic**: Should webhook update resources on every reconcile?
    - Only on Create: Simpler, but doesn't handle label removal
    - On Create and Update: Handles label changes, but more update operations
    - Current proposal: On Create and Update (ValidateCreate + ValidateUpdate)
