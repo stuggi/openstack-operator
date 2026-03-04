@@ -150,8 +150,24 @@ func labelResourceForRestoreIfUserProvided(ctx context.Context, namespace, kind,
     }
 
     labels["openstack.org/backup-restore"] = "true"
-    labels["openstack.org/backup-category"] = "all"
-    labels["openstack.org/backup-restore-order"] = "1"  // Secrets/ConfigMaps always order 1
+
+    // Set category if not already set (allows user override)
+    if labels["openstack.org/backup-category"] == "" {
+        labels["openstack.org/backup-category"] = "all"
+    }
+
+    // Set default restore order if not already set (allows user override)
+    if labels["openstack.org/backup-restore-order"] == "" {
+        // Default restore order by resource type
+        // Users can pre-label resources to customize order
+        switch kind {
+        case "Secret", "ConfigMap":
+            labels["openstack.org/backup-restore-order"] = "1"
+        default:
+            labels["openstack.org/backup-restore-order"] = "1"
+        }
+    }
+
     obj.SetLabels(labels)
 
     // Update the resource
@@ -244,6 +260,91 @@ spec:
 ```
 
 **Key Point**: Webhooks add `openstack.org/backup-restore: "true"` labels to resources that need restore. OADP restore uses these labels for selective restore, even though the backup contains everything.
+
+## Customizing Restore Order for Core Resources
+
+### Manual Labeling (Available Immediately)
+
+Users can pre-label Secrets, ConfigMaps, PVCs, and cert-manager resources to customize their restore order. The webhook respects existing labels and won't overwrite them.
+
+**Example: CA secret restored in order 1, service secret in order 5**
+
+```bash
+# CA certificate secret (restored early)
+oc label secret openstack-ca-cert \
+  openstack.org/backup-restore=true \
+  openstack.org/backup-category=all \
+  openstack.org/backup-restore-order=1 \
+  -n openstack
+
+# Service-specific secret (restored after infrastructure)
+oc label secret nova-cell1-config \
+  openstack.org/backup-restore=true \
+  openstack.org/backup-category=controlplane \
+  openstack.org/backup-restore-order=5 \
+  -n openstack
+```
+
+**How it works:**
+1. User creates and labels resource with desired restore order
+2. Webhook checks if resource already has `openstack.org/backup-restore: "true"`
+3. If yes, webhook skips labeling (preserves user's custom order)
+4. If no, webhook applies default labels
+
+### Configuration via CRD (Future - Phase 4)
+
+When the Golang controller is implemented, restore order defaults can be configured via CRD:
+
+```yaml
+apiVersion: core.openstack.org/v1beta1
+kind: OpenStackBackupConfig
+metadata:
+  name: backup-config
+  namespace: openstack
+spec:
+  # Default restore orders for core Kubernetes resources
+  restoreDefaults:
+    secrets:
+      category: "all"
+      order: "1"
+    configmaps:
+      category: "all"
+      order: "1"
+    persistentvolumeclaims:
+      category: "all"
+      order: "8"
+    issuers:  # cert-manager Issuer
+      category: "all"
+      order: "2"
+    networkattachmentdefinitions:
+      category: "all"
+      order: "1"
+
+  # Custom overrides for specific resources
+  customOrders:
+  - resource:
+      kind: Secret
+      name: openstack-ca-cert
+    category: "all"
+    order: "1"
+  - resource:
+      kind: Secret
+      name: nova-cell1-config
+    category: "controlplane"
+    order: "5"
+```
+
+**Benefits of CRD-based configuration:**
+- Centralized configuration for all restore order defaults
+- Easy to customize per deployment
+- No need to manually label every resource
+- Can be backed up and restored along with other CRs
+
+**Implementation approach:**
+1. Webhook reads OpenStackBackupConfig CR to get default orders
+2. Applies configured defaults instead of hardcoded values
+3. Still respects existing labels (manual overrides take precedence)
+4. Fallback to hardcoded defaults if no config CR exists
 
 ## Restore Order
 
@@ -366,24 +467,47 @@ Use case: Full restore of all labeled resources (default)
 
 ### Phase 1: Webhook & CRD Annotations (No Controller)
 
-**Goal**: Automatic labeling of resources for backup
+**Goal**: Automatic labeling of resources for restore
 
 **Changes:**
 1. Add CRD annotations to all operator CRDs
-2. Implement mutating webhook in openstack-operator
-3. Deploy webhook configuration
-4. Test that resources get labeled on creation
+2. Implement mutating webhook in openstack-operator (reuse ValidateCreate pattern)
+3. Implement generic helper function in lib-common (respects existing labels)
+4. Deploy webhook configuration
+5. Test that resources get labeled on creation
 
 **Backward Compatibility**: Existing Ansible backup/restore continues to work
 
+**Features:**
+- Automatic labeling of user-provided resources (no ownerReferences)
+- Respects existing labels (allows manual customization)
+- Default restore order based on resource type
+- Works on both Create and Update (handles existing environments)
+
 **Testing:**
 ```bash
-# Create a test secret
+# Test 1: Automatic labeling with defaults
 oc create secret generic test-secret --from-literal=foo=bar -n openstack
 
-# Verify label was added
+# Verify default labels were added
 oc get secret test-secret -n openstack -o jsonpath='{.metadata.labels}'
 # Should show: openstack.org/backup-restore: "true", openstack.org/backup-restore-order: "1"
+
+# Test 2: Manual override (pre-label before webhook runs)
+oc create secret generic custom-secret \
+  --from-literal=foo=bar \
+  -n openstack \
+  --dry-run=client -o yaml | \
+  oc label -f - --local \
+    openstack.org/backup-restore=true \
+    openstack.org/backup-category=controlplane \
+    openstack.org/backup-restore-order=5 \
+    --dry-run=client -o yaml | \
+  oc apply -f -
+
+# Verify custom labels were preserved
+oc get secret custom-secret -n openstack -o jsonpath='{.metadata.labels}'
+# Should show: openstack.org/backup-restore: "true", openstack.org/backup-restore-order: "5"
 ```
 
 ### Phase 2: OADP Backup (No Controller)
@@ -522,9 +646,34 @@ oc annotate openstackcontrolplane openstack-galera-network-isolation \
 
 ### Phase 4: Golang Controller (Full Automation)
 
-**Goal**: Full automation with OpenStackBackupRestore CRD and controller
+**Goal**: Full automation with controller and CRDs
 
-**New CRD:**
+**New CRDs:**
+
+**OpenStackBackupConfig** - Configure restore order defaults
+```yaml
+apiVersion: core.openstack.org/v1beta1
+kind: OpenStackBackupConfig
+metadata:
+  name: backup-config
+  namespace: openstack
+spec:
+  restoreDefaults:
+    secrets:
+      category: "all"
+      order: "1"
+    configmaps:
+      category: "all"
+      order: "1"
+    persistentvolumeclaims:
+      category: "all"
+      order: "8"
+    issuers:
+      category: "all"
+      order: "2"
+```
+
+**OpenStackBackupRestore** - Execute backup/restore operations
 ```yaml
 apiVersion: core.openstack.org/v1beta1
 kind: OpenStackBackupRestore
@@ -596,22 +745,31 @@ status:
    - Is this acceptable?
    - Can we optimize for specific resource types?
 
-3. **Label vs Annotation for Restore Order**: Should `restore-order` be a label or annotation?
-   - Label: Can be used in OADP selector
-   - Annotation: Cleaner, but need controller to copy to label
-
-4. **Database Restore Automation**: Should controller exec into pods or require manual intervention?
+3. **Database Restore Automation**: Should controller exec into pods or require manual intervention?
    - Automated mode: Controller execs into pods
    - Manual mode: User runs commands
 
-5. **PVC Labeling**: How do PVCs get the backup label?
+4. **PVC Labeling**: How do PVCs get the backup label?
    - Service operators add label when creating PVCs?
    - Separate webhook for PVCs?
    - Manual labeling required?
 
-6. **Webhook Scope**: Should webhook run in openstack-operator or separate deployment?
-   - openstack-operator: Simpler deployment
+5. **Webhook Scope**: Should webhook run in openstack-operator or separate deployment?
+   - openstack-operator: Simpler deployment (reuse existing webhooks)
    - Separate: Cleaner separation of concerns
+
+6. **OpenStackBackupConfig Scope**: Should the config CR be namespace-scoped or cluster-scoped?
+   - Namespace-scoped: Different configs per OpenStack deployment
+   - Cluster-scoped: Single config for all OpenStack deployments
+
+7. **Default vs Custom Order Precedence**: How should the order precedence work?
+   - Current proposal: Manual labels > OpenStackBackupConfig > Hardcoded defaults
+   - Alternative: OpenStackBackupConfig > Manual labels > Hardcoded defaults
+
+8. **Webhook Update Logic**: Should webhook update resources on every reconcile?
+   - Only on Create: Simpler, but doesn't handle label removal
+   - On Create and Update: Handles label changes, but more update operations
+   - Current proposal: On Create and Update (ValidateCreate + ValidateUpdate)
 
 ## Next Steps
 
