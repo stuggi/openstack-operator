@@ -36,10 +36,8 @@ metadata:
 **Annotations:**
 - `openstack.org/backup-restore`: Whether instances of this CRD should be restored (`"true"` or `"false"`)
 - `openstack.org/backup-category`: Category for selective backup/restore
-  - `"controlplane"`: Control plane resources
-  - `"dataplane"`: Data plane resources
-  - `"infrastructure"`: Infrastructure resources (RabbitMQ, MariaDB configs)
-  - `"all"`: General resources needed by all deployments
+  - `"controlplane"`: Control plane resources (OpenStackControlPlane, MariaDB, services, user-provided Secrets/ConfigMaps, PVCs)
+  - `"dataplane"`: Data plane resources (NetConfig, Topology, IPSet, Reservation, DataPlaneNodeSet)
 - `openstack.org/backup-restore-order`: Numeric order for restore sequence (e.g., `"1"`, `"2"`, `"3"`)
 
 ### Mutating Webhooks
@@ -155,7 +153,7 @@ func labelResourceForRestoreIfUserProvided(ctx context.Context, namespace, kind,
 
     // Set category if not already set (allows user override)
     if labels["openstack.org/backup-category"] == "" {
-        labels["openstack.org/backup-category"] = "all"
+        labels["openstack.org/backup-category"] = "controlplane"
     }
 
     // Set default restore order if not already set (allows user override)
@@ -183,7 +181,164 @@ func labelResourceForRestoreIfUserProvided(ctx context.Context, namespace, kind,
 2. **Service Operator Knowledge**: Each service operator knows what resources it references
 3. **Generic Helper**: Common logic to check ownerReferences and add labels
 4. **Works on Create and Update**: Handles both new and existing deployments
-5. **User-Provided Detection**: Only labels resources without ownerReferences
+5. **User-Provided Detection**: Webhook labels resources without ownerReferences
+6. **Operator-Created Resources**: Operators directly label resources they create (even with ownerReferences)
+
+### Two Labeling Approaches
+
+Resources get labeled for restore through two complementary mechanisms:
+
+#### 1. Webhook Labels User-Provided Resources (No ownerReferences)
+
+The webhook labels user-provided resources that have no ownerReferences:
+- User-provided Secrets (SSH keys, CA certs, passwords)
+- User-provided ConfigMaps (custom configurations)
+- User-created RabbitMQUser/RabbitMQVhost
+- User-created DataPlaneService
+
+**Logic:**
+```go
+// Generic helper in lib-common
+func labelResourceForRestoreIfUserProvided(ctx context.Context, namespace, kind, name string) error {
+    // Get resource
+    obj := getResource(ctx, namespace, kind, name)
+
+    // Check if resource has ownerReferences
+    if len(obj.GetOwnerReferences()) > 0 {
+        // Resource is managed by controller, skip labeling
+        return nil
+    }
+
+    // User-provided resource - add restore labels
+    labels := obj.GetLabels()
+    if labels == nil {
+        labels = make(map[string]string)
+    }
+
+    labels["openstack.org/backup-restore"] = "true"
+    labels["openstack.org/backup-category"] = "controlplane"
+    labels["openstack.org/backup-restore-order"] = "1"  // Default for Secrets/ConfigMaps
+    obj.SetLabels(labels)
+
+    return k8sClient.Update(ctx, obj)
+}
+```
+
+#### 2. Operators Directly Label Resources They Create
+
+Operators add restore labels when creating resources, even if those resources have ownerReferences:
+- Issuers (cert-manager) - both operator-managed and custom
+- PVCs (with annotation override support)
+- NetworkAttachmentDefinitions (if created by operators)
+
+**Why:** Some resources need restore even though they have ownerReferences:
+- **Issuers**: Custom Issuers (external CAs) must be preserved; operator-managed Issuers (rootca-*) are harmlessly reconciled
+- **PVCs**: Need snapshot restore before pods start (staged deployment)
+
+**Example: openstack-operator creates Issuers with labels**
+
+```go
+// In openstack-operator when creating Issuer CRs
+func (r *OpenStackControlPlaneReconciler) createIssuer(
+    ctx context.Context,
+    name string,
+    spec certmanagerv1.IssuerSpec,
+    instance *corev1beta1.OpenStackControlPlane,
+) error {
+    issuer := &certmanagerv1.Issuer{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      name,
+            Namespace: instance.Namespace,
+            Labels: map[string]string{
+                // Add restore labels
+                "openstack.org/backup-restore":       "true",
+                "openstack.org/backup-category":      "all",
+                "openstack.org/backup-restore-order": "2",
+            },
+            OwnerReferences: []metav1.OwnerReference{
+                // Set OpenStackControlPlane as owner
+                {
+                    APIVersion: instance.APIVersion,
+                    Kind:       instance.Kind,
+                    Name:       instance.Name,
+                    UID:        instance.UID,
+                    Controller: ptr.To(true),
+                },
+            },
+        },
+        Spec: spec,
+    }
+
+    return r.Client.Create(ctx, issuer)
+}
+```
+
+**What gets labeled:**
+- ✅ Operator-managed Issuers (selfsigned-issuer, rootca-internal, rootca-public, rootca-ovn, rootca-libvirt)
+- ✅ Custom Issuers referenced in OpenStackControlPlane spec (ACME, Vault, external CAs)
+- ⚠️ User-created Issuers (outside OpenStackControlPlane) - User manually labels if backup/restore needed
+
+**Example: PVC creation with annotation override support**
+
+```go
+// In glance-operator when creating PVC
+func (r *GlanceReconciler) createPVC(
+    ctx context.Context,
+    name string,
+    instance *glancev1.GlanceAPI,
+) error {
+    pvc := &corev1.PersistentVolumeClaim{
+        ObjectMeta: metav1.ObjectMeta{
+            Name:      name,
+            Namespace: instance.Namespace,
+            Labels:    getBackupLabels(instance.Annotations), // Helper reads annotations
+            OwnerReferences: []metav1.OwnerReference{
+                {
+                    APIVersion: instance.APIVersion,
+                    Kind:       instance.Kind,
+                    Name:       instance.Name,
+                    UID:        instance.UID,
+                    Controller: ptr.To(true),
+                },
+            },
+        },
+        Spec: corev1.PersistentVolumeClaimSpec{
+            // ... PVC spec
+        },
+    }
+
+    return r.Client.Create(ctx, pvc)
+}
+
+// Helper function to determine backup labels (with annotation override support)
+func getBackupLabels(annotations map[string]string) map[string]string {
+    labels := make(map[string]string)
+
+    // Always add backup labels for PVCs
+    labels["openstack.org/backup"] = "true"
+    labels["openstack.org/backup-restore"] = "true"
+
+    // Check for user override via annotation
+    if order, ok := annotations["openstack.org/backup-restore-order"]; ok {
+        labels["openstack.org/backup-restore-order"] = order
+    } else {
+        labels["openstack.org/backup-restore-order"] = "8"  // Default for PVCs
+    }
+
+    if category, ok := annotations["openstack.org/backup-category"]; ok {
+        labels["openstack.org/backup-category"] = category
+    } else {
+        labels["openstack.org/backup-category"] = "controlplane"
+    }
+
+    return labels
+}
+```
+
+**Summary:**
+- **Webhook**: Labels user-provided resources (no ownerReferences)
+- **Operators**: Label resources they create (can have ownerReferences)
+- **Result**: All necessary resources get labeled for restore, regardless of ownership
 
 ### OADP Integration
 
@@ -359,6 +514,80 @@ oc label secret nova-cell1-config \
 3. If yes, webhook skips labeling (preserves user's custom order)
 4. If no, webhook applies default labels
 
+### Annotation-Based Overrides (Alternative to Manual Labels)
+
+Instead of pre-labeling resources, users can override restore order using **annotations**. Operators/webhooks read annotations and apply corresponding labels.
+
+**Advantages:**
+- Annotations show what's been customized (visible override)
+- Labels always have the effective values (for OADP selectors)
+- Operators can reconcile: annotation → label
+- Clear distinction between defaults and user customization
+
+**Example: Override restore order via annotation**
+
+```bash
+# Create resource with custom restore order annotation
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: Secret
+metadata:
+  name: custom-ca-cert
+  namespace: openstack
+  annotations:
+    openstack.org/backup-restore-order: "1"  # User customization via annotation
+    openstack.org/backup-category: "all"     # Optional category override
+stringData:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    ...
+EOF
+
+# Webhook/operator reads annotation and applies label
+# Result:
+# labels:
+#   openstack.org/backup-restore: "true"
+#   openstack.org/backup-restore-order: "1"    # From annotation
+#   openstack.org/backup-category: "all"       # From annotation
+```
+
+**How operators implement annotation overrides:**
+
+```go
+func getBackupLabels(obj client.Object) map[string]string {
+    labels := make(map[string]string)
+
+    // Check if user provided override annotation
+    if order, ok := obj.GetAnnotations()["openstack.org/backup-restore-order"]; ok {
+        // User customized - use annotation value
+        labels["openstack.org/backup-restore-order"] = order
+    } else {
+        // Default - use CRD-defined order
+        labels["openstack.org/backup-restore-order"] = getDefaultOrder(obj)
+    }
+
+    if category, ok := obj.GetAnnotations()["openstack.org/backup-category"]; ok {
+        labels["openstack.org/backup-category"] = category
+    } else {
+        labels["openstack.org/backup-category"] = getDefaultCategory(obj)
+    }
+
+    // Always add restore label
+    labels["openstack.org/backup-restore"] = "true"
+
+    return labels
+}
+```
+
+**Checking for customization:**
+
+```bash
+# List resources with custom restore order (annotation present)
+oc get secrets -n openstack -o json | \
+  jq '.items[] | select(.metadata.annotations["openstack.org/backup-restore-order"]) |
+      {name: .metadata.name, order: .metadata.annotations["openstack.org/backup-restore-order"]}'
+```
+
 ### Configuration via CRD (Future - Phase 4)
 
 When the Golang controller is implemented, restore order defaults can be configured via CRD:
@@ -424,11 +653,11 @@ The restore sequence is critical for maintaining dependencies between resources.
 | 2 | TLS Issuers | Requires CA secrets to exist |
 | 3 | MariaDBDatabase | Requires database password secrets |
 | 4 | MariaDBAccount | Requires MariaDBDatabase CRs |
-| 5 | OpenStackVersion<br>Topology<br>BGPConfiguration<br>DNSData<br>InstanceHa | Related CRs without critical dependencies |
-| 6 | OpenStackControlPlane | **Add staged deployment annotation**<br>Creates infrastructure only |
-| 7 | RabbitMQUser (user-created)<br>RabbitMQVhost (user-created) | User-created RabbitMQ resources |
-| 8 | PVCs | Restored from CSI snapshots via OADP |
-| 9 | GaleraBackup | Database backup configuration |
+| 5 | OpenStackVersion<br>NetConfig<br>Topology<br>BGPConfiguration<br>DNSData<br>InstanceHa | Infrastructure config without critical dependencies |
+| 6 | OpenStackControlPlane<br>Reservation | **CtlPlane**: Add staged deployment annotation<br>**Reservation**: Needs NetConfig |
+| 7 | RabbitMQUser (user-created)<br>RabbitMQVhost (user-created)<br>IPSet | **RabbitMQ**: User-created resources<br>**IPSet**: Needs NetConfig |
+| 8 | PVCs<br>DataPlaneService (user-created) | **PVCs**: CSI snapshots via OADP<br>**DataPlaneService**: Before NodeSets |
+| 9 | GaleraBackup<br>DataPlaneNodeSet | **GaleraBackup**: Database backup config<br>**DataPlaneNodeSet**: Needs IPSets/Reservations |
 | 10 | *Database Restore* | **Manual/Controller**: Create GaleraRestore CRs<br>Execute restore from latest backup |
 | 11 | *RabbitMQ Credentials* | **Manual/Controller**: Create RabbitMQUser CRs<br>Restore original credentials |
 | 12 | *Resume Deployment* | **Manual/Controller**: Remove staged annotation<br>Resume full deployment |
@@ -436,6 +665,7 @@ The restore sequence is critical for maintaining dependencies between resources.
 **Notes:**
 - Orders 1-9: Pure OADP restore (no special handling)
 - Orders 10-12: Require additional logic (manual steps or controller automation)
+- **Customization**: All restore orders can be overridden via annotations on individual resources (see [Customizing Restore Order](#customizing-restore-order-for-core-resources))
 
 ## CRD Annotation Mapping
 
@@ -450,15 +680,15 @@ The restore sequence is critical for maintaining dependencies between resources.
 
 | CRD | Restore | Category | Order | Notes |
 |-----|---------|----------|-------|-------|
-| NetConfig | true | infrastructure | 5 | Network configuration |
-| IPSet | true | infrastructure | 5 | IP address sets |
-| Reservation | true | infrastructure | 5 | IP reservations |
-| BGPConfiguration | true | infrastructure | 5 | BGP config |
-| DNSData | true | infrastructure | 5 | DNS records |
-| Topology | true | infrastructure | 5 | Network topology |
-| RabbitMQUser* | true | infrastructure | 7 | User-created only |
-| RabbitMQVhost* | true | infrastructure | 7 | User-created only |
-| InstanceHa | true | infrastructure | 5 | Instance HA config |
+| NetConfig | true | dataplane | 5 | Network topology (required first) |
+| Topology | true | dataplane | 5 | Network topology |
+| BGPConfiguration | true | dataplane | 5 | BGP config |
+| DNSData | true | dataplane | 5 | DNS records |
+| Reservation | true | dataplane | 6 | IP reservations (requires NetConfig) |
+| IPSet | true | dataplane | 7 | IP address sets (requires NetConfig) |
+| InstanceHa | true | controlplane | 5 | Instance HA config |
+| RabbitMQUser* | true | controlplane | 7 | User-created only |
+| RabbitMQVhost* | true | controlplane | 7 | User-created only |
 
 *Only for user-created resources (no ownerReferences)
 
@@ -467,29 +697,93 @@ The restore sequence is critical for maintaining dependencies between resources.
 | CRD | Restore | Category | Order | Notes |
 |-----|---------|----------|-------|-------|
 | MariaDBDatabase | true | controlplane | 3 | Database definitions |
-| MariaDBAccount | true | controlplane | 4 | Database accounts |
+| MariaDBAccount | true | controlplane | 4 | Database accounts (references password secret) |
 | GaleraBackup | true | controlplane | 9 | Backup configuration |
+
+**Important:** mariadb-operator must label password secrets when creating them:
+```go
+// When mariadb-operator creates database password secret
+secret := &corev1.Secret{
+    ObjectMeta: metav1.ObjectMeta{
+        Name:      "nova-api-db-secret",
+        Namespace: namespace,
+        Labels: map[string]string{
+            // CRITICAL: Add restore labels so secret is restored before MariaDBAccount
+            "openstack.org/backup-restore":       "true",
+            "openstack.org/backup-category":      "all",
+            "openstack.org/backup-restore-order": "1",  // Order 1 (before MariaDBAccount)
+        },
+        OwnerReferences: []metav1.OwnerReference{
+            // MariaDBAccount owner
+        },
+    },
+    Data: map[string][]byte{
+        "password": []byte(generatedPassword),
+    },
+}
+```
+
+**Why:** MariaDBAccount CR references password secret (e.g., `spec.secret: nova-api-db-secret`). The secret must be restored in order 1 (before MariaDBAccount in order 4) so the operator can read the original password during reconciliation.
 
 ### Data Plane CRDs
 
 | CRD | Restore | Category | Order | Notes |
 |-----|---------|----------|-------|-------|
-| OpenStackDataPlaneNodeSet | true | dataplane | 5 | Node set definitions |
-| OpenStackDataPlaneService* | true | dataplane | 5 | Custom services only |
+| OpenStackDataPlaneService* | true | dataplane | 8 | Custom services (before NodeSets) |
+| OpenStackDataPlaneNodeSet | true | dataplane | 9 | Node set definitions (requires IPSets/Reservations) |
 
 *Only for user-created services (no ownerReferences)
+
+**DataPlane Integration:**
+
+DataPlane resources are **integrated into the unified backup/restore** approach:
+
+- **Backup**: Single OADP backup includes ControlPlane AND DataPlane (entire namespace)
+- **Restore**: Flexible restore options using category labels:
+
+```yaml
+# Full restore (ControlPlane + DataPlane)
+labelSelector:
+  matchLabels:
+    openstack.org/backup-restore: "true"
+
+# ControlPlane only restore
+labelSelector:
+  matchLabels:
+    openstack.org/backup-restore: "true"
+    openstack.org/backup-category: "controlplane"
+
+# DataPlane only restore
+labelSelector:
+  matchLabels:
+    openstack.org/backup-restore: "true"
+    openstack.org/backup-category: "dataplane"
+```
+
+**Benefits:**
+- Single backup artifact (no separate DataPlane backup needed)
+- Selective restore by category (restore ControlPlane first, verify, then DataPlane)
+- Same restore order guarantees as current procedure (NetConfig → Reservation → IPSet → DataPlaneService → DataPlaneNodeSet)
+- Replaces separate `backup-restore-dataplane.md` procedure
+
+**DataPlane restore order dependencies** (already included in unified restore order table):
+1. NetConfig (order 5) - Network topology
+2. Reservation (order 6) - Requires NetConfig
+3. IPSet (order 7) - Requires NetConfig
+4. DataPlaneService (order 8) - Before NodeSets
+5. DataPlaneNodeSet (order 9) - Requires IPSets/Reservations
 
 ### Kubernetes Core Resources
 
 | Resource | Restore | Category | Order | Notes |
 |----------|---------|----------|-------|-------|
-| Secret* | true | all | 1 | User-provided only (no ownerReferences) |
-| ConfigMap* | true | all | 1 | User-provided only (no ownerReferences) |
-| NetworkAttachmentDefinition | true | all | 1 | Network attachments |
-| Issuer (cert-manager) | true | all | 2 | TLS certificate issuers |
-| PersistentVolumeClaim** | true | all | 8 | Service storage volumes |
+| Secret* | true | controlplane | 1 | User-provided (CA certs, passwords, SSH keys, EDPM configs) |
+| ConfigMap* | true | controlplane | 1 | User-provided configurations |
+| NetworkAttachmentDefinition | true | controlplane | 1 | Network attachments |
+| Issuer (cert-manager) | true | controlplane | 2 | TLS certificate issuers |
+| PersistentVolumeClaim** | true | controlplane | 8 | Service storage volumes |
 
-*Only resources without ownerReferences
+*Only resources without ownerReferences (includes DataPlane SSH keys - get controlplane category)
 **PVCs use dual-label approach (see PVC Labeling Strategy below)
 
 ### PVC Labeling Strategy
@@ -584,42 +878,62 @@ metadata:
 
 ## Backup Categories
 
-Categories enable selective backup/restore scenarios:
+Categories enable selective backup/restore scenarios. The design uses **two categories**: `controlplane` and `dataplane`.
 
-### Control Plane Only
+### Category Assignment
+
+**controlplane:**
+- OpenStackControlPlane CR
+- MariaDBDatabase, MariaDBAccount, GaleraBackup
+- RabbitMQUser, RabbitMQVhost
+- Issuers (cert-manager), InstanceHa
+- **All user-provided Secrets and ConfigMaps** (CA certs, passwords, SSH keys, EDPM configs)
+- PVCs for services
+
+**dataplane:**
+- NetConfig, Topology, BGPConfiguration, DNSData
+- Reservation, IPSet
+- OpenStackDataPlaneService, OpenStackDataPlaneNodeSet
+
+**Rationale:**
+- User-provided secrets (including SSH keys for DataPlane) get `controlplane` category
+- Ensures ControlPlane restore includes all necessary credentials
+- DataPlane restore can be done separately, but requires ControlPlane secrets to exist first
+- Additional categories can be added later if needed
+
+### Selective Restore Examples
+
+#### Full Restore (ControlPlane + DataPlane)
+```yaml
+labelSelector:
+  matchLabels:
+    openstack.org/backup-restore: "true"
+```
+Use case: Complete disaster recovery
+
+#### Control Plane Only
 ```yaml
 labelSelector:
   matchLabels:
     openstack.org/backup-restore: "true"
     openstack.org/backup-category: "controlplane"
 ```
-Use case: Control plane disaster recovery (restore only control plane resources)
+Use cases:
+- Control plane disaster recovery
+- Restore control plane first, verify, then restore data plane
+- Includes all Secrets/ConfigMaps (needed by both ControlPlane and DataPlane)
 
-### Data Plane Only
+#### Data Plane Only
 ```yaml
 labelSelector:
   matchLabels:
     openstack.org/backup-restore: "true"
     openstack.org/backup-category: "dataplane"
 ```
-Use case: Data plane node replacement (restore only data plane resources)
-
-### Infrastructure Only
-```yaml
-labelSelector:
-  matchLabels:
-    openstack.org/backup-restore: "true"
-    openstack.org/backup-category: "infrastructure"
-```
-Use case: Network/messaging configuration recovery
-
-### All Labeled Resources
-```yaml
-labelSelector:
-  matchLabels:
-    openstack.org/backup-restore: "true"
-```
-Use case: Full restore of all labeled resources (default)
+Use cases:
+- Data plane node replacement
+- Isolated data plane restore (requires ControlPlane secrets already restored)
+- Network topology reconfiguration
 
 ## Implementation Phases
 
@@ -758,7 +1072,7 @@ oc wait --for=jsonpath='{.status.phase}'=Completed \
 
 # Continue for each order...
 
-# Order 6: OpenStackControlPlane
+# Order 6: OpenStackControlPlane (with staged deployment annotation)
 cat <<EOF | oc apply -f -
 apiVersion: velero.io/v1
 kind: Restore
@@ -772,16 +1086,21 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "6"
   restorePVs: false
+  # CRITICAL: Add staged deployment annotation during restore to prevent race condition
+  # Without this, operator would start full deployment immediately
+  resourceModifiers:
+  - conditions:
+      groupResource: openstackcontrolplanes.core.openstack.org
+    patches:
+    - operation: add
+      path: "/metadata/annotations/core.openstack.org~1deployment-stage"
+      value: "infrastructure-only"
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
   restore/openstack-restore-order-6 -n openshift-adp --timeout=10m
 
-# MANUAL: Add staged deployment annotation
-oc annotate openstackcontrolplane openstack-galera-network-isolation \
-  -n openstack core.openstack.org/deployment-stage=infrastructure-only
-
-# MANUAL: Wait for infrastructure ready
+# Wait for infrastructure ready (annotation already applied by OADP)
 oc wait --for=condition=OpenStackControlPlaneInfrastructureReady \
   openstackcontrolplane/openstack-galera-network-isolation \
   -n openstack --timeout=20m
@@ -797,9 +1116,15 @@ oc wait --for=condition=OpenStackControlPlaneInfrastructureReady \
 # Create RabbitMQUser CRs with restored secrets
 
 # Order 12: Resume deployment (MANUAL)
-# Remove staged deployment annotation
+# Remove staged deployment annotation to resume full deployment
 oc annotate openstackcontrolplane openstack-galera-network-isolation \
   -n openstack core.openstack.org/deployment-stage-
+
+# Operator will now reconcile and start all services
+# Wait for full deployment ready
+oc wait --for=condition=Ready \
+  openstackcontrolplane/openstack-galera-network-isolation \
+  -n openstack --timeout=30m
 ```
 
 ### Phase 4: Golang Controller (Full Automation)
