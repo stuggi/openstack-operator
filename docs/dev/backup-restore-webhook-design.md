@@ -6,10 +6,12 @@ This document describes a webhook-based approach to backup and restore for OpenS
 
 ## Goals
 
-1. **Full Namespace Backup**: Backup everything in the namespace to ensure complete snapshot
-2. **Selective Restore**: Use webhook-added labels to restore only necessary resources
-3. **Dynamic Resource Discovery**: No hardcoded lists - CRD annotations declare what needs restore
-4. **Declarative Restore Order**: Restore order defined in CRD annotations, not in code
+1. **Full Backup, Selective Restore**:
+   - Backup: All user resources (Secrets, ConfigMaps, CRs) - complete snapshot
+   - Restore: Only webhook-labeled resources - automatic filtering
+2. **Dynamic Resource Discovery**: No hardcoded lists - CRD annotations declare what needs restore
+3. **Declarative Restore Order**: Restore order defined in CRD annotations, not in code
+4. **Operator-Managed Exclusion**: Operators recreate their own resources (not restored from backup)
 5. **Kubernetes-Native**: Leverage OADP label selectors for filtering
 6. **No Controller Required (Initially)**: Can be used manually with OADP Restore CRs
 7. **Optional Automation**: Golang controller for full automation (future enhancement)
@@ -187,7 +189,7 @@ func labelResourceForRestoreIfUserProvided(ctx context.Context, namespace, kind,
 
 #### Full Namespace Backup
 
-One OADP Backup CR captures **everything** in the namespace (complete snapshot):
+One OADP Backup CR captures **all user resources** in the namespace (complete snapshot):
 
 ```yaml
 apiVersion: velero.io/v1
@@ -199,15 +201,33 @@ spec:
   includedNamespaces:
   - openstack
   # NO labelSelector - backup all CRs, Secrets, ConfigMaps
-  # PVC snapshots are filtered by the openstack.org/backup label (see note below)
+  # Exclude operator-managed resources that will be recreated
+  excludedResources:
+  - pods
+  - replicasets
+  - jobs
+  - events
+  - statefulsets
   snapshotVolumes: true  # Enable CSI snapshots for PVCs
   defaultVolumesToFsBackup: false
   storageLocation: velero-1
   ttl: 720h
 ```
 
+**Backup Strategy:**
+- ✅ **All Secrets** in namespace (user-provided AND operator-managed)
+- ✅ **All ConfigMaps** in namespace (user-provided AND operator-managed)
+- ✅ **All CRs** (OpenStackControlPlane, MariaDBDatabase, DataPlaneNodeSet, etc.)
+- ✅ **All NetworkAttachmentDefinitions, Issuers, etc.**
+- ✅ **PVCs with label** `openstack.org/backup: "true"` (CSI snapshots)
+- ❌ **Excluded**: Pods, ReplicaSets, Jobs, Events, StatefulSets (operator-managed, will be recreated)
+
+**Why backup ALL Secrets/ConfigMaps?**
+- Ensures complete snapshot (nothing missed)
+- Simple backup logic (no complex filtering)
+- Restore is selective via webhook labels (see below)
+
 **Note on PVC Backup:**
-- All CRs, Secrets, and ConfigMaps in the namespace are backed up (no label filtering)
 - **PVCs are selectively backed up** using the `openstack.org/backup: "true"` label
 - OADP's CSI snapshot logic respects the backup label when creating volume snapshots
 - Individual PVCs can be excluded using annotation: `backup.velero.io/backup-volumes: "false"`
@@ -255,7 +275,21 @@ spec:
 
 #### Selective Restore (By Order)
 
-Multiple OADP Restore CRs, one per restore order, using labels added by webhooks:
+Multiple OADP Restore CRs, one per restore order, using labels added by webhooks.
+
+**Restore Strategy:**
+- ✅ **Only resources with** `openstack.org/backup-restore: "true"` **label**
+- ✅ **Webhooks add labels to user-provided resources** (no ownerReferences)
+- ❌ **Operator-managed resources excluded** (no labels, will be recreated by operators)
+
+This means:
+- User-provided Secrets → Labeled by webhook → Restored ✅
+- Operator-created Secrets → Not labeled → Not restored, recreated by operator ✅
+- User-provided ConfigMaps → Labeled by webhook → Restored ✅
+- Operator-created ConfigMaps → Not labeled → Not restored, recreated by operator ✅
+- All CRs with annotations → Labeled by webhook → Restored ✅
+
+**Example Restore CRs:**
 
 ```yaml
 # Restore Order 1: Secrets, ConfigMaps, NADs
@@ -289,7 +323,11 @@ spec:
 # And so on for each restore order...
 ```
 
-**Key Point**: Webhooks add `openstack.org/backup-restore: "true"` labels to resources that need restore. OADP restore uses these labels for selective restore, even though the backup contains everything.
+**Key Points:**
+- **Backup**: All user resources in namespace (all Secrets, ConfigMaps, CRs) - complete snapshot
+- **Restore**: Only resources with `openstack.org/backup-restore: "true"` label - selective filtering
+- **Webhooks**: Add restore labels to user-provided resources (no ownerReferences)
+- **Operators**: Recreate their own Secrets/ConfigMaps on reconciliation (not restored from backup)
 
 ## Customizing Restore Order for Core Resources
 
