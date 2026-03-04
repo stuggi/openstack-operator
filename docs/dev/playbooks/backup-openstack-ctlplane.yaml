@@ -504,6 +504,84 @@
         msg: "No GaleraBackup cronjobs found, skipping database backup"
       when: galera_backup_cronjobs.stdout == ""
 
+    # Step 9b: Label PVCs for backup
+    - name: Print Step 9b header
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 9b: Label PVCs for OADP Backup"
+          - "========================================"
+          - ""
+          - "Labeling PVCs with openstack.org/backup=true for CSI snapshot backup"
+
+    - name: Label Galera backup PVCs (database dump storage)
+      ansible.builtin.shell: |
+        # Get all PVCs matching Galera backup naming pattern
+        oc get pvc -n {{ openstack_namespace }} --no-headers -o custom-columns=NAME:.metadata.name | \
+          grep -E '^mysql-backup-.*-backup-' || true
+      register: galera_backup_pvcs
+      changed_when: false
+
+    - name: Apply backup label to Galera backup PVCs
+      ansible.builtin.shell: |
+        oc label pvc {{ item }} -n {{ openstack_namespace }} openstack.org/backup=true --overwrite
+      loop: "{{ galera_backup_pvcs.stdout_lines }}"
+      changed_when: true
+      when: galera_backup_pvcs.stdout_lines | length > 0
+
+    - name: Label Glance PVCs (image storage)
+      ansible.builtin.shell: |
+        oc label pvc -n {{ openstack_namespace }} -l service=glance openstack.org/backup=true --overwrite
+      register: glance_pvc_label
+      changed_when: glance_pvc_label.rc == 0
+      failed_when: false
+
+    - name: Label Cinder PVCs (volume storage)
+      ansible.builtin.shell: |
+        oc label pvc -n {{ openstack_namespace }} -l service=cinder openstack.org/backup=true --overwrite
+      register: cinder_pvc_label
+      changed_when: cinder_pvc_label.rc == 0
+      failed_when: false
+
+    - name: Label Swift PVCs (object storage)
+      ansible.builtin.shell: |
+        oc label pvc -n {{ openstack_namespace }} -l service=swift openstack.org/backup=true --overwrite
+      register: swift_pvc_label
+      changed_when: swift_pvc_label.rc == 0
+      failed_when: false
+
+    - name: Label Manila PVCs (share storage)
+      ansible.builtin.shell: |
+        oc label pvc -n {{ openstack_namespace }} -l service=manila openstack.org/backup=true --overwrite
+      register: manila_pvc_label
+      changed_when: manila_pvc_label.rc == 0
+      failed_when: false
+
+    - name: Get count of labeled PVCs
+      ansible.builtin.shell: |
+        oc get pvc -n {{ openstack_namespace }} -l openstack.org/backup=true --no-headers 2>/dev/null | wc -l
+      register: labeled_pvc_count
+      changed_when: false
+
+    - name: List labeled PVCs
+      ansible.builtin.shell: |
+        oc get pvc -n {{ openstack_namespace }} -l openstack.org/backup=true -o custom-columns=NAME:.metadata.name,SIZE:.spec.resources.requests.storage,SERVICE:.metadata.labels.service --no-headers
+      register: labeled_pvc_list
+      changed_when: false
+      when: labeled_pvc_count.stdout|int > 0
+
+    - name: Print Step 9b completion
+      ansible.builtin.debug:
+        msg:
+          - "✓ Labeled {{ labeled_pvc_count.stdout }} PVC(s) for backup:"
+          - "{{ labeled_pvc_list.stdout_lines }}"
+      when: labeled_pvc_count.stdout|int > 0
+
+    - name: Print Step 9b no PVCs message
+      ansible.builtin.debug:
+        msg: "No PVCs found to label (this is OK if not using persistent storage)"
+      when: labeled_pvc_count.stdout|int == 0
+
     # Step 10: Backup Storage Volumes (OADP)
     - name: Print Step 10 header
       ansible.builtin.debug:
