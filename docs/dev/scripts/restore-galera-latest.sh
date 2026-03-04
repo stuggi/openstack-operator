@@ -66,18 +66,20 @@ if [ -z "$RESTORE_NAME" ]; then
     exit 1
 fi
 
-POD_NAME="openstack-restore-${RESTORE_NAME}"
-
 print_header "Restore Galera Database from Latest Backup"
-echo "Restore Name: $RESTORE_NAME"
-echo "Pod Name: $POD_NAME"
+echo "GaleraRestore CR: $RESTORE_NAME"
 echo "Namespace: $OPENSTACK_NAMESPACE"
 
-# Check if pod exists
-print_info "Checking if restore pod exists..."
-if ! oc get pod "$POD_NAME" -n "$OPENSTACK_NAMESPACE" &>/dev/null; then
-    print_error "Restore pod not found: $POD_NAME"
+# Discover pod name using label selector
+print_info "Discovering restore pod using label selector..."
+POD_NAME=$(oc get pod -n "$OPENSTACK_NAMESPACE" \
+  -l cr="${RESTORE_NAME}" \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+
+if [ -z "$POD_NAME" ]; then
+    print_error "Restore pod not found for GaleraRestore: $RESTORE_NAME"
     print_info "Make sure the GaleraRestore CR has been created and the pod is running"
+    print_info "Expected label: cr=${RESTORE_NAME}"
     exit 1
 fi
 
