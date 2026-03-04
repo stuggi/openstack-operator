@@ -279,8 +279,8 @@ The restore sequence is critical for maintaining dependencies between resources.
 
 ### Infrastructure Operator CRDs
 
-| CRD | Backup | Category | Order | Notes |
-|-----|--------|----------|-------|-------|
+| CRD | Restore | Category | Order | Notes |
+|-----|---------|----------|-------|-------|
 | NetConfig | true | infrastructure | 5 | Network configuration |
 | IPSet | true | infrastructure | 5 | IP address sets |
 | Reservation | true | infrastructure | 5 | IP reservations |
@@ -295,16 +295,16 @@ The restore sequence is critical for maintaining dependencies between resources.
 
 ### MariaDB Operator CRDs
 
-| CRD | Backup | Category | Order | Notes |
-|-----|--------|----------|-------|-------|
+| CRD | Restore | Category | Order | Notes |
+|-----|---------|----------|-------|-------|
 | MariaDBDatabase | true | controlplane | 3 | Database definitions |
 | MariaDBAccount | true | controlplane | 4 | Database accounts |
 | GaleraBackup | true | controlplane | 9 | Backup configuration |
 
 ### Data Plane CRDs
 
-| CRD | Backup | Category | Order | Notes |
-|-----|--------|----------|-------|-------|
+| CRD | Restore | Category | Order | Notes |
+|-----|---------|----------|-------|-------|
 | OpenStackDataPlaneNodeSet | true | dataplane | 5 | Node set definitions |
 | OpenStackDataPlaneService* | true | dataplane | 5 | Custom services only |
 
@@ -312,8 +312,8 @@ The restore sequence is critical for maintaining dependencies between resources.
 
 ### Kubernetes Core Resources
 
-| Resource | Backup | Category | Order | Notes |
-|----------|--------|----------|-------|-------|
+| Resource | Restore | Category | Order | Notes |
+|----------|---------|----------|-------|-------|
 | Secret* | true | all | 1 | User-provided only (no ownerReferences) |
 | ConfigMap* | true | all | 1 | User-provided only (no ownerReferences) |
 | NetworkAttachmentDefinition | true | all | 1 | Network attachments |
@@ -321,7 +321,7 @@ The restore sequence is critical for maintaining dependencies between resources.
 | PersistentVolumeClaim** | true | all | 8 | Service storage volumes |
 
 *Only resources without ownerReferences
-**Only PVCs with label `openstack.org/backup: "true"`
+**Only PVCs with label `openstack.org/backup-restore: "true"`
 
 ## Backup Categories
 
@@ -383,7 +383,7 @@ oc create secret generic test-secret --from-literal=foo=bar -n openstack
 
 # Verify label was added
 oc get secret test-secret -n openstack -o jsonpath='{.metadata.labels}'
-# Should show: openstack.org/backup: "true", openstack.org/restore-order: "1"
+# Should show: openstack.org/backup-restore: "true", openstack.org/backup-restore-order: "1"
 ```
 
 ### Phase 2: OADP Backup (No Controller)
@@ -409,9 +409,7 @@ metadata:
 spec:
   includedNamespaces:
   - openstack
-  labelSelector:
-    matchLabels:
-      openstack.org/backup: "true"
+  # NO labelSelector - backup everything
   snapshotVolumes: true
   defaultVolumesToFsBackup: false
   storageLocation: velero-1
@@ -447,8 +445,8 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
-      openstack.org/restore-order: "1"
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "1"
   restorePVs: false
 EOF
 
@@ -467,8 +465,8 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
-      openstack.org/restore-order: "2"
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "2"
   restorePVs: false
 EOF
 
@@ -489,8 +487,8 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
-      openstack.org/restore-order: "6"
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "6"
   restorePVs: false
 EOF
 
