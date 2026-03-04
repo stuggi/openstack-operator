@@ -1034,17 +1034,27 @@
 
     - name: Wait for GaleraRestore pods to be ready
       ansible.builtin.shell: |
-        RESTORE_NAME="{{ item }}restore"
+        BACKUP_NAME="{{ item }}"
+        RESTORE_NAME="${BACKUP_NAME}restore"
 
         echo "Waiting for GaleraRestore pod: ${RESTORE_NAME}"
 
-        # Wait for pod to exist (find by label selector)
-        for i in {1..60}; do
-          POD_NAME=$(oc get pod -n {{ openstack_namespace }} \
-            -l cr=${RESTORE_NAME} \
-            -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+        # Get backupSource from GaleraRestore CR spec
+        BACKUP_SOURCE=$(oc get galerarestore "${RESTORE_NAME}" -n {{ openstack_namespace }} \
+          -o jsonpath='{.spec.backupSource}' 2>/dev/null || echo "")
 
-          if [ -n "${POD_NAME}" ]; then
+        if [ -z "${BACKUP_SOURCE}" ]; then
+          echo "ERROR: Could not get backupSource from GaleraRestore ${RESTORE_NAME}"
+          exit 1
+        fi
+
+        # Construct pod name: <backupSource>-restore-<galerarestore-name>
+        POD_NAME="${BACKUP_SOURCE}-restore-${RESTORE_NAME}"
+        echo "Expected pod name: ${POD_NAME}"
+
+        # Wait for pod to exist
+        for i in {1..60}; do
+          if oc get pod "${POD_NAME}" -n {{ openstack_namespace }} &>/dev/null; then
             echo "Pod found: ${POD_NAME}"
             break
           fi
@@ -1052,8 +1062,8 @@
           sleep 5
         done
 
-        if [ -z "${POD_NAME}" ]; then
-          echo "ERROR: Pod for GaleraRestore ${RESTORE_NAME} not found after 5 minutes"
+        if ! oc get pod "${POD_NAME}" -n {{ openstack_namespace }} &>/dev/null; then
+          echo "ERROR: Pod ${POD_NAME} not found after 5 minutes"
           exit 1
         fi
 
@@ -1132,19 +1142,25 @@
         echo "Processing restore for backup: ${BACKUP_NAME}"
         echo "Restore CR: ${RESTORE_NAME}"
 
-        # Discover pod name using label selector
-        POD_NAME=$(oc get pod -n {{ openstack_namespace }} \
-          -l cr=${RESTORE_NAME} \
-          -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+        # Get backupSource from GaleraRestore CR spec
+        BACKUP_SOURCE=$(oc get galerarestore "${RESTORE_NAME}" -n {{ openstack_namespace }} \
+          -o jsonpath='{.spec.backupSource}' 2>/dev/null || echo "")
 
-        if [ -z "${POD_NAME}" ]; then
-          echo "ERROR: Restore pod not found for GaleraRestore: ${RESTORE_NAME}"
+        if [ -z "${BACKUP_SOURCE}" ]; then
+          echo "ERROR: Could not get backupSource from GaleraRestore ${RESTORE_NAME}"
           exit 1
         fi
 
-        echo "Found pod: ${POD_NAME}"
+        # Construct pod name: <backupSource>-restore-<galerarestore-name>
+        POD_NAME="${BACKUP_SOURCE}-restore-${RESTORE_NAME}"
+        echo "Pod name: ${POD_NAME}"
 
-        # Verify pod is running
+        # Verify pod exists and is running
+        if ! oc get pod "${POD_NAME}" -n {{ openstack_namespace }} &>/dev/null; then
+          echo "ERROR: Restore pod not found: ${POD_NAME}"
+          exit 1
+        fi
+
         POD_PHASE=$(oc get pod "${POD_NAME}" -n {{ openstack_namespace }} -o jsonpath='{.status.phase}')
         if [ "$POD_PHASE" != "Running" ]; then
           echo "ERROR: Restore pod is not running (phase: ${POD_PHASE})"
@@ -1154,7 +1170,8 @@
         echo "Pod is running, finding latest backup..."
 
         # List backup files (excluding grants)
-        BACKUP_FILES=$(oc exec -n {{ openstack_namespace }} "${POD_NAME}" -- ls -1 /backup/data/*_backup_*.sql.gz 2>/dev/null | grep -v grants || true)
+        # Use sh -c to ensure glob expansion happens in the pod
+        BACKUP_FILES=$(oc exec -n {{ openstack_namespace }} "${POD_NAME}" -- sh -c 'ls -1 /backup/data/*_backup_*.sql.gz 2>/dev/null | grep -v grants' || true)
 
         if [ -z "${BACKUP_FILES}" ]; then
           echo "ERROR: No backup files found in /backup/data/"
@@ -1180,7 +1197,8 @@
         echo "Restore pattern: ${RESTORE_PATTERN}"
 
         # Verify files exist
-        MATCHED_FILES=$(oc exec -n {{ openstack_namespace }} "${POD_NAME}" -- ls -1 "${RESTORE_PATTERN}" 2>/dev/null || true)
+        # Use sh -c to ensure glob expansion happens in the pod
+        MATCHED_FILES=$(oc exec -n {{ openstack_namespace }} "${POD_NAME}" -- sh -c "ls -1 ${RESTORE_PATTERN} 2>/dev/null" || true)
 
         if [ -z "${MATCHED_FILES}" ]; then
           echo "ERROR: No files match pattern: ${RESTORE_PATTERN}"

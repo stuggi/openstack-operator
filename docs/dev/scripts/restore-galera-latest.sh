@@ -70,16 +70,28 @@ print_header "Restore Galera Database from Latest Backup"
 echo "GaleraRestore CR: $RESTORE_NAME"
 echo "Namespace: $OPENSTACK_NAMESPACE"
 
-# Discover pod name using label selector
-print_info "Discovering restore pod using label selector..."
-POD_NAME=$(oc get pod -n "$OPENSTACK_NAMESPACE" \
-  -l cr="${RESTORE_NAME}" \
-  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+# Get backupSource from GaleraRestore CR spec
+print_info "Reading GaleraRestore CR to get backupSource..."
+BACKUP_SOURCE=$(oc get galerarestore "$RESTORE_NAME" -n "$OPENSTACK_NAMESPACE" \
+  -o jsonpath='{.spec.backupSource}' 2>/dev/null || echo "")
 
-if [ -z "$POD_NAME" ]; then
-    print_error "Restore pod not found for GaleraRestore: $RESTORE_NAME"
+if [ -z "$BACKUP_SOURCE" ]; then
+    print_error "Could not get backupSource from GaleraRestore: $RESTORE_NAME"
+    print_info "Make sure the GaleraRestore CR exists"
+    exit 1
+fi
+
+print_info "Backup source: $BACKUP_SOURCE"
+
+# Construct pod name: <backupSource>-restore-<galerarestore-name>
+POD_NAME="${BACKUP_SOURCE}-restore-${RESTORE_NAME}"
+print_info "Expected pod name: $POD_NAME"
+
+# Check if pod exists
+print_info "Checking if restore pod exists..."
+if ! oc get pod "$POD_NAME" -n "$OPENSTACK_NAMESPACE" &>/dev/null; then
+    print_error "Restore pod not found: $POD_NAME"
     print_info "Make sure the GaleraRestore CR has been created and the pod is running"
-    print_info "Expected label: cr=${RESTORE_NAME}"
     exit 1
 fi
 
@@ -99,7 +111,7 @@ print_success "Restore pod is running"
 print_header "Finding Latest Backup"
 print_info "Listing backup files in /backup/data/..."
 
-BACKUP_FILES=$(oc exec -n "$OPENSTACK_NAMESPACE" "$POD_NAME" -- ls -1 /backup/data/*_backup_*.sql.gz 2>/dev/null | grep -v grants || true)
+BACKUP_FILES=$(oc exec -n "$OPENSTACK_NAMESPACE" "$POD_NAME" -- sh -c 'ls -1 /backup/data/*_backup_*.sql.gz 2>/dev/null | grep -v grants' || true)
 
 if [ -z "$BACKUP_FILES" ]; then
     print_error "No backup files found in /backup/data/"
@@ -137,7 +149,7 @@ print_info "Restore pattern: $RESTORE_PATTERN"
 # Verify both backup and grants files exist
 echo ""
 print_info "Verifying backup files exist..."
-MATCHED_FILES=$(oc exec -n "$OPENSTACK_NAMESPACE" "$POD_NAME" -- ls -1 "$RESTORE_PATTERN" 2>/dev/null || true)
+MATCHED_FILES=$(oc exec -n "$OPENSTACK_NAMESPACE" "$POD_NAME" -- sh -c "ls -1 $RESTORE_PATTERN 2>/dev/null" || true)
 
 if [ -z "$MATCHED_FILES" ]; then
     print_error "No files match pattern: $RESTORE_PATTERN"
