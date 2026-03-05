@@ -6,9 +6,10 @@ This document describes a webhook-based approach to backup and restore for OpenS
 
 ## Goals
 
-1. **Full Backup, Selective Restore**:
+1. **Full Backup, Selective Restore** (for CRs, Secrets, ConfigMaps):
    - Backup: All user resources (Secrets, ConfigMaps, CRs) - complete snapshot
    - Restore: Only webhook-labeled resources - automatic filtering
+   - **Exception - PVCs**: Selective backup AND selective restore (only labeled PVCs backed up/restored due to storage/performance concerns)
 2. **Dynamic Resource Discovery**: No hardcoded lists - CRD annotations declare what needs restore
 3. **Declarative Restore Order**: Restore order defined in CRD annotations, not in code
 4. **Operator-Managed Exclusion**: Operators recreate their own resources (not restored from backup)
