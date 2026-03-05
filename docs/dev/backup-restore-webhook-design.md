@@ -491,6 +491,38 @@ This means:
 - Operator-created ConfigMaps → Not labeled → Not restored, recreated by operator ✅
 - All CRs with annotations → Labeled by webhook → Restored ✅
 
+#### OwnerReference Handling
+
+**The Problem:**
+
+When OADP restores resources, each resource gets a NEW UID (UIDs are cluster-unique identifiers). However, backed-up ownerReferences contain OLD UIDs from the original cluster. This causes:
+
+1. **Orphaned resources**: Restored resource has ownerReference with old UID that doesn't match the new owner's UID
+2. **Broken ownership chain**: Kubernetes doesn't recognize the ownership relationship
+3. **Potential data loss**: Operators might try to delete/recreate PVCs when they don't recognize them as owned resources
+
+**Example:**
+```yaml
+# Backup: PVC owned by GlanceAPI
+metadata:
+  name: glance-pvc
+  ownerReferences:
+  - uid: old-glance-uid-123  # Old UID from backup
+
+# After restore:
+# - PVC has ownerReference: old-glance-uid-123
+# - GlanceAPI NOT restored (operator-managed)
+# - Operator creates NEW GlanceAPI with NEW UID: new-glance-uid-456
+# - PVC is orphaned (UID mismatch)
+# - Operator might delete/recreate PVC → DATA LOSS!
+```
+
+**The Solution:**
+
+Use OADP `resourceModifiers` to **strip ALL ownerReferences** during restore. Operators will adopt resources during reconciliation and set correct ownerReferences with new UIDs.
+
+**Applied to ALL restore orders** for simplicity and safety - no need to think about which resources need it.
+
 **Example Restore CRs:**
 
 ```yaml
@@ -507,6 +539,13 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "10"
   restorePVs: false  # Don't restore PVCs in this order
+  # CRITICAL: Remove ownerReferences to prevent orphaned resources
+  # Operators will adopt resources and set correct ownerReferences during reconciliation
+  resourceModifiers:
+  - conditions: {}  # Match all resources
+    patches:
+    - operation: remove
+      path: "/metadata/ownerReferences"
 ---
 # Restore Order 20: TLS Issuers
 apiVersion: velero.io/v1
@@ -521,13 +560,21 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "20"
   restorePVs: false
+  # Remove ownerReferences from all resources
+  resourceModifiers:
+  - conditions: {}  # Match all resources
+    patches:
+    - operation: remove
+      path: "/metadata/ownerReferences"
 ---
 # And so on for each restore order...
+# NOTE: ALL restore orders use resourceModifiers to strip ownerReferences
 ```
 
 **Key Points:**
 - **Backup**: All user resources in namespace (all Secrets, ConfigMaps, CRs) - complete snapshot
 - **Restore**: Only resources with `openstack.org/backup-restore: "true"` label - selective filtering
+- **OwnerReferences Removed**: All restore orders use `resourceModifiers` to strip ownerReferences (prevents orphaned resources, operators adopt during reconciliation)
 - **Webhooks**: Add restore labels to user-provided resources (no ownerReferences)
 - **Operators**: Recreate their own Secrets/ConfigMaps on reconciliation (not restored from backup)
 
@@ -1105,6 +1152,12 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "00"
   restorePVs: true  # CSI snapshots
+  # Remove ownerReferences to prevent orphaned resources (operators will adopt during reconciliation)
+  resourceModifiers:
+  - conditions: {}  # Match all resources
+    patches:
+    - operation: remove
+      path: "/metadata/ownerReferences"
 EOF
 
 # Wait for completion (CSI snapshot restore may take time)
@@ -1125,6 +1178,12 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "10"
   restorePVs: false
+  # Remove ownerReferences to prevent orphaned resources
+  resourceModifiers:
+  - conditions: {}  # Match all resources
+    patches:
+    - operation: remove
+      path: "/metadata/ownerReferences"
 EOF
 
 # Wait for completion
@@ -1165,9 +1224,13 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "30"
   restorePVs: false
-  # CRITICAL: Add staged deployment annotation during restore
-  # Prevents operator from starting full deployment immediately
   resourceModifiers:
+  # Remove ownerReferences from all resources
+  - conditions: {}  # Match all resources
+    patches:
+    - operation: remove
+      path: "/metadata/ownerReferences"
+  # Add staged deployment annotation to OpenStackControlPlane
   - conditions:
       groupResource: openstackcontrolplanes.core.openstack.org
     patches:
@@ -1198,6 +1261,12 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "40"
   restorePVs: false
+  # Remove ownerReferences from all resources
+  resourceModifiers:
+  - conditions: {}  # Match all resources
+    patches:
+    - operation: remove
+      path: "/metadata/ownerReferences"
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
@@ -1245,6 +1314,12 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "60"
   restorePVs: false
+  # Remove ownerReferences from all resources
+  resourceModifiers:
+  - conditions: {}  # Match all resources
+    patches:
+    - operation: remove
+      path: "/metadata/ownerReferences"
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
