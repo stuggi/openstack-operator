@@ -32,7 +32,7 @@ metadata:
     # Restore annotations (explicit opt-in - must be present to restore)
     openstack.org/backup-restore: "true"
     openstack.org/backup-category: "controlplane"
-    openstack.org/backup-restore-order: "60"
+    openstack.org/backup-restore-order: "30"
 ```
 
 **Annotations:**
@@ -47,8 +47,15 @@ metadata:
   - `"dataplane"`: Data plane resources (NetConfig, Topology, IPSet, Reservation, DataPlaneNodeSet)
 
 - `openstack.org/backup-restore-order`: Numeric order for restore sequence
-  - Uses gaps of 10 (e.g., `"10"`, `"20"`, `"30"`) to allow easy insertion of new resources
-  - Common orders: 10 (foundation), 20 (TLS), 30-40 (database), 50-90 (infrastructure/services), 100+ (manual steps)
+  - Uses gaps of 10 (e.g., `"00"`, `"10"`, `"20"`, `"30"`) to allow easy insertion of new resources
+  - Common orders:
+    - 00 (storage foundation - PVCs)
+    - 10 (foundation - NADs, Secrets, ConfigMaps)
+    - 20 (TLS & infrastructure - Issuers, MariaDB, NetConfig)
+    - 30 (CtlPlane + networking)
+    - 40 (backup config & user resources)
+    - 50 (manual steps - database/RabbitMQ restore, resume deployment)
+    - 60 (DataPlane)
 
 **Restore Strategy:**
 
@@ -76,7 +83,7 @@ metadata:
   annotations:
     openstack.org/backup-restore: "true"              # Include in restore
     openstack.org/backup-category: "controlplane"
-    openstack.org/backup-restore-order: "60"
+    openstack.org/backup-restore-order: "30"
 ```
 
 ### Mutating Webhooks
@@ -361,7 +368,7 @@ func getBackupLabels(annotations map[string]string) map[string]string {
     if order, ok := annotations["openstack.org/backup-restore-order"]; ok {
         labels["openstack.org/backup-restore-order"] = order
     } else {
-        labels["openstack.org/backup-restore-order"] = "80"  // Default for PVCs
+        labels["openstack.org/backup-restore-order"] = "00"  // Default for PVCs (storage foundation)
     }
 
     if category, ok := annotations["openstack.org/backup-category"]; ok {
@@ -649,7 +656,7 @@ spec:
       order: "10"
     persistentvolumeclaims:
       category: "all"
-      order: "80"
+      order: "00"  # Storage foundation - restored first
     issuers:  # cert-manager Issuer
       category: "all"
       order: "20"
@@ -668,7 +675,7 @@ spec:
       kind: Secret
       name: nova-cell1-config
     category: "controlplane"
-    order: "50"
+    order: "20"
 ```
 
 **Benefits of CRD-based configuration:**
@@ -689,23 +696,23 @@ The restore sequence is critical for maintaining dependencies between resources.
 
 | Order | Resources | Notes |
 |-------|-----------|-------|
-| 10 | NetworkAttachmentDefinitions<br>Secrets (CA + user-provided)<br>ConfigMaps (user-provided) | Foundation resources |
-| 20 | TLS Issuers | Requires CA secrets to exist |
-| 30 | MariaDBDatabase | Requires database password secrets |
-| 40 | MariaDBAccount | Requires MariaDBDatabase CRs |
-| 50 | OpenStackVersion<br>NetConfig<br>Topology<br>BGPConfiguration<br>DNSData<br>InstanceHa | Infrastructure config without critical dependencies |
-| 60 | OpenStackControlPlane<br>Reservation | **CtlPlane**: Add staged deployment annotation<br>**Reservation**: Needs NetConfig |
-| 70 | RabbitMQUser (user-created)<br>RabbitMQVhost (user-created)<br>IPSet | **RabbitMQ**: User-created resources<br>**IPSet**: Needs NetConfig |
-| 80 | PVCs<br>DataPlaneService (user-created) | **PVCs**: CSI snapshots via OADP<br>**DataPlaneService**: Before NodeSets |
-| 90 | GaleraBackup<br>DataPlaneNodeSet | **GaleraBackup**: Database backup config<br>**DataPlaneNodeSet**: Needs IPSets/Reservations |
-| 100 | *Database Restore* | **Manual/Controller**: Create GaleraRestore CRs<br>Execute restore from latest backup |
-| 110 | *RabbitMQ Credentials* | **Manual/Controller**: Create RabbitMQUser CRs<br>Restore original credentials |
-| 120 | *Resume Deployment* | **Manual/Controller**: Remove staged annotation<br>Resume full deployment |
+| 00 | **PVCs** | **Storage Foundation**: CSI snapshots for all storage volumes (Galera backups, Glance images, Cinder volumes, Manila shares)<br>Restored first so backup data is available for database restore in order 50 |
+| 10 | NetworkAttachmentDefinitions<br>Secrets (user-provided)<br>ConfigMaps (user-provided) | **Foundation Resources**: Core resources with no dependencies<br>Includes CA certs, DB passwords, SSH keys |
+| 20 | TLS Issuers<br>MariaDBDatabase<br>MariaDBAccount<br>Infrastructure CRs<br>NetConfig | **TLS & Infrastructure**: Issuers need CA secrets, MariaDBAccount needs password secrets<br>Infrastructure: OpenStackVersion, Topology, BGPConfiguration, DNSData, InstanceHa<br>NetConfig: Network topology (required by Reservation/IPSet) |
+| 30 | OpenStackControlPlane<br>Reservation<br>IPSet | **Control Plane + Networking**: CtlPlane restored with staged deployment annotation (`deployment-stage: infrastructure-only`)<br>Reservation and IPSet need NetConfig from order 20<br>Wait for infrastructure ready before proceeding |
+| 40 | GaleraBackup<br>RabbitMQUser (user-created)<br>RabbitMQVhost<br>DataPlaneService (user-created) | **Backup Config & User Resources** (while in infra-only mode)<br>GaleraBackup: Backup configuration CR (needs CtlPlane)<br>RabbitMQUser/Vhost: User-created resources only (no ownerReferences)<br>DataPlaneService: Custom services before NodeSets |
+| 50 | *Database Restore*<br>*RabbitMQ Credentials*<br>*Resume Deployment* | **Manual/Controller** (while in infra-only mode):<br>1. Create GaleraRestore CRs, execute restore from PVCs (order 00), clean up<br>2. Create RabbitMQUser CRs with old credentials (extract from backed-up secrets, create new `-restored-user` secrets/CRs)<br>3. Remove `deployment-stage` annotation → CtlPlane reconciles and starts all services |
+| 60 | DataPlaneNodeSet | **Data Plane**: Node set definitions (needs IPSets/Reservations from order 30) |
 
 **Notes:**
-- Orders 10-90: Pure OADP restore (no special handling)
-- Orders 100-120: Require additional logic (manual steps or controller automation)
+- **Orders 00-40**: Pure OADP restore (automated via label selectors)
+- **Order 50**: Requires manual steps or controller automation (database restore, RabbitMQ credentials, resume deployment)
 - **Gaps of 10**: Allows easy insertion of new resources (e.g., order 25 between 20 and 30) without renumbering
+- **Staged Deployment**: CtlPlane restored with `deployment-stage: infrastructure-only` annotation in order 30, annotation removed in order 50 after database/RabbitMQ restore
+- **RabbitMQ Restore Process**:
+  - Order 10: Backed-up secrets restored (including `*-default-user` with old passwords)
+  - Order 40: User-created RabbitMQUser CRs restored (no ownerReferences)
+  - Order 50 (manual): Create NEW `-restored-user` secrets with old passwords + NEW RabbitMQUser CRs (operator-managed clusters get original credentials)
 - **Customization**: All restore orders can be overridden via annotations on individual resources (see [Customizing Restore Order](#customizing-restore-order-for-core-resources))
 
 ## CRD Annotation Mapping
@@ -723,32 +730,32 @@ This section shows the annotations that should be added to each CRD definition.
 
 | CRD | Restore | Category | Order | Notes |
 |-----|---------|----------|-------|-------|
-| OpenStackControlPlane | true | controlplane | 60 | Main control plane CR |
-| OpenStackVersion | true | controlplane | 50 | Version tracking |
+| OpenStackControlPlane | true | controlplane | 30 | Main control plane CR |
+| OpenStackVersion | true | controlplane | 20 | Version tracking |
 
 ### Infrastructure Operator CRDs
 
 | CRD | Restore | Category | Order | Notes |
 |-----|---------|----------|-------|-------|
-| NetConfig | true | dataplane | 50 | Network topology (required first) |
-| Topology | true | dataplane | 50 | Network topology |
-| BGPConfiguration | true | dataplane | 50 | BGP config |
-| DNSData | true | dataplane | 50 | DNS records |
-| Reservation | true | dataplane | 60 | IP reservations (requires NetConfig) |
-| IPSet | true | dataplane | 70 | IP address sets (requires NetConfig) |
-| InstanceHa | true | controlplane | 50 | Instance HA config |
-| RabbitMQUser* | true | controlplane | 70 | User-created only |
-| RabbitMQVhost* | true | controlplane | 70 | User-created only |
+| NetConfig | true | dataplane | 20 | Network topology (required before Reservation/IPSet) |
+| Topology | true | dataplane | 20 | Network topology |
+| BGPConfiguration | true | dataplane | 20 | BGP config |
+| DNSData | true | dataplane | 20 | DNS records |
+| Reservation | true | dataplane | 30 | IP reservations (requires NetConfig) |
+| IPSet | true | dataplane | 30 | IP address sets (requires NetConfig) |
+| InstanceHa | true | controlplane | 20 | Instance HA config |
+| RabbitMQUser* | true | controlplane | 40 | User-created only (no ownerReferences) |
+| RabbitMQVhost* | true | controlplane | 40 | User-created only (no ownerReferences) |
 
-*Only for user-created resources (no ownerReferences)
+*User-created resources only. Operator-managed RabbitMQUser CRs are recreated in order 50 (manual/controller) with original credentials.
 
 ### MariaDB Operator CRDs
 
 | CRD | Restore | Category | Order | Notes |
 |-----|---------|----------|-------|-------|
-| MariaDBDatabase | true | controlplane | 30 | Database definitions |
-| MariaDBAccount | true | controlplane | 40 | Database accounts (references password secret) |
-| GaleraBackup | true | controlplane | 90 | Backup configuration |
+| MariaDBDatabase | true | controlplane | 20 | Database definitions |
+| MariaDBAccount | true | controlplane | 20 | Database accounts (references password secret) |
+| GaleraBackup | true | controlplane | 40 | Backup configuration (needs CtlPlane from order 30) |
 
 **Important:** mariadb-operator must label password secrets when creating them:
 ```go
@@ -779,8 +786,8 @@ secret := &corev1.Secret{
 
 | CRD | Restore | Category | Order | Notes |
 |-----|---------|----------|-------|-------|
-| OpenStackDataPlaneService* | true | dataplane | 80 | Custom services (before NodeSets) |
-| OpenStackDataPlaneNodeSet | true | dataplane | 90 | Node set definitions (requires IPSets/Reservations) |
+| OpenStackDataPlaneService* | true | dataplane | 40 | Custom services (before NodeSets) |
+| OpenStackDataPlaneNodeSet | true | dataplane | 60 | Node set definitions (requires IPSets/Reservations) |
 | OpenStackDataPlaneDeployment | false** | - | - | Backed up for reference, never restored (ephemeral) |
 
 *Only for user-created services (no ownerReferences)
@@ -819,11 +826,11 @@ labelSelector:
 - Replaces separate `backup-restore-dataplane.md` procedure
 
 **DataPlane restore order dependencies** (already included in unified restore order table):
-1. NetConfig (order 50) - Network topology
-2. Reservation (order 60) - Requires NetConfig
-3. IPSet (order 70) - Requires NetConfig
-4. DataPlaneService (order 80) - Before NodeSets
-5. DataPlaneNodeSet (order 90) - Requires IPSets/Reservations
+1. NetConfig (order 20) - Network topology
+2. Reservation (order 30) - Requires NetConfig
+3. IPSet (order 30) - Requires NetConfig
+4. DataPlaneService (order 40) - Before NodeSets
+5. DataPlaneNodeSet (order 60) - Requires IPSets/Reservations
 
 ### Kubernetes Core Resources
 
@@ -835,7 +842,7 @@ labelSelector:
 | ConfigMap* | user-only | controlplane | 10 | All backed up; only user-provided restored (no ownerReferences) |
 | NetworkAttachmentDefinition | all | controlplane | 10 | All backed up and restored |
 | Issuer (cert-manager) | all | controlplane | 20 | All backed up; operator adds labels to all for restore |
-| PersistentVolumeClaim** | labeled-only | controlplane | 80 | Only labeled PVCs backed up and restored (exception to full backup) |
+| PersistentVolumeClaim** | labeled-only | controlplane | 00 | **Storage Foundation**: Only labeled PVCs backed up and restored (exception to full backup)<br>Restored FIRST so backup data is available for database restore |
 
 *All Secrets/ConfigMaps included in full namespace backup; webhook only labels user-provided ones (no ownerReferences) for restore
 **PVCs use dual-label approach and selective backup (see PVC Labeling Strategy below)
@@ -856,7 +863,7 @@ PVCs use a **dual-label approach** to separate backup inclusion from restore inc
      labels:
        openstack.org/backup: "true"              # Snapshot during backup
        openstack.org/backup-restore: "true"      # Restore during restore
-       openstack.org/backup-restore-order: "80"
+       openstack.org/backup-restore-order: "00"
      annotations:
        service: glance
    ```
@@ -909,7 +916,7 @@ spec:
   labelSelector:
     matchLabels:
       openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "80"
+      openstack.org/backup-restore-order: "00"
   restorePVs: true
 ```
 
@@ -1084,7 +1091,27 @@ oc get backup -n openshift-adp -w
 
 **Example Manual Restore:**
 ```bash
-# Order 10: Secrets, ConfigMaps, NADs
+# Order 00: PVCs (Storage Foundation)
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-order-00
+  namespace: openshift-adp
+spec:
+  backupName: openstack-backup-20260303-120000
+  labelSelector:
+    matchLabels:
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "00"
+  restorePVs: true  # CSI snapshots
+EOF
+
+# Wait for completion (CSI snapshot restore may take time)
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  restore/openstack-restore-order-00 -n openshift-adp --timeout=20m
+
+# Order 10: Foundation Resources (NADs, Secrets, ConfigMaps)
 cat <<EOF | oc apply -f -
 apiVersion: velero.io/v1
 kind: Restore
@@ -1104,7 +1131,7 @@ EOF
 oc wait --for=jsonpath='{.status.phase}'=Completed \
   restore/openstack-restore-order-10 -n openshift-adp --timeout=10m
 
-# Order 20: TLS Issuers
+# Order 20: TLS & Infrastructure (Issuers, MariaDB CRs, NetConfig)
 cat <<EOF | oc apply -f -
 apiVersion: velero.io/v1
 kind: Restore
@@ -1124,9 +1151,87 @@ EOF
 oc wait --for=jsonpath='{.status.phase}'=Completed \
   restore/openstack-restore-order-20 -n openshift-adp --timeout=10m
 
-# Continue for each order...
+# Order 30: ControlPlane + Networking (with staged deployment annotation)
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-order-30
+  namespace: openshift-adp
+spec:
+  backupName: openstack-backup-20260303-120000
+  labelSelector:
+    matchLabels:
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "30"
+  restorePVs: false
+  # CRITICAL: Add staged deployment annotation during restore
+  # Prevents operator from starting full deployment immediately
+  resourceModifiers:
+  - conditions:
+      groupResource: openstackcontrolplanes.core.openstack.org
+    patches:
+    - operation: add
+      path: "/metadata/annotations/core.openstack.org~1deployment-stage"
+      value: "infrastructure-only"
+EOF
 
-# Order 60: OpenStackControlPlane (with staged deployment annotation)
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  restore/openstack-restore-order-30 -n openshift-adp --timeout=10m
+
+# Wait for infrastructure ready (annotation already applied by OADP)
+oc wait --for=condition=OpenStackControlPlaneInfrastructureReady \
+  openstackcontrolplane/openstack-galera-network-isolation \
+  -n openstack --timeout=20m
+
+# Order 40: Backup Config & User Resources (while in infra-only mode)
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-order-40
+  namespace: openshift-adp
+spec:
+  backupName: openstack-backup-20260303-120000
+  labelSelector:
+    matchLabels:
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "40"
+  restorePVs: false
+EOF
+
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  restore/openstack-restore-order-40 -n openshift-adp --timeout=10m
+
+# Order 50: Manual Steps (while in infra-only mode)
+echo "Order 50: Database & RabbitMQ Restore + Resume Deployment"
+
+# 50.1: Database Restore
+echo "Step 1: Database Restore"
+# Create GaleraRestore CRs (reference backup PVCs from order 00)
+# Execute restore_galera script
+# Clean up GaleraRestore CRs
+# See: docs/dev/scripts/restore-galera-latest.sh
+
+# 50.2: RabbitMQ Credentials Restore
+echo "Step 2: RabbitMQ Credentials"
+# Extract old passwords from backed-up secrets
+# Create new secrets named "*-restored-user" with old passwords
+# Create new RabbitMQUser CRs referencing "-restored-user" secrets
+# See: docs/dev/playbooks/restore-openstack-ctlplane.yaml (lines 1332-1427)
+
+# 50.3: Resume Deployment
+echo "Step 3: Resume Deployment"
+oc annotate openstackcontrolplane openstack-galera-network-isolation \
+  -n openstack core.openstack.org/deployment-stage-
+
+# Operator will now reconcile and start all services
+# Wait for full deployment ready
+oc wait --for=condition=Ready \
+  openstackcontrolplane/openstack-galera-network-isolation \
+  -n openstack --timeout=30m
+
+# Order 60: Data Plane
 cat <<EOF | oc apply -f -
 apiVersion: velero.io/v1
 kind: Restore
@@ -1140,45 +1245,12 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "60"
   restorePVs: false
-  # CRITICAL: Add staged deployment annotation during restore to prevent race condition
-  # Without this, operator would start full deployment immediately
-  resourceModifiers:
-  - conditions:
-      groupResource: openstackcontrolplanes.core.openstack.org
-    patches:
-    - operation: add
-      path: "/metadata/annotations/core.openstack.org~1deployment-stage"
-      value: "infrastructure-only"
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
   restore/openstack-restore-order-60 -n openshift-adp --timeout=10m
 
-# Wait for infrastructure ready (annotation already applied by OADP)
-oc wait --for=condition=OpenStackControlPlaneInfrastructureReady \
-  openstackcontrolplane/openstack-galera-network-isolation \
-  -n openstack --timeout=20m
-
-# Orders 70-90: Continue with OADP restores...
-
-# Order 100: Database restore (MANUAL)
-# Create GaleraRestore CRs
-# Execute database restore
-# Clean up GaleraRestore CRs
-
-# Order 110: RabbitMQ credentials (MANUAL)
-# Create RabbitMQUser CRs with restored secrets
-
-# Order 120: Resume deployment (MANUAL)
-# Remove staged deployment annotation to resume full deployment
-oc annotate openstackcontrolplane openstack-galera-network-isolation \
-  -n openstack core.openstack.org/deployment-stage-
-
-# Operator will now reconcile and start all services
-# Wait for full deployment ready
-oc wait --for=condition=Ready \
-  openstackcontrolplane/openstack-galera-network-isolation \
-  -n openstack --timeout=30m
+echo "✓ Full restore completed!"
 ```
 
 ### Phase 4: Golang Controller (Full Automation)
@@ -1204,7 +1276,7 @@ spec:
       order: "10"
     persistentvolumeclaims:
       category: "all"
-      order: "80"
+      order: "00"  # Storage foundation - restored first
     issuers:
       category: "all"
       order: "20"
@@ -1226,26 +1298,29 @@ spec:
 
 **Controller Logic:**
 1. Watch OpenStackBackupRestore CRs
-2. Create OADP Restore CRs in sequence by restore order
+2. Create OADP Restore CRs in sequence by restore order (00, 10, 20, 30, 40)
 3. Wait for each OADP Restore completion
 4. Handle special cases:
-   - Order 60: Add staged deployment annotation, wait for infrastructure ready
-   - Order 100: Create GaleraRestore CRs, execute database restore, clean up
-   - Order 110: Create RabbitMQUser CRs with restored credentials
-   - Order 120: Remove staged deployment annotation
-5. Update OpenStackBackupRestore status with progress
+   - Order 00: Wait for PVC CSI snapshot restore (may take time)
+   - Order 30: OADP adds staged deployment annotation, wait for infrastructure ready
+   - Order 50 (manual steps - controller executes in sequence):
+     - Create GaleraRestore CRs, execute database restore, clean up
+     - Create RabbitMQUser CRs with old credentials (extract from backed-up secrets, create `-restored-user` secrets/CRs)
+     - Remove staged deployment annotation, wait for CtlPlane ready
+5. Restore order 60 (DataPlane)
+6. Update OpenStackBackupRestore status with progress
 
 **Status Fields:**
 ```yaml
 status:
   phase: InProgress  # Pending, InProgress, Completed, Failed
-  currentRestoreOrder: 30
+  currentRestoreOrder: 20
   conditions:
+  - type: Order00Complete
+    status: "True"
   - type: Order10Complete
     status: "True"
-  - type: Order20Complete
-    status: "True"
-  - type: Order30InProgress
+  - type: Order20InProgress
     status: "True"
 ```
 
