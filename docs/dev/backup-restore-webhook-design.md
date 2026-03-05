@@ -21,7 +21,7 @@ This document describes a webhook-based approach to backup and restore for OpenS
 
 ### CRD Annotations
 
-CRD definitions use a **dual-annotation strategy** to separate backup inclusion from restore inclusion (all prefixed with `openstack.org/backup-`):
+CRD definitions use **restore annotations** to control which instances should be restored (all prefixed with `openstack.org/backup-`):
 
 ```yaml
 apiVersion: apiextensions.k8s.io/v1
@@ -29,9 +29,6 @@ kind: CustomResourceDefinition
 metadata:
   name: openstackcontrolplanes.core.openstack.org
   annotations:
-    # Backup annotation (inclusive - defaults to true if missing)
-    openstack.org/backup: "true"
-
     # Restore annotations (explicit opt-in - must be present to restore)
     openstack.org/backup-restore: "true"
     openstack.org/backup-category: "controlplane"
@@ -39,11 +36,6 @@ metadata:
 ```
 
 **Annotations:**
-
-- `openstack.org/backup`: Whether instances of this CRD should be included in backup
-  - **Default if missing**: `"true"` (inclusive - backup everything for safety)
-  - `"true"`: Explicitly include in backup
-  - `"false"`: Explicitly exclude from backup
 
 - `openstack.org/backup-restore`: Whether instances of this CRD should be restored
   - **Default if missing**: `"false"` (explicit opt-in required - only restore what's needed)
@@ -56,12 +48,11 @@ metadata:
 
 - `openstack.org/backup-restore-order`: Numeric order for restore sequence (e.g., `"1"`, `"2"`, `"3"`)
 
-**Dual-Annotation Strategy:**
+**Restore Strategy:**
 
-This mirrors the PVC dual-label approach and provides:
-- ✅ **Safe backups**: Everything backed up by default (complete snapshot)
-- ✅ **Controlled restores**: Only explicitly marked CRDs get restored
-- ✅ **Clear intent**: Easy to see what's backed up vs restored
+- ✅ **Full backup**: All CRs backed up by OADP (no label selector on Backup CR)
+- ✅ **Selective restore**: Only CRs with `openstack.org/backup-restore: "true"` annotation are restored
+- ✅ **Clear intent**: CRD annotations declare what needs restoration
 
 **Examples:**
 
@@ -72,8 +63,8 @@ kind: CustomResourceDefinition
 metadata:
   name: openstackdataplanedeployments.dataplane.openstack.org
   annotations:
-    openstack.org/backup: "true"           # Include in backup
     # NO backup-restore annotation        # Don't restore (default: false)
+    # All instances still backed up (full namespace backup)
 
 # OpenStackControlPlane - backup AND restore
 apiVersion: apiextensions.k8s.io/v1
@@ -81,7 +72,6 @@ kind: CustomResourceDefinition
 metadata:
   name: openstackcontrolplanes.core.openstack.org
   annotations:
-    openstack.org/backup: "true"                      # Include in backup
     openstack.org/backup-restore: "true"              # Include in restore
     openstack.org/backup-category: "controlplane"
     openstack.org/backup-restore-order: "6"
@@ -426,8 +416,7 @@ spec:
 
 **Why backup ALL CRs/Secrets/ConfigMaps?**
 - Ensures complete snapshot (nothing missed)
-- CRD `openstack.org/backup` annotation **defaults to true** if missing (inclusive)
-- Simple backup logic (no complex filtering)
+- Simple backup logic (no label selector on OADP Backup CR)
 - Restore is selective via webhook labels (see below - only resources with `backup-restore: "true"` labels are restored)
 - Examples of backed up but not restored: DataPlaneDeployment, operator-managed Secrets/ConfigMaps
 
@@ -721,41 +710,42 @@ The restore sequence is critical for maintaining dependencies between resources.
 This section shows the annotations that should be added to each CRD definition.
 
 **Column definitions:**
-- **Backup**: `openstack.org/backup` annotation value (true = include in backup, defaults to true if missing)
 - **Restore**: `openstack.org/backup-restore` annotation value (true = webhook labels instances for restore, defaults to false if missing)
 - **Category**: `openstack.org/backup-category` annotation value
 - **Order**: `openstack.org/backup-restore-order` annotation value
 
+**Note:** All CRs are backed up via full namespace backup (OADP Backup CR has no label selector). Only CRs with `backup-restore: true` annotation are restored.
+
 ### Core Operator CRDs
 
-| CRD | Backup | Restore | Category | Order | Notes |
-|-----|--------|---------|----------|-------|-------|
-| OpenStackControlPlane | true | true | controlplane | 6 | Main control plane CR |
-| OpenStackVersion | true | true | controlplane | 5 | Version tracking |
+| CRD | Restore | Category | Order | Notes |
+|-----|---------|----------|-------|-------|
+| OpenStackControlPlane | true | controlplane | 6 | Main control plane CR |
+| OpenStackVersion | true | controlplane | 5 | Version tracking |
 
 ### Infrastructure Operator CRDs
 
-| CRD | Backup | Restore | Category | Order | Notes |
-|-----|--------|---------|----------|-------|-------|
-| NetConfig | true | true | dataplane | 5 | Network topology (required first) |
-| Topology | true | true | dataplane | 5 | Network topology |
-| BGPConfiguration | true | true | dataplane | 5 | BGP config |
-| DNSData | true | true | dataplane | 5 | DNS records |
-| Reservation | true | true | dataplane | 6 | IP reservations (requires NetConfig) |
-| IPSet | true | true | dataplane | 7 | IP address sets (requires NetConfig) |
-| InstanceHa | true | true | controlplane | 5 | Instance HA config |
-| RabbitMQUser* | true | true | controlplane | 7 | User-created only |
-| RabbitMQVhost* | true | true | controlplane | 7 | User-created only |
+| CRD | Restore | Category | Order | Notes |
+|-----|---------|----------|-------|-------|
+| NetConfig | true | dataplane | 5 | Network topology (required first) |
+| Topology | true | dataplane | 5 | Network topology |
+| BGPConfiguration | true | dataplane | 5 | BGP config |
+| DNSData | true | dataplane | 5 | DNS records |
+| Reservation | true | dataplane | 6 | IP reservations (requires NetConfig) |
+| IPSet | true | dataplane | 7 | IP address sets (requires NetConfig) |
+| InstanceHa | true | controlplane | 5 | Instance HA config |
+| RabbitMQUser* | true | controlplane | 7 | User-created only |
+| RabbitMQVhost* | true | controlplane | 7 | User-created only |
 
 *Only for user-created resources (no ownerReferences)
 
 ### MariaDB Operator CRDs
 
-| CRD | Backup | Restore | Category | Order | Notes |
-|-----|--------|---------|----------|-------|-------|
-| MariaDBDatabase | true | true | controlplane | 3 | Database definitions |
-| MariaDBAccount | true | true | controlplane | 4 | Database accounts (references password secret) |
-| GaleraBackup | true | true | controlplane | 9 | Backup configuration |
+| CRD | Restore | Category | Order | Notes |
+|-----|---------|----------|-------|-------|
+| MariaDBDatabase | true | controlplane | 3 | Database definitions |
+| MariaDBAccount | true | controlplane | 4 | Database accounts (references password secret) |
+| GaleraBackup | true | controlplane | 9 | Backup configuration |
 
 **Important:** mariadb-operator must label password secrets when creating them:
 ```go
@@ -784,11 +774,11 @@ secret := &corev1.Secret{
 
 ### Data Plane CRDs
 
-| CRD | Backup | Restore | Category | Order | Notes |
-|-----|--------|---------|----------|-------|-------|
-| OpenStackDataPlaneService* | true | true | dataplane | 8 | Custom services (before NodeSets) |
-| OpenStackDataPlaneNodeSet | true | true | dataplane | 9 | Node set definitions (requires IPSets/Reservations) |
-| OpenStackDataPlaneDeployment | true | false** | - | - | Backup for reference, never restore (ephemeral) |
+| CRD | Restore | Category | Order | Notes |
+|-----|---------|----------|-------|-------|
+| OpenStackDataPlaneService* | true | dataplane | 8 | Custom services (before NodeSets) |
+| OpenStackDataPlaneNodeSet | true | dataplane | 9 | Node set definitions (requires IPSets/Reservations) |
+| OpenStackDataPlaneDeployment | false** | - | - | Backed up for reference, never restored (ephemeral) |
 
 *Only for user-created services (no ownerReferences)
 **No `backup-restore` annotation = defaults to false (not restored)
@@ -836,16 +826,16 @@ labelSelector:
 
 **Note:** These are not OpenStack CRDs, so they don't have CRD annotations. Instead, webhooks/operators add labels directly to resource instances.
 
-| Resource | Backup | Restore | Category | Order | Notes |
-|----------|--------|---------|----------|-------|-------|
-| Secret* | all | user-only | controlplane | 1 | All backed up; only user-provided restored (no ownerReferences) |
-| ConfigMap* | all | user-only | controlplane | 1 | All backed up; only user-provided restored (no ownerReferences) |
-| NetworkAttachmentDefinition | all | all | controlplane | 1 | Network attachments (all backed up and restored) |
-| Issuer (cert-manager) | all | all | controlplane | 2 | TLS issuers (operator adds labels, includes custom Issuers) |
-| PersistentVolumeClaim** | labeled-only | labeled-only | controlplane | 8 | Only labeled PVCs backed up and restored |
+| Resource | Restore | Category | Order | Notes |
+|----------|---------|----------|-------|-------|
+| Secret* | user-only | controlplane | 1 | All backed up; only user-provided restored (no ownerReferences) |
+| ConfigMap* | user-only | controlplane | 1 | All backed up; only user-provided restored (no ownerReferences) |
+| NetworkAttachmentDefinition | all | controlplane | 1 | All backed up and restored |
+| Issuer (cert-manager) | all | controlplane | 2 | All backed up; operator adds labels to all for restore |
+| PersistentVolumeClaim** | labeled-only | controlplane | 8 | Only labeled PVCs backed up and restored (exception to full backup) |
 
 *All Secrets/ConfigMaps included in full namespace backup; webhook only labels user-provided ones (no ownerReferences) for restore
-**PVCs use dual-label approach (see PVC Labeling Strategy below)
+**PVCs use dual-label approach and selective backup (see PVC Labeling Strategy below)
 
 ### PVC Labeling Strategy
 
