@@ -33,7 +33,7 @@ All repositories have a `backup_restore` branch checked out for this work.
   - `backup.BackupLabel` = `"openstack.org/backup"`
   - `backup.BackupRestoreLabel` = `"openstack.org/backup-restore"`
   - `backup.BackupCategoryLabel` = `"openstack.org/backup-category"`
-  - `backup.RestoreOrderLabel` = `"openstack.org/restore-order"`
+  - `backup.BackupRestoreOrderLabel` = `"openstack.org/backup-restore-order"`
   - Never hardcode label strings
 - **Cache CRD labels**: Build CRD label cache once at operator startup
   - Call `backup.BuildCRDLabelCache(ctx, mgr.GetClient())` in `main.go`
@@ -74,9 +74,9 @@ package backup
 
 const (
     // Label keys for CRD metadata (declare backup behavior for the type)
-    BackupRestoreLabel  = "openstack.org/backup-restore"  // CRD label: "true" means instances participate in backup/restore
-    BackupCategoryLabel = "openstack.org/backup-category" // CRD & instance label: "controlplane" or "dataplane"
-    RestoreOrderLabel   = "openstack.org/restore-order"   // CRD & instance label: "00"-"60"
+    BackupRestoreLabel      = "openstack.org/backup-restore"       // CRD label: "true" means instances participate in backup/restore
+    BackupCategoryLabel     = "openstack.org/backup-category"      // CRD & instance label: "controlplane" or "dataplane"
+    BackupRestoreOrderLabel = "openstack.org/backup-restore-order" // CRD & instance label: "00"-"60"
 
     // Label key for resource instance metadata (mark individual resources for backup)
     BackupLabel = "openstack.org/backup" // Resource instance label: "true" marks for OADP backup
@@ -84,26 +84,17 @@ const (
 
 // GetBackupLabels returns a map with backup/restore labels for CR instances
 // Use with util.MergeStringMaps() to merge with existing labels
-func GetBackupLabels(restoreOrder string) map[string]string {
-    return map[string]string{
-        BackupLabel:       "true",
-        RestoreOrderLabel: restoreOrder,
-    }
-}
+func GetBackupLabels(restoreOrder string) map[string]string
 
 // GetBackupLabelsWithCategory returns backup labels including category
-func GetBackupLabelsWithCategory(restoreOrder, category string) map[string]string {
-    labels := GetBackupLabels(restoreOrder)
-    if category != "" {
-        labels[BackupCategoryLabel] = category
-    }
-    return labels
-}
+func GetBackupLabelsWithCategory(restoreOrder, category string) map[string]string
+
+// GetBackupLabelsWithOverrides returns backup labels with annotation-based overrides
+// Annotations on the instance can override the default restoreOrder and category
+func GetBackupLabelsWithOverrides(defaultRestoreOrder string, annotations map[string]string) map[string]string
 
 // ShouldBackup returns true if the resource should be backed up
-func ShouldBackup(labels map[string]string) bool {
-    return labels != nil && labels[BackupLabel] == "true"
-}
+func ShouldBackup(labels map[string]string) bool
 ```
 
 **Key Points:**
@@ -111,8 +102,8 @@ func ShouldBackup(labels map[string]string) bool {
 - **Two-level labeling approach**:
   - **CRD level**: `BackupRestoreLabel` declares that instances of this CRD type participate in backup/restore
   - **Instance level**: `BackupLabel` marks individual resources (PVCs, Secrets, ConfigMaps, CRs) for OADP backup
-- `BackupCategoryLabel` and `RestoreOrderLabel` used on both CRDs and instances
-- RestoreOrderLabel uses values: 00, 10, 20, 30, 40, 50, 60 (gaps of 10)
+- `BackupCategoryLabel` and `BackupRestoreOrderLabel` used on both CRDs and instances
+- BackupRestoreOrderLabel uses values: 00, 10, 20, 30, 40, 50, 60 (gaps of 10)
 - GetBackupLabels returns a label map (follows lib-common pattern of not modifying in-place)
 - Use with `util.MergeStringMaps()` to merge with existing labels
 - ShouldBackup is nil-safe for validation/testing
@@ -136,18 +127,18 @@ func TestGetBackupLabels(t *testing.T) {
     }{
         {
             name:         "PVC labels",
-            restoreOrder: RestoreOrder00PVCs,
+            restoreOrder: RestoreOrder00,
             want: map[string]string{
-                BackupLabel:       "true",
-                RestoreOrderLabel: "00",
+                BackupLabel:             "true",
+                BackupRestoreOrderLabel: "00",
             },
         },
         {
             name:         "Secret labels",
-            restoreOrder: RestoreOrder10Secrets,
+            restoreOrder: RestoreOrder10,
             want: map[string]string{
-                BackupLabel:       "true",
-                RestoreOrderLabel: "10",
+                BackupLabel:             "true",
+                BackupRestoreOrderLabel: "10",
             },
         },
     }
@@ -176,31 +167,31 @@ func TestGetBackupLabelsWithCategory(t *testing.T) {
     }{
         {
             name:         "with category",
-            restoreOrder: RestoreOrder30Infrastructure,
+            restoreOrder: RestoreOrder30,
             category:     CategoryControlPlane,
             want: map[string]string{
-                BackupLabel:         "true",
-                RestoreOrderLabel:   "30",
-                BackupCategoryLabel: "controlplane",
+                BackupLabel:             "true",
+                BackupRestoreOrderLabel: "30",
+                BackupCategoryLabel:     "controlplane",
             },
         },
         {
             name:         "without category (empty string)",
-            restoreOrder: RestoreOrder10Secrets,
+            restoreOrder: RestoreOrder10,
             category:     "",
             want: map[string]string{
-                BackupLabel:       "true",
-                RestoreOrderLabel: "10",
+                BackupLabel:             "true",
+                BackupRestoreOrderLabel: "10",
             },
         },
         {
             name:         "dataplane category",
-            restoreOrder: RestoreOrder60ControlPlane,
+            restoreOrder: RestoreOrder60,
             category:     CategoryDataPlane,
             want: map[string]string{
-                BackupLabel:         "true",
-                RestoreOrderLabel:   "60",
-                BackupCategoryLabel: "dataplane",
+                BackupLabel:             "true",
+                BackupRestoreOrderLabel: "60",
+                BackupCategoryLabel:     "dataplane",
             },
         },
     }
@@ -283,13 +274,13 @@ package backup
 
 const (
     // Restore order constants (gaps of 10 allow insertion)
-    RestoreOrder00PVCs            = "00"  // Storage foundation
-    RestoreOrder10Secrets         = "10"  // Secrets and ConfigMaps
-    RestoreOrder20DNSData         = "20"  // DNSData
-    RestoreOrder30Infrastructure  = "30"  // NetConfig, PodNetworkAttachment
-    RestoreOrder40MariaDB         = "40"  // MariaDBAccount, MariaDBDatabase
-    RestoreOrder50Database        = "50"  // Database restore (requires PVCs from 00)
-    RestoreOrder60ControlPlane    = "60"  // OpenStackControlPlane with staged annotation
+    RestoreOrder00 = "00" // Storage foundation - PVCs
+    RestoreOrder10 = "10" // Foundation - NADs, Secrets, ConfigMaps
+    RestoreOrder20 = "20" // TLS & infrastructure - Issuers, MariaDB, NetConfig
+    RestoreOrder30 = "30" // CtlPlane + networking
+    RestoreOrder40 = "40" // Backup config & user resources
+    RestoreOrder50 = "50" // Manual steps - database/RabbitMQ restore, resume deployment
+    RestoreOrder60 = "60" // DataPlane
 )
 
 const (
@@ -315,63 +306,27 @@ package backup
 
 import (
     "context"
-    "fmt"
 
     apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-    "k8s.io/apimachinery/pkg/runtime/schema"
     "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// BackupConfig holds CRD backup configuration from CRD labels
+// BackupConfig holds backup/restore configuration for a CRD
 type BackupConfig struct {
-    ShouldBackup bool
-    Category     string
+    Enabled      bool
     RestoreOrder string
+    Category     string
 }
 
-// CRDLabelCache maps GVK to backup config
-// Built once at operator startup, avoids API calls during webhook execution
-type CRDLabelCache map[schema.GroupVersionKind]BackupConfig
+// CRDLabelCache maps CRD names to their backup configuration
+type CRDLabelCache map[string]BackupConfig
 
-// BuildCRDLabelCache reads all CRDs with backup labels at operator startup
-// This cache is used by webhooks for fast lookup without API calls
-func BuildCRDLabelCache(ctx context.Context, client client.Client) (CRDLabelCache, error) {
-    cache := make(CRDLabelCache)
+// BuildCRDLabelCache reads all CRDs and caches their backup labels
+func BuildCRDLabelCache(ctx context.Context, c client.Client) (CRDLabelCache, error)
 
-    // List all CRDs with backup-restore label
-    crdList := &apiextensionsv1.CustomResourceDefinitionList{}
-    err := client.List(ctx, crdList, client.MatchingLabels{
-        BackupRestoreLabel: "true",
-    })
-    if err != nil {
-        return nil, fmt.Errorf("failed to list CRDs with backup labels: %w", err)
-    }
-
-    // Build cache from CRD labels
-    for _, crd := range crdList.Items {
-        for _, version := range crd.Spec.Versions {
-            gvk := schema.GroupVersionKind{
-                Group:   crd.Spec.Group,
-                Version: version.Name,
-                Kind:    crd.Spec.Names.Kind,
-            }
-
-            cache[gvk] = BackupConfig{
-                ShouldBackup: crd.Labels[BackupRestoreLabel] == "true",
-                Category:     crd.Labels[BackupCategoryLabel],
-                RestoreOrder: crd.Labels[RestoreOrderLabel],
-            }
-        }
-    }
-
-    return cache, nil
-}
-
-// GetBackupConfig returns backup configuration for a GVK
-func (c CRDLabelCache) GetBackupConfig(gvk schema.GroupVersionKind) (BackupConfig, bool) {
-    config, ok := c[gvk]
-    return config, ok
-}
+// GetBackupConfig looks up backup configuration for a resource
+// Returns BackupConfig with Enabled=false if not found
+func (c CRDLabelCache) GetBackupConfig(gvk string) BackupConfig
 ```
 
 **Key Points:**
@@ -389,99 +344,24 @@ Functional tests for CRD label cache.
 package backup
 
 import (
+    "context"
     "testing"
 
-    "k8s.io/apimachinery/pkg/runtime/schema"
+    apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+    "k8s.io/apimachinery/pkg/runtime"
+    "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestCRDLabelCache_GetBackupConfig(t *testing.T) {
-    // Setup test cache
-    cache := CRDLabelCache{
-        schema.GroupVersionKind{
-            Group:   "glance.openstack.org",
-            Version: "v1beta1",
-            Kind:    "GlanceAPI",
-        }: BackupConfig{
-            ShouldBackup: true,
-            Category:     CategoryControlPlane,
-            RestoreOrder: RestoreOrder30Infrastructure,
-        },
-        schema.GroupVersionKind{
-            Group:   "dataplane.openstack.org",
-            Version: "v1beta1",
-            Kind:    "OpenStackDataPlaneNodeSet",
-        }: BackupConfig{
-            ShouldBackup: true,
-            Category:     CategoryDataPlane,
-            RestoreOrder: RestoreOrder60ControlPlane,
-        },
-    }
+func TestBuildCRDLabelCache(t *testing.T)
 
-    tests := []struct {
-        name       string
-        gvk        schema.GroupVersionKind
-        wantConfig BackupConfig
-        wantOk     bool
-    }{
-        {
-            name: "existing GVK - controlplane",
-            gvk: schema.GroupVersionKind{
-                Group:   "glance.openstack.org",
-                Version: "v1beta1",
-                Kind:    "GlanceAPI",
-            },
-            wantConfig: BackupConfig{
-                ShouldBackup: true,
-                Category:     CategoryControlPlane,
-                RestoreOrder: RestoreOrder30Infrastructure,
-            },
-            wantOk: true,
-        },
-        {
-            name: "existing GVK - dataplane",
-            gvk: schema.GroupVersionKind{
-                Group:   "dataplane.openstack.org",
-                Version: "v1beta1",
-                Kind:    "OpenStackDataPlaneNodeSet",
-            },
-            wantConfig: BackupConfig{
-                ShouldBackup: true,
-                Category:     CategoryDataPlane,
-                RestoreOrder: RestoreOrder60ControlPlane,
-            },
-            wantOk: true,
-        },
-        {
-            name: "non-existing GVK",
-            gvk: schema.GroupVersionKind{
-                Group:   "unknown.openstack.org",
-                Version: "v1",
-                Kind:    "Unknown",
-            },
-            wantConfig: BackupConfig{},
-            wantOk:     false,
-        },
-    }
-
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            gotConfig, gotOk := cache.GetBackupConfig(tt.gvk)
-            if gotOk != tt.wantOk {
-                t.Errorf("GetBackupConfig() ok = %v, want %v", gotOk, tt.wantOk)
-            }
-            if gotOk && gotConfig != tt.wantConfig {
-                t.Errorf("GetBackupConfig() config = %+v, want %+v", gotConfig, tt.wantConfig)
-            }
-        })
-    }
-}
+func TestGetBackupConfig(t *testing.T)
 ```
 
 **Key Points:**
-- Tests the cache lookup functionality
-- Tests both existing and non-existing GVKs
-- Tests multiple categories (controlplane, dataplane)
-- Note: `BuildCRDLabelCache()` integration testing would require actual CRD objects, typically tested in operator integration tests
+- Comprehensive tests cover BuildCRDLabelCache() and GetBackupConfig()
+- Tests use fake client with CRD objects
+- Tests multiple scenarios: labeled CRDs, unlabeled CRDs, missing CRDs, etc.
 
 ### Update lib-common Dependencies
 
@@ -505,7 +385,7 @@ Add labels to CRD metadata for dynamic discovery. Label keys are defined as cons
 // +operator-sdk:csv:customresourcedefinitions:displayName="OpenStack ControlPlane"
 // +kubebuilder:metadata:labels:openstack.org/backup-restore=true
 // +kubebuilder:metadata:labels:openstack.org/backup-category=controlplane
-// +kubebuilder:metadata:labels:openstack.org/restore-order=30
+// +kubebuilder:metadata:labels:openstack.org/backup-restore-order=30
 type OpenStackControlPlane struct {
 ```
 
@@ -513,7 +393,7 @@ type OpenStackControlPlane struct {
 - **CRD Labels** (for dynamic discovery):
   - `openstack.org/backup-restore=true` - marks CRD as participating in backup/restore (use `backup.BackupRestoreLabel` constant)
   - `openstack.org/backup-category=controlplane` - categorizes the CRD (use `backup.BackupCategoryLabel` and `backup.CategoryControlPlane` constants)
-  - `openstack.org/restore-order=30` - defines restore sequence (use `backup.RestoreOrderLabel` and `backup.RestoreOrder30Infrastructure` constants)
+  - `openstack.org/backup-restore-order=30` - defines restore sequence (use `backup.BackupRestoreOrderLabel` and `backup.RestoreOrder30` constants)
   - Enables dynamic discovery: `oc get crd -l openstack.org/backup-restore=true`
   - Controller-friendly: list/watch CRDs by label selector
   - Labels are read once at operator startup and cached for fast webhook lookups
@@ -524,10 +404,10 @@ type OpenStackControlPlane struct {
 From lib-common `backup` package:
 - `BackupRestoreLabel` = `"openstack.org/backup-restore"`
 - `BackupCategoryLabel` = `"openstack.org/backup-category"`
-- `RestoreOrderLabel` = `"openstack.org/restore-order"`
+- `BackupRestoreOrderLabel` = `"openstack.org/backup-restore-order"`
 - `CategoryControlPlane` = `"controlplane"`
 - `CategoryDataPlane` = `"dataplane"`
-- `RestoreOrder00PVCs` through `RestoreOrder60ControlPlane` = `"00"` through `"60"`
+- `RestoreOrder00` through `RestoreOrder60` = `"00"` through `"60"`
 
 ### OpenStack Operator CRDs
 
@@ -862,7 +742,7 @@ func labelSecret(ctx context.Context, c client.Client, namespace, name string) e
     patch := client.MergeFrom(secret.DeepCopy())
     secret.Labels = util.MergeStringMaps(
         secret.Labels,
-        backup.GetBackupLabels(backup.RestoreOrder10Secrets),
+        backup.GetBackupLabels(backup.RestoreOrder10),
     )
 
     return c.Patch(ctx, secret, patch)
@@ -886,7 +766,7 @@ func labelConfigMap(ctx context.Context, c client.Client, namespace, name string
     patch := client.MergeFrom(configMap.DeepCopy())
     configMap.Labels = util.MergeStringMaps(
         configMap.Labels,
-        backup.GetBackupLabels(backup.RestoreOrder10Secrets),
+        backup.GetBackupLabels(backup.RestoreOrder10),
     )
 
     return c.Patch(ctx, configMap, patch)
@@ -1188,7 +1068,7 @@ func (r *GlanceAPIReconciler) ensurePVC(
                 map[string]string{
                     "app": "glance",
                 },
-                backup.GetBackupLabels(backup.RestoreOrder00PVCs),
+                backup.GetBackupLabels(backup.RestoreOrder00),
             ),
         },
         Spec: corev1.PersistentVolumeClaimSpec{
@@ -1249,7 +1129,7 @@ func (r *GaleraReconciler) ensurePVC(
                 map[string]string{
                     "app": "galera",
                 },
-                backup.GetBackupLabels(backup.RestoreOrder00PVCs),
+                backup.GetBackupLabels(backup.RestoreOrder00),
             ),
         },
         Spec: corev1.PersistentVolumeClaimSpec{
@@ -1299,7 +1179,7 @@ func (r *MariaDBAccountReconciler) ensurePasswordSecret(
                 map[string]string{
                     "dbName": account.Spec.UserName,
                 },
-                backup.GetBackupLabels(backup.RestoreOrder10Secrets),
+                backup.GetBackupLabels(backup.RestoreOrder10),
             ),
         },
         Data: map[string][]byte{
