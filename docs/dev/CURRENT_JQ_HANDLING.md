@@ -153,10 +153,12 @@ jq '.items[0].metadata.annotations["core.openstack.org/deployment-stage"] = "inf
 2. **Staged deployment annotation** - Using OADP resourceModifiers
 3. **last-applied-configuration annotation** - Using OADP resourceModifiers to remove (can be too large and cause failures)
 
-### ⚠️ Needs Discussion
-1. **Secret type filtering** - Exclude dockercfg and service-account-token types
-2. **Apply strategy** - Can OADP handle server-side vs client-side apply?
-3. **Filtering by ownerReferences** - Handled by webhook labels, but need to verify coverage
+### ✅ Already Addressed in Webhook Design
+1. **Secret type filtering** - dockercfg and service-account-token secrets have ownerReferences, so webhook won't label them (not restored)
+2. **Service certificate secrets** - Have ownerReferences (owned by Certificate CRs), webhook won't label them. cert-manager reissues fresh certificates using restored CAs after restore.
+3. **Filtering by ownerReferences** - Webhook only labels resources without ownerReferences (user-provided)
+4. **Database password secrets exception** - mariadb-operator labels password secrets when creating them (documented in design, MariaDB Operator CRDs section). These secrets restored in order 10 (before MariaDBAccount in order 20) even though they have ownerReferences.
+5. **Apply strategy** - OADP uses Kubernetes API directly (not kubectl apply). last-applied-configuration annotation is stripped via resourceModifiers. Should work fine, will verify during testing.
 
 ### ✅ OADP Handles Automatically
 1. **uid, resourceVersion, creationTimestamp, managedFields** - Kubernetes auto-assigns
