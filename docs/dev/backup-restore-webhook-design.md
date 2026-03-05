@@ -491,15 +491,19 @@ This means:
 - Operator-created ConfigMaps → Not labeled → Not restored, recreated by operator ✅
 - All CRs with annotations → Labeled by webhook → Restored ✅
 
-#### OwnerReference Handling
+#### OwnerReference and Annotation Handling
 
-**The Problem:**
+**The Problems:**
 
-When OADP restores resources, each resource gets a NEW UID (UIDs are cluster-unique identifiers). However, backed-up ownerReferences contain OLD UIDs from the original cluster. This causes:
+When OADP restores resources from backup, several metadata fields can cause issues:
 
-1. **Orphaned resources**: Restored resource has ownerReference with old UID that doesn't match the new owner's UID
-2. **Broken ownership chain**: Kubernetes doesn't recognize the ownership relationship
-3. **Potential data loss**: Operators might try to delete/recreate PVCs when they don't recognize them as owned resources
+**1. OwnerReferences with Stale UIDs:**
+
+Each resource gets a NEW UID on restore (UIDs are cluster-unique identifiers). However, backed-up ownerReferences contain OLD UIDs from the original cluster. This causes:
+
+- **Orphaned resources**: Restored resource has ownerReference with old UID that doesn't match the new owner's UID
+- **Broken ownership chain**: Kubernetes doesn't recognize the ownership relationship
+- **Potential data loss**: Operators might try to delete/recreate PVCs when they don't recognize them as owned resources
 
 **Example:**
 ```yaml
@@ -517,9 +521,29 @@ metadata:
 # - Operator might delete/recreate PVC → DATA LOSS!
 ```
 
+**2. last-applied-configuration Annotation Too Large:**
+
+The `kubectl.kubernetes.io/last-applied-configuration` annotation stores the entire resource specification from the last `kubectl apply`. This can:
+
+- **Exceed size limits**: Very large resources fail to restore due to annotation size
+- **Cause API server errors**: etcd has size limits on annotations
+- **Be unnecessary**: Resource will get new annotation on next apply
+
 **The Solution:**
 
-Use OADP `resourceModifiers` to **strip ALL ownerReferences** during restore. Operators will adopt resources during reconciliation and set correct ownerReferences with new UIDs.
+Use OADP `resourceModifiers` to **strip ownerReferences and large annotations** from ALL resources during restore:
+
+```yaml
+resourceModifiers:
+- conditions: {}  # Match all resources
+  patches:
+  # Remove ownerReferences (operators will adopt during reconciliation)
+  - operation: remove
+    path: "/metadata/ownerReferences"
+  # Remove last-applied-configuration (can be too large)
+  - operation: remove
+    path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+```
 
 **Applied to ALL restore orders** for simplicity and safety - no need to think about which resources need it.
 
@@ -539,13 +563,15 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "10"
   restorePVs: false  # Don't restore PVCs in this order
-  # CRITICAL: Remove ownerReferences to prevent orphaned resources
+  # CRITICAL: Remove problematic metadata to prevent issues
   # Operators will adopt resources and set correct ownerReferences during reconciliation
   resourceModifiers:
   - conditions: {}  # Match all resources
     patches:
     - operation: remove
       path: "/metadata/ownerReferences"
+    - operation: remove
+      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
 ---
 # Restore Order 20: TLS Issuers
 apiVersion: velero.io/v1
@@ -560,21 +586,25 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "20"
   restorePVs: false
-  # Remove ownerReferences from all resources
+  # Remove problematic metadata from all resources
   resourceModifiers:
   - conditions: {}  # Match all resources
     patches:
     - operation: remove
       path: "/metadata/ownerReferences"
+    - operation: remove
+      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
 ---
 # And so on for each restore order...
-# NOTE: ALL restore orders use resourceModifiers to strip ownerReferences
+# NOTE: ALL restore orders use resourceModifiers to strip ownerReferences and large annotations
 ```
 
 **Key Points:**
 - **Backup**: All user resources in namespace (all Secrets, ConfigMaps, CRs) - complete snapshot
 - **Restore**: Only resources with `openstack.org/backup-restore: "true"` label - selective filtering
-- **OwnerReferences Removed**: All restore orders use `resourceModifiers` to strip ownerReferences (prevents orphaned resources, operators adopt during reconciliation)
+- **Metadata Cleanup**: All restore orders use `resourceModifiers` to remove:
+  - `ownerReferences` - Prevents orphaned resources (operators adopt during reconciliation)
+  - `kubectl.kubernetes.io/last-applied-configuration` - Can be too large and cause restore failures
 - **Webhooks**: Add restore labels to user-provided resources (no ownerReferences)
 - **Operators**: Recreate their own Secrets/ConfigMaps on reconciliation (not restored from backup)
 
@@ -1152,12 +1182,14 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "00"
   restorePVs: true  # CSI snapshots
-  # Remove ownerReferences to prevent orphaned resources (operators will adopt during reconciliation)
+  # Remove problematic metadata (operators will adopt during reconciliation)
   resourceModifiers:
   - conditions: {}  # Match all resources
     patches:
     - operation: remove
       path: "/metadata/ownerReferences"
+    - operation: remove
+      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
 EOF
 
 # Wait for completion (CSI snapshot restore may take time)
@@ -1178,12 +1210,14 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "10"
   restorePVs: false
-  # Remove ownerReferences to prevent orphaned resources
+  # Remove problematic metadata
   resourceModifiers:
   - conditions: {}  # Match all resources
     patches:
     - operation: remove
       path: "/metadata/ownerReferences"
+    - operation: remove
+      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
 EOF
 
 # Wait for completion
@@ -1204,6 +1238,14 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "20"
   restorePVs: false
+  # Remove problematic metadata
+  resourceModifiers:
+  - conditions: {}  # Match all resources
+    patches:
+    - operation: remove
+      path: "/metadata/ownerReferences"
+    - operation: remove
+      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
 EOF
 
 # Wait for completion
@@ -1225,11 +1267,13 @@ spec:
       openstack.org/backup-restore-order: "30"
   restorePVs: false
   resourceModifiers:
-  # Remove ownerReferences from all resources
+  # Remove problematic metadata from all resources
   - conditions: {}  # Match all resources
     patches:
     - operation: remove
       path: "/metadata/ownerReferences"
+    - operation: remove
+      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
   # Add staged deployment annotation to OpenStackControlPlane
   - conditions:
       groupResource: openstackcontrolplanes.core.openstack.org
@@ -1261,12 +1305,14 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "40"
   restorePVs: false
-  # Remove ownerReferences from all resources
+  # Remove problematic metadata
   resourceModifiers:
   - conditions: {}  # Match all resources
     patches:
     - operation: remove
       path: "/metadata/ownerReferences"
+    - operation: remove
+      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
@@ -1314,12 +1360,14 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "60"
   restorePVs: false
-  # Remove ownerReferences from all resources
+  # Remove problematic metadata
   resourceModifiers:
   - conditions: {}  # Match all resources
     patches:
     - operation: remove
       path: "/metadata/ownerReferences"
+    - operation: remove
+      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
