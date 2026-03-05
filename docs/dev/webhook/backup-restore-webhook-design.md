@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes a webhook-based approach to backup and restore for OpenStack on OpenShift. The design eliminates hardcoded resource lists by using CRD annotations to declare backup/restore behavior, and mutating webhooks to automatically label resources.
+This document describes a webhook-based approach to backup and restore for OpenStack on OpenShift. The design eliminates hardcoded resource lists by using CRD labels to declare backup/restore behavior, and mutating webhooks to automatically label resources.
 
 ## Goals
 
@@ -10,8 +10,8 @@ This document describes a webhook-based approach to backup and restore for OpenS
    - Backup: All user resources (Secrets, ConfigMaps, CRs) - complete snapshot
    - Restore: Only webhook-labeled resources - automatic filtering
    - **Exception - PVCs**: Selective backup AND selective restore (only labeled PVCs backed up/restored due to storage/performance concerns)
-2. **Dynamic Resource Discovery**: No hardcoded lists - CRD annotations declare what needs restore
-3. **Declarative Restore Order**: Restore order defined in CRD annotations, not in code
+2. **Dynamic Resource Discovery**: No hardcoded lists - CRD labels declare what needs restore
+3. **Declarative Restore Order**: Restore order defined in CRD labels, not in code
 4. **Operator-Managed Exclusion**: Operators recreate their own resources (not restored from backup)
 5. **Kubernetes-Native**: Leverage OADP label selectors for filtering
 6. **No Controller Required (Initially)**: Can be used manually with OADP Restore CRs
@@ -19,23 +19,23 @@ This document describes a webhook-based approach to backup and restore for OpenS
 
 ## Key Concepts
 
-### CRD Annotations
+### CRD Labels
 
-CRD definitions use **restore annotations** to control which instances should be restored (all prefixed with `openstack.org/backup-`):
+CRD definitions use **restore labels** to control which instances should be restored (all prefixed with `openstack.org/backup-`):
 
 ```yaml
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   name: openstackcontrolplanes.core.openstack.org
-  annotations:
-    # Restore annotations (explicit opt-in - must be present to restore)
+  labels:
+    # Restore labels (explicit opt-in - must be present to restore)
     openstack.org/backup-restore: "true"
     openstack.org/backup-category: "controlplane"
     openstack.org/backup-restore-order: "30"
 ```
 
-**Annotations:**
+**Labels:**
 
 - `openstack.org/backup-restore`: Whether instances of this CRD should be restored
   - **Default if missing**: `"false"` (explicit opt-in required - only restore what's needed)
@@ -60,8 +60,10 @@ metadata:
 **Restore Strategy:**
 
 - ✅ **Full backup**: All CRs backed up by OADP (no label selector on Backup CR)
-- ✅ **Selective restore**: Only CRs with `openstack.org/backup-restore: "true"` annotation are restored
-- ✅ **Clear intent**: CRD annotations declare what needs restoration
+- ✅ **Selective restore**: Only CRs with `openstack.org/backup-restore: "true"` label on CRD are restored
+- ✅ **Clear intent**: CRD labels declare what needs restoration
+- ✅ **Dynamic discovery**: Query CRDs with `oc get crd -l openstack.org/backup-restore=true`
+- ✅ **Controller-friendly**: Controllers can watch/list CRDs by label selector
 
 **Examples:**
 
@@ -71,8 +73,8 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   name: openstackdataplanedeployments.dataplane.openstack.org
-  annotations:
-    # NO backup-restore annotation        # Don't restore (default: false)
+  labels:
+    # NO backup-restore label        # Don't restore (default: false)
     # All instances still backed up (full namespace backup)
 
 # OpenStackControlPlane - backup AND restore
@@ -80,7 +82,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   name: openstackcontrolplanes.core.openstack.org
-  annotations:
+  labels:
     openstack.org/backup-restore: "true"              # Include in restore
     openstack.org/backup-category: "controlplane"
     openstack.org/backup-restore-order: "30"
@@ -792,16 +794,21 @@ The restore sequence is critical for maintaining dependencies between resources.
   - Order 50 (manual): Create NEW `-restored-user` secrets with old passwords + NEW RabbitMQUser CRs (operator-managed clusters get original credentials)
 - **Customization**: All restore orders can be overridden via annotations on individual resources (see [Customizing Restore Order](#customizing-restore-order-for-core-resources))
 
-## CRD Annotation Mapping
+## CRD Label Mapping
 
-This section shows the annotations that should be added to each CRD definition.
+This section shows the labels that should be added to each CRD definition.
 
 **Column definitions:**
-- **Restore**: `openstack.org/backup-restore` annotation value (true = webhook labels instances for restore, defaults to false if missing)
-- **Category**: `openstack.org/backup-category` annotation value
-- **Order**: `openstack.org/backup-restore-order` annotation value
+- **Restore**: `openstack.org/backup-restore` label value (true = webhook labels instances for restore, defaults to false if missing)
+- **Category**: `openstack.org/backup-category` label value
+- **Order**: `openstack.org/backup-restore-order` label value
 
-**Note:** All CRs are backed up via full namespace backup (OADP Backup CR has no label selector). Only CRs with `backup-restore: true` annotation are restored.
+**Note:** All CRs are backed up via full namespace backup (OADP Backup CR has no label selector). Only CRs with `backup-restore: true` label on their CRD are restored.
+
+**Dynamic Discovery:** Controllers can discover all CRDs that participate in backup/restore:
+```bash
+oc get crd -l openstack.org/backup-restore=true
+```
 
 ### Core Operator CRDs
 
@@ -868,7 +875,7 @@ secret := &corev1.Secret{
 | OpenStackDataPlaneDeployment | false** | - | - | Backed up for reference, never restored (ephemeral) |
 
 *Only for user-created services (no ownerReferences)
-**No `backup-restore` annotation = defaults to false (not restored)
+**No `backup-restore` label on CRD = defaults to false (not restored)
 
 **DataPlane Integration:**
 
