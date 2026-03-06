@@ -1355,6 +1355,20 @@ spec:
 
 For staged restore (different restore orders), create multiple Restore CRs. Each restore order is applied sequentially.
 
+**Two-Backup Approach:**
+
+We use two separate backups for flexibility:
+
+1. **backup-openstack-pvcs** - Contains ONLY PVCs with `openstack.org/backup: "true"` label
+   - Filtering is done at backup time via labelSelector
+   - Restore does NOT need labelSelector (all content should be restored)
+
+2. **backup-openstack-resources** - Contains everything EXCEPT PVCs
+   - No filtering at backup time (backs up all resources)
+   - Restore uses labelSelector to filter by `openstack.org/backup-restore-order`
+
+This approach allows restoring all resources while still using restore-order labels to control sequencing.
+
 #### Order 00: PVCs (Storage Foundation)
 
 File: `oadp/restore-order-00-pvcs.yaml`
@@ -1366,13 +1380,12 @@ metadata:
   name: restore-00-pvcs
   namespace: openstack-oadp-operator
 spec:
-  backupName: openstack-controlplane-backup
+  backupName: openstack-backup-pvcs
   includedNamespaces:
   - openstack
 
-  labelSelector:
-    matchLabels:
-      openstack.org/restore-order: "00"
+  # No labelSelector needed - the backup already filtered to only include
+  # PVCs with openstack.org/backup=true label. Restore everything from this backup.
 
   resourceModifiers:
   - conditions: {}
@@ -1387,24 +1400,28 @@ spec:
 
 **Resources Restored:** PVCs (Galera database storage, Glance images, etc.)
 
+**Note:** No labelSelector is used because the backup (openstack-backup-pvcs) already filtered to only include PVCs with `openstack.org/backup: "true"` label.
+
 #### Order 10: Secrets and ConfigMaps
 
-File: `oadp/restore-order-10-secrets.yaml`
+File: `oadp/restore-order-10-foundation.yaml`
 
 ```yaml
 apiVersion: velero.io/v1
 kind: Restore
 metadata:
-  name: restore-10-secrets
+  name: restore-10-foundation
   namespace: openstack-oadp-operator
 spec:
-  backupName: openstack-controlplane-backup
+  backupName: openstack-backup-resources
   includedNamespaces:
   - openstack
 
+  # Filter by restore-order label to restore only order 10 resources
   labelSelector:
     matchLabels:
-      openstack.org/restore-order: "10"
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "10"
 
   resourceModifiers:
   - conditions: {}
