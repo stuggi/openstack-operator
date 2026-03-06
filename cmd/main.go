@@ -46,9 +46,9 @@ import (
 	webhookcorev1beta1 "github.com/openstack-k8s-operators/openstack-operator/internal/webhook/core/v1beta1"
 	webhookdataplanev1beta1 "github.com/openstack-k8s-operators/openstack-operator/internal/webhook/dataplane/v1beta1"
 
+	commonbackup "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	backupv1beta1 "github.com/openstack-k8s-operators/openstack-operator/api/backup/v1beta1"
 	backupcontroller "github.com/openstack-k8s-operators/openstack-operator/internal/controller/backup"
-	commonbackup "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 
 	// +kubebuilder:scaffold:imports
 	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"

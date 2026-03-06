@@ -4,6 +4,10 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
   creationTimestamp: null
+  labels:
+    openstack.org/backup-category: controlplane
+    openstack.org/backup-restore: "true"
+    openstack.org/backup-restore-order: "20"
   name: mariadbdatabases.mariadb.openstack.org
 spec:
   group: mariadb.openstack.org
