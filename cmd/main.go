@@ -364,6 +364,14 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenStackDataPlaneDeployment")
 		os.Exit(1)
 	}
+	if err := (&backupcontroller.OpenStackBackupConfigReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Kclient: kclient,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "OpenStackBackupConfig")
+		os.Exit(1)
+	}
 
 	corecontroller.SetupVersionDefaults()
 

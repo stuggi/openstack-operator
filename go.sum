@@ -160,8 +160,6 @@ github.com/openstack-k8s-operators/lib-common/modules/ansible v0.6.1-0.202603100
 github.com/openstack-k8s-operators/lib-common/modules/ansible v0.6.1-0.20260310070607-b96da8dd520e/go.mod h1:tXxVkkk8HlATwTmDA5RTP3b+c8apfuMM15mZ2wW5iNs=
 github.com/openstack-k8s-operators/lib-common/modules/certmanager v0.6.1-0.20260310070607-b96da8dd520e h1:OthI0EGrntYyFV0YkQHJ1i4sYcylWBeh09x1lxK97ak=
 github.com/openstack-k8s-operators/lib-common/modules/certmanager v0.6.1-0.20260310070607-b96da8dd520e/go.mod h1:GzD7Jc5o98ptJ97DSjhC0CQ6OiTP0PB/2qJqxYGcOH8=
-github.com/openstack-k8s-operators/lib-common/modules/common v0.6.1-0.20260310070607-b96da8dd520e h1:EXpPxBaSHBDyAXhDApotNd9AZOm/DQfvAKdrWO5W4XA=
-github.com/openstack-k8s-operators/lib-common/modules/common v0.6.1-0.20260310070607-b96da8dd520e/go.mod h1:+vcGsjqibpMUz3y/g0B5YIXNotlTvQdMB6f92siiwKM=
 github.com/openstack-k8s-operators/lib-common/modules/openstack v0.6.1-0.20260310070607-b96da8dd520e h1:42OT26Ak0lwWbJDNwhv/0HsjafVkLyPhfonS5DjDb2g=
 github.com/openstack-k8s-operators/lib-common/modules/openstack v0.6.1-0.20260310070607-b96da8dd520e/go.mod h1:7yqbVpg0k0vW+kZks+TMU/cd1ovoejyHfVPWcyGYLHI=
 github.com/openstack-k8s-operators/lib-common/modules/storage v0.6.1-0.20260310070607-b96da8dd520e h1:lHsE9kmPzGHfO6o9vXj6f5UTIlQRJNdrvrj8GWy/ct8=
@@ -232,6 +230,8 @@ github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO
 github.com/stretchr/testify v1.8.1/go.mod h1:w2LPCIKwWwSfY2zedu0+kehJoqGctiVI29o6fzry7u4=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
+github.com/stuggi/lib-common/modules/common v0.0.0-20260305171715-f445eda4227b h1:vm3LddCMV7IaOzVdhXoPa3FPZQHPy1/99vGozfip+4Y=
+github.com/stuggi/lib-common/modules/common v0.0.0-20260305171715-f445eda4227b/go.mod h1:I/VBXZLdjk8DUGsEbB+Ha72JBFYYntP7Pm2FpEto9K8=
 github.com/tidwall/gjson v1.18.0 h1:FIDeeyB800efLX89e5a8Y0BNH+LOngJyGrIWxG2FKQY=
 github.com/tidwall/gjson v1.18.0/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=
 github.com/tidwall/match v1.1.1 h1:+Ho715JplO36QYgwN9PGYNhgZvoUSc9X2c80KVTi+GA=
