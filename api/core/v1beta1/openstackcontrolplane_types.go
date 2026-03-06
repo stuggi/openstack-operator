@@ -1118,6 +1118,9 @@ type TLSCAStatus struct {
 // +kubebuilder:resource:shortName=osctlplane;osctlplanes;oscp;oscps
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.conditions[0].status",description="Status"
 // +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.conditions[0].message",description="Message"
+// +kubebuilder:metadata:labels:openstack.org/backup-restore=true
+// +kubebuilder:metadata:labels:openstack.org/backup-category=controlplane
+// +kubebuilder:metadata:labels:openstack.org/backup-restore-order=30
 
 // OpenStackControlPlane is the Schema for the openstackcontrolplanes API
 type OpenStackControlPlane struct {

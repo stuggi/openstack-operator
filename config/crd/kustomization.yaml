@@ -13,6 +13,8 @@ resources:
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:
+# Add backup/restore labels to CRDs
+- path: patches/backup_labels.yaml
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix.
 # patches here are for enabling the conversion webhook for each CRD
 # +kubebuilder:scaffold:crdkustomizewebhookpatch

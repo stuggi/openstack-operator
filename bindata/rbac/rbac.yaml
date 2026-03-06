@@ -51,6 +51,77 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: openstack-operator
+  name: openstack-operator-backup-openstackbackupconfig-admin-role
+rules:
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs
+  verbs:
+  - '*'
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: openstack-operator
+  name: openstack-operator-backup-openstackbackupconfig-editor-role
+rules:
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: openstack-operator
+  name: openstack-operator-backup-openstackbackupconfig-viewer-role
+rules:
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs/status
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
   name: openstack-operator-manager-role
 rules:
 - apiGroups:
@@ -130,6 +201,32 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - barbican.openstack.org
   resources:
@@ -409,6 +506,8 @@ rules:
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - keystone.openstack.org
