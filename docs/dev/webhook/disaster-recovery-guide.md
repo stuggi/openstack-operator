@@ -4,6 +4,14 @@
 
 This guide covers disaster recovery (DR) scenarios where an OpenStack deployment needs to be restored to a **new cluster** due to catastrophic failure of the original cluster. This is different from in-cluster backup/restore where the cluster infrastructure remains intact.
 
+⚠️ **CRITICAL WARNING - Local Storage Users**:
+
+If your cluster uses **local storage** (LVM, LocalPV, HostPath), the current POC backup approach using CSI volume snapshots is **NOT A BACKUP** for disaster recovery purposes. CSI snapshots with local storage are stored on the same nodes/disks as your data and will be lost if the cluster is lost.
+
+**For local storage, you MUST use Restic/Kopia** (documented in this guide) to have any disaster recovery capability. CSI snapshots with local storage only provide protection against application errors, NOT against hardware or cluster failures.
+
+See the [Understanding Backup Approaches](#understanding-backup-approaches) section below for detailed explanation.
+
 ## DR vs In-Cluster Restore
 
 | Aspect | In-Cluster Restore | Disaster Recovery |
@@ -17,28 +25,146 @@ This guide covers disaster recovery (DR) scenarios where an OpenStack deployment
 
 ## Understanding Backup Approaches
 
+### Determining Your Storage Type
+
+Before choosing a backup strategy, identify whether you're using local or external storage:
+
+**Check your storage classes:**
+```bash
+# List storage classes
+oc get storageclass
+
+# Check provisioner for a specific storage class
+oc get storageclass <storage-class-name> -o jsonpath='{.provisioner}'
+```
+
+**Local Storage Provisioners (⚠️ CSI snapshots NOT sufficient for DR):**
+- `kubernetes.io/no-provisioner` (static LocalPV)
+- `topolvm.io` (TopoLVM - local LVM)
+- `local.storage.openshift.io` (OpenShift local storage)
+- `rancher.io/local-path` (Rancher local path provisioner)
+
+**External Storage Provisioners (⚠️ CSI snapshots provide limited DR):**
+- `rbd.csi.ceph.com` (Ceph RBD - ODF, Rook)
+- `cephfs.csi.ceph.com` (CephFS)
+- `ebs.csi.aws.com` (AWS EBS)
+- `disk.csi.azure.com` (Azure Disk)
+- `csi.trident.netapp.io` (NetApp Trident)
+
+**Check your PVCs:**
+```bash
+# See what storage class your PVCs use
+oc get pvc -n openstack -o custom-columns=NAME:.metadata.name,STORAGECLASS:.spec.storageClassName
+
+# Check a specific PVC's volume
+oc get pvc glance -n openstack -o yaml | grep -E "storageClassName|volumeName"
+
+# Get details about the PV
+oc get pv <pv-name> -o yaml | grep -E "csi|local"
+```
+
+**Example - Local LVM (TopoLVM):**
+```bash
+$ oc get sc topolvm-provisioner -o jsonpath='{.provisioner}'
+topolvm.io
+
+# This is LOCAL storage - CSI snapshots are NOT backups!
+# You MUST use Restic/Kopia for DR
+```
+
+**Example - Ceph RBD (External):**
+```bash
+$ oc get sc ocs-storagecluster-ceph-rbd -o jsonpath='{.provisioner}'
+rbd.csi.ceph.com
+
+# This is EXTERNAL storage - CSI snapshots can work IF Ceph survives
+# Recommended: Use Restic/Kopia for true DR
+```
+
 ### CSI Volume Snapshots (Current POC)
 
 The current POC implementation uses CSI volume snapshots:
 
 **How CSI Snapshots Work with Velero:**
 - Velero stores VolumeSnapshot **metadata** (YAML manifests) in S3 object storage
-- The actual snapshot **data** remains in the storage backend (Ceph, AWS EBS, etc.)
+- The actual snapshot **data** remains in the storage backend (Ceph, AWS EBS, LVM, etc.)
 - During restore, Velero creates VolumeSnapshot objects which reference the snapshots in the storage backend
 
-**Limitations for Disaster Recovery:**
+**What Actually Gets Backed Up:**
 
 | What's Backed Up | Location | Survives Cluster Loss? |
 |-----------------|----------|----------------------|
-| VolumeSnapshot metadata (YAML) | S3 object storage | ✅ Yes |
-| Actual snapshot data (PVC contents) | Storage backend (Ceph/EBS/etc) | ❌ No (unless storage is replicated separately) |
+| VolumeSnapshot metadata (YAML) | S3 object storage | ✅ Yes (but useless without snapshot data) |
+| Actual snapshot data (PVC contents) | Storage backend (same as cluster) | ❌ **NO** |
 
-**Problem**: If the entire cluster AND storage backend are lost (datacenter failure), the CSI snapshots are gone even though the metadata is in S3.
+**CRITICAL LIMITATION - Local Storage (LVM, HostPath, Local):**
+
+⚠️ **WARNING**: If using local storage (LVM, LocalPV, HostPath), CSI snapshots are **NOT A BACKUP AT ALL** for disaster recovery.
+
+**What happens with local storage:**
+1. CSI driver creates snapshots on the **same local storage** (same node/disk)
+2. Velero uploads only the VolumeSnapshot metadata (YAML) to S3
+3. **NO ACTUAL DATA** is uploaded to S3
+4. If node/disk/cluster is lost → Snapshots are lost
+5. The VolumeSnapshot metadata in S3 references snapshot IDs that no longer exist
+6. **Result**: Complete data loss, zero recovery capability
+
+**Example - Local LVM:**
+```
+Node worker-0:
+├── LVM Volume Group: vg-data
+│   ├── PVC: glance-images (10GB)
+│   └── LVM Snapshot: glance-images-snap (references same VG)
+└── [Node lost] → Both PVC and snapshot are GONE
+
+S3 Object Storage:
+└── VolumeSnapshot YAML: {"snapshotHandle": "snapshot-12345"}
+    └── This ID is now meaningless - the snapshot doesn't exist anymore
+```
+
+**Verdict for Local Storage**: CSI snapshots are only useful for:
+- Quick rollback on the same node (storage-level undo)
+- Protection against application errors (corrupted data)
+- **NOT** protection against hardware failure
+- **NOT** protection against cluster loss
+- **NOT** disaster recovery
+
+**External/Shared Storage (Ceph, AWS EBS, NetApp):**
+
+For external storage, CSI snapshots can survive cluster loss **IF**:
+
+| Storage Type | Snapshot Location | Survives Cluster Loss? | DR Capable? |
+|-------------|------------------|----------------------|-------------|
+| **Local LVM** | Same node/disk | ❌ NO | ❌ NO |
+| **HostPath/LocalPV** | Same node/disk | ❌ NO | ❌ NO |
+| **Ceph RBD** | Ceph cluster (separate infrastructure) | ⚠️ Only if Ceph survives | ⚠️ Complex (see below) |
+| **AWS EBS** | AWS backend (regional) | ⚠️ Only if same AWS account/region | ⚠️ With replication |
+| **NetApp** | NetApp storage (separate infrastructure) | ⚠️ Only if NetApp survives | ⚠️ With SnapMirror |
+
+**Ceph RBD Example:**
+```
+Scenario: OCP cluster lost, but Ceph cluster is independent and survived
+
+Possible to restore? Technically yes, but very complex:
+1. Deploy new OCP cluster
+2. Configure Ceph CSI driver pointing to SAME Ceph cluster
+3. Find snapshot IDs in Ceph (rbd snap ls pool/image)
+4. Manually create VolumeSnapshotContent objects with correct snapshot handles
+5. Create VolumeSnapshot objects referencing the VolumeSnapshotContent
+6. Create PVCs from VolumeSnapshots
+
+Practical? No - requires deep knowledge of CSI internals and Ceph
+Reliable? No - error-prone, manual, not tested in most environments
+Recommended? No - use Restic/Kopia instead
+```
+
+**Problem**: Even with external storage, if the storage backend is lost (datacenter failure), the CSI snapshots are gone even though the metadata is in S3.
 
 **Use Case**: CSI snapshots work well for:
 - Same-cluster restores (rollback, recovery from operator issues)
-- When storage backend has independent replication/backup
+- **ONLY** when storage backend has independent DR/replication
 - Fast backup/restore operations (storage-level snapshots are quick)
+- **NOT** as a standalone DR solution
 
 ### Restic/Kopia File-Level Backup
 
@@ -181,25 +307,51 @@ Uses CSI volume snapshots combined with storage-level replication. **Storage pro
 
 ### Comparison: CSI Snapshots vs Restic/Kopia
 
-| Aspect | CSI Volume Snapshots | Restic/Kopia File-Level Backup |
-|--------|---------------------|-------------------------------|
-| **Backup Speed** | ✅ Fast (storage-level snapshot) | ⚠️ Slower (file-by-file copy to S3) |
-| **Restore Speed** | ✅ Fast (storage-level restore) | ⚠️ Slower (download from S3) |
-| **Data Location** | ❌ Storage backend (Ceph/EBS/etc) | ✅ S3 object storage |
-| **Survives Cluster Loss** | ⚠️ Only if storage backend survives | ✅ Yes (data in external S3) |
-| **Survives Datacenter Loss** | ❌ No (unless storage replicated separately) | ✅ Yes (S3 in different region) |
-| **DR to Different Storage Backend** | ❌ Very difficult/impossible | ✅ Yes (storage-agnostic) |
-| **Storage Overhead** | ✅ Minimal (delta snapshots) | ⚠️ Full data in S3 |
-| **Pod Requirements** | ✅ None (CSI driver handles it) | ℹ️ node-agent daemonset (OADP-managed) |
-| **Application Downtime** | ✅ None required | ✅ None required (node-agent accesses volumes) |
-| **S3 Bandwidth Usage** | ✅ Minimal (metadata only) | ⚠️ High (full data transfer) |
-| **Cross-Provider DR** | ❌ No (tied to storage backend) | ✅ Yes (AWS → GCP, on-prem → cloud, etc.) |
-| **Best For** | Same-cluster restore, fast recovery | True DR, cross-cluster, cross-datacenter |
+| Aspect | CSI Snapshots (Local Storage) | CSI Snapshots (External Storage) | Restic/Kopia File-Level Backup |
+|--------|------------------------------|--------------------------------|-------------------------------|
+| **Backup Speed** | ✅ Fast (storage-level) | ✅ Fast (storage-level) | ⚠️ Slower (file-by-file to S3) |
+| **Restore Speed** | ✅ Fast (storage-level) | ✅ Fast (storage-level) | ⚠️ Slower (download from S3) |
+| **Data in S3** | ❌ **Metadata only** | ❌ **Metadata only** | ✅ **Full data** |
+| **Data Location** | ❌ Same node/disk | ⚠️ External storage backend | ✅ S3 object storage |
+| **Survives Node Loss** | ❌ **NO** | ✅ Yes | ✅ Yes |
+| **Survives Cluster Loss** | ❌ **NO** | ⚠️ Only if storage survives | ✅ Yes |
+| **Survives Datacenter Loss** | ❌ **NO** | ❌ NO (unless replicated) | ✅ Yes (S3 in different region) |
+| **DR to Different Storage** | ❌ Impossible | ❌ Very difficult | ✅ Yes (storage-agnostic) |
+| **Storage Overhead** | ✅ Minimal (COW) | ✅ Minimal (delta) | ⚠️ Full data in S3 |
+| **S3 Bandwidth** | ✅ Minimal (metadata) | ✅ Minimal (metadata) | ⚠️ High (full data) |
+| **DR Capability** | ❌ **NONE** | ⚠️ Limited/Complex | ✅ Full DR capability |
+| **Best For** | Testing, dev, rollback | Same-cluster restore | **Production DR** |
+
+**Storage Type Examples:**
+
+| Storage Class | Type | CSI Snapshot DR Capable? |
+|--------------|------|-------------------------|
+| Local LVM (topolvm, local-storage) | Local | ❌ **NO - Not a backup** |
+| HostPath, LocalPV | Local | ❌ **NO - Not a backup** |
+| Ceph RBD (ODF, Rook) | External | ⚠️ Complex (requires Ceph to survive) |
+| AWS EBS | External | ⚠️ Regional (requires same AWS account) |
+| Azure Disk | External | ⚠️ Regional (requires same subscription) |
+| NetApp Trident | External | ⚠️ Requires NetApp to survive |
+| **Any with Restic/Kopia** | **Any** | ✅ **Yes - True DR** |
+
+**Critical Recommendations:**
+
+| Environment | Backup Strategy |
+|------------|----------------|
+| **Local Storage (LVM, HostPath)** | ⚠️ **MUST use Restic/Kopia** - CSI snapshots are NOT backups |
+| **External Storage (Ceph, etc.)** | Use both: CSI for fast recovery, Restic/Kopia for true DR |
+| **Production DR** | ⚠️ **MUST use Restic/Kopia** - Only true portable backup solution |
+| **Development/Testing** | CSI snapshots acceptable (data loss acceptable) |
+
+**Summary:**
+- **CSI Snapshots with Local Storage**: Not a backup, only a local snapshot (like `cp -al` or LVM snapshot)
+- **CSI Snapshots with External Storage**: Backup IF storage survives (not true DR)
+- **Restic/Kopia**: True backup, all data in S3, full DR capability
 
 **Recommendation for OpenStack DR:**
-- **In-cluster backups**: Use CSI snapshots (fast, efficient) - Current POC approach
-- **Disaster recovery backups**: Use Restic/Kopia (portable, survives datacenter loss)
-- **Production**: Implement both - CSI for quick recovery, Restic/Kopia for true DR
+- **Local Storage Users**: ⚠️ **MUST use Restic/Kopia** - CSI snapshots provide ZERO DR protection
+- **External Storage Users**: Use both - CSI for quick in-cluster recovery, Restic/Kopia for true DR
+- **Production**: ALWAYS use Restic/Kopia for DR regardless of storage type
 
 ## DR Backup Configuration
 
