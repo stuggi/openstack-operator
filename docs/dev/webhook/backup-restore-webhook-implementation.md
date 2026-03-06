@@ -411,39 +411,67 @@ From lib-common `backup` package:
 
 ### OpenStack Operator CRDs
 
-Update the following CRDs in openstack-operator:
+Add labels to CRDs using kubebuilder metadata annotations. Add the annotations with the other kubebuilder annotations before the type definition.
 
 1. **OpenStackControlPlane** (`api/core/v1beta1/openstackcontrolplane_types.go`)
    ```go
-   // +kubebuilder:metadata:labels:openstack.org/backup-restore=true
-   // +kubebuilder:metadata:labels:openstack.org/backup-category=controlplane
-   // +kubebuilder:metadata:labels:openstack.org/restore-order=30
+   // +kubebuilder:object:root=true
+   // +kubebuilder:subresource:status
+   // +operator-sdk:csv:customresourcedefinitions:displayName="OpenStack ControlPlane"
+   // +kubebuilder:resource:shortName=osctlplane;osctlplanes;oscp;oscps
+   // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.conditions[0].status",description="Status"
+   // +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.conditions[0].message",description="Message"
+   // +kubebuilder:metadata:labels=openstack.org/backup-restore=true
+   // +kubebuilder:metadata:labels=openstack.org/backup-category=controlplane
+   // +kubebuilder:metadata:labels=openstack.org/backup-restore-order=30
+
+   // OpenStackControlPlane is the Schema for the openstackcontrolplanes API
    type OpenStackControlPlane struct {
    ```
 
-2. **DataPlaneNodeSet** (`api/v1beta1/dataplanenodeset_types.go`)
+2. **OpenStackDataPlaneNodeSet** (`api/dataplane/v1beta1/openstackdataplanenodeset_types.go`)
    ```go
-   // +kubebuilder:metadata:labels:openstack.org/backup-restore=true
-   // +kubebuilder:metadata:labels:openstack.org/backup-category=dataplane
-   // +kubebuilder:metadata:labels:openstack.org/restore-order=60
-   type DataPlaneNodeSet struct {
+   // +kubebuilder:object:root=true
+   // +kubebuilder:subresource:status
+   // ... other kubebuilder annotations ...
+   // +kubebuilder:metadata:labels=openstack.org/backup-restore=true
+   // +kubebuilder:metadata:labels=openstack.org/backup-category=dataplane
+   // +kubebuilder:metadata:labels=openstack.org/backup-restore-order=60
+
+   // OpenStackDataPlaneNodeSet is the Schema for the openstackdataplanenodesets API
+   type OpenStackDataPlaneNodeSet struct {
    ```
 
 3. **OpenStackVersion** (`api/core/v1beta1/openstackversion_types.go`)
    ```go
-   // +kubebuilder:metadata:labels:openstack.org/backup-restore=true
-   // +kubebuilder:metadata:labels:openstack.org/backup-category=controlplane
-   // +kubebuilder:metadata:labels:openstack.org/restore-order=20
+   // +kubebuilder:object:root=true
+   // +kubebuilder:subresource:status
+   // ... other kubebuilder annotations ...
+   // +kubebuilder:metadata:labels=openstack.org/backup-restore=true
+   // +kubebuilder:metadata:labels=openstack.org/backup-category=controlplane
+   // +kubebuilder:metadata:labels=openstack.org/backup-restore-order=20
+
+   // OpenStackVersion is the Schema for the openstackversions API
    type OpenStackVersion struct {
    ```
 
-**After modifying CRDs:**
+**Key Points:**
+- Use `// +kubebuilder:metadata:labels=key=value` annotation, one per label (multi-line is easier to read)
+- Place the metadata:labels annotations with the other kubebuilder annotations (after printcolumn, before the type comment)
+- OpenStackVersion has order "20" (restored before ControlPlane)
+- OpenStackControlPlane has order "30" (restored after Version)
+- OpenStackDataPlaneNodeSet has order "60" (restored last)
+
+**After modifying type definitions:**
 ```bash
 make generate manifests
 ```
 
-**Verify labels were added to CRDs:**
+This will update the generated CRD YAML files in `config/crd/bases/` with the labels.
+
+**Verify labels were added to generated CRDs:**
 ```bash
+grep -A 5 "metadata:" config/crd/bases/core.openstack.org_openstackcontrolplanes.yaml
 oc get crd openstackcontrolplanes.core.openstack.org -o yaml | grep -A 5 labels
 oc get crd -l openstack.org/backup-restore=true
 ```

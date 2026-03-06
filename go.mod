@@ -154,7 +154,7 @@ require (
 
 replace github.com/openstack-k8s-operators/openstack-operator/api => ./api //allow-merging
 
-replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20260305171715-f445eda4227b //allow-merging
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20260306130207-e607697b6c89 //allow-merging
 
 // mschuppert: map to latest commit from release-4.18 tag
 // must consistent within modules and service operators
