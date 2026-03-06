@@ -82,6 +82,32 @@ rules:
   - update
   - watch
 - apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
   - barbican.openstack.org
   resources:
   - barbicans

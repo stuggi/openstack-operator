@@ -46,6 +46,9 @@ import (
 	webhookcorev1beta1 "github.com/openstack-k8s-operators/openstack-operator/internal/webhook/core/v1beta1"
 	webhookdataplanev1beta1 "github.com/openstack-k8s-operators/openstack-operator/internal/webhook/dataplane/v1beta1"
 
+	backupv1beta1 "github.com/openstack-k8s-operators/openstack-operator/api/backup/v1beta1"
+	backupcontroller "github.com/openstack-k8s-operators/openstack-operator/internal/controller/backup"
+
 	// +kubebuilder:scaffold:imports
 	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	k8s_networkv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
@@ -73,10 +76,6 @@ import (
 	novav1 "github.com/openstack-k8s-operators/nova-operator/api/v1beta1"
 	octaviav1 "github.com/openstack-k8s-operators/octavia-operator/api/v1beta1"
 	baremetalv1 "github.com/openstack-k8s-operators/openstack-baremetal-operator/api/v1beta1"
-	clientv1 "github.com/openstack-k8s-operators/openstack-operator/api/client/v1beta1"
-	corev1 "github.com/openstack-k8s-operators/openstack-operator/api/core/v1beta1"
-	dataplanev1 "github.com/openstack-k8s-operators/openstack-operator/api/dataplane/v1beta1"
-	"github.com/openstack-k8s-operators/openstack-operator/internal/openstack"
 	ovnv1 "github.com/openstack-k8s-operators/ovn-operator/api/v1beta1"
 	placementv1 "github.com/openstack-k8s-operators/placement-operator/api/v1beta1"
 	swiftv1 "github.com/openstack-k8s-operators/swift-operator/api/v1beta1"
@@ -86,6 +85,11 @@ import (
 	rabbitmqclusterv2 "github.com/rabbitmq/cluster-operator/v2/api/v1beta1"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	clientv1 "github.com/openstack-k8s-operators/openstack-operator/api/client/v1beta1"
+	corev1 "github.com/openstack-k8s-operators/openstack-operator/api/core/v1beta1"
+	dataplanev1 "github.com/openstack-k8s-operators/openstack-operator/api/dataplane/v1beta1"
+	"github.com/openstack-k8s-operators/openstack-operator/internal/openstack"
 )
 
 var (
@@ -130,6 +134,7 @@ func init() {
 	utilruntime.Must(operatorv1beta1.AddToScheme(scheme))
 	utilruntime.Must(topologyv1.AddToScheme(scheme))
 	utilruntime.Must(watcherv1.AddToScheme(scheme))
+	utilruntime.Must(backupv1beta1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -408,6 +413,13 @@ func main() {
 			os.Exit(1)
 		}
 		checker = mgr.GetWebhookServer().StartedChecker()
+	}
+	if err := (&backupcontroller.OpenStackBackupConfigReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "OpenStackBackupConfig")
+		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 
