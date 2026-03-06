@@ -74,4 +74,3 @@ As the backup/restore workflow matures, a dedicated script could be developed to
 - Strip ownerReferences and runtime metadata
 - Organize them into a restore-ready format
 - This would combine the comprehensiveness of must-gather with the simplicity of the manual restore procedure
-
