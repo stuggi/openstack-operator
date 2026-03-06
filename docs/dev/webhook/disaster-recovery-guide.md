@@ -536,12 +536,240 @@ spec:
   storageLocation: default
 ```
 
+**Pod Affinity/Anti-Affinity Considerations:**
+
+⚠️ **IMPORTANT**: If your StatefulSets use pod anti-affinity rules (e.g., spreading Galera replicas across nodes), you may encounter scheduling conflicts during restore with local storage.
+
+**The Problem:**
+
+```yaml
+# StatefulSet with anti-affinity (common for HA)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: galera
+spec:
+  replicas: 3
+  template:
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: mariadb-galera
+            topologyKey: kubernetes.io/hostname
+      # Hard rule: Each galera pod MUST be on different node
+```
+
+**What can happen during LVMS restore:**
+
+```bash
+# Restore phase:
+# 1. Restic creates restore pods (no affinity rules applied)
+# 2. Scheduler places them based on LVMS capacity:
+mysql-db-galera-0 → worker-5 (50GB free)
+mysql-db-galera-1 → worker-5 (40GB free after first PVC)
+mysql-db-galera-2 → worker-6 (50GB free)
+
+# Application pods start:
+galera-0 → Must run on worker-5 (PVC bound there, RWO)
+galera-1 → Must run on worker-5 (PVC bound there, RWO)
+           BUT anti-affinity says "cannot be with galera-0"
+           → Pod stuck in Pending! Conflict!
+
+$ oc get pods -n openstack
+NAME       READY   STATUS    NODE
+galera-0   1/1     Running   worker-5
+galera-1   0/1     Pending   -
+galera-2   1/1     Running   worker-6
+
+$ oc describe pod galera-1 -n openstack
+Events:
+  Warning  FailedScheduling  pod didn't match pod anti-affinity rules
+```
+
+**Solutions:**
+
+**Solution 1: Use Soft Anti-Affinity (Recommended for DR)**
+
+Change anti-affinity to **preferred** instead of **required**:
+
+```yaml
+# Modify StatefulSet to use soft anti-affinity
+spec:
+  template:
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:  # Soft rule
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: mariadb-galera
+              topologyKey: kubernetes.io/hostname
+      # Prefers different nodes, but allows co-location if necessary
+```
+
+**Benefits:**
+- ✅ Normal operation: Pods spread across nodes (when possible)
+- ✅ DR restore: Pods can co-locate if PVCs ended up on same node
+- ✅ Service stays online during DR (data recovery prioritized)
+
+**Trade-off:**
+- ⚠️ Temporarily reduced HA (pods might be on same node)
+- ⚠️ Can fix after restore by draining nodes and re-balancing
+
+**Solution 2: Ensure Sufficient Nodes in DR Cluster**
+
+Make sure DR cluster has **at least as many nodes** as your StatefulSet replicas:
+
+```bash
+# Source cluster:
+3 nodes (worker-0, worker-1, worker-2)
+3 Galera replicas
+
+# DR cluster: Need at least 3 nodes with LVMS
+# But better to have MORE to handle uneven distribution
+
+# Recommended: N+2 nodes for N replicas
+# Example: 5 nodes for 3 Galera replicas
+# Gives scheduler more flexibility
+```
+
+**Check nodes before restore:**
+```bash
+# Count nodes with LVMS
+oc get nodes -l node-role.kubernetes.io/worker
+# Should have >= number of StatefulSet replicas
+
+# Check LVMS capacity per node
+oc get logicalvolume -A -o wide
+# Ensure even distribution of capacity
+```
+
+**Solution 3: Control PVC Node Distribution (Advanced)**
+
+Force restore pods to spread across nodes by temporarily applying affinity to restore operation.
+
+**Create a restore hook ConfigMap:**
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: restore-pod-spread
+  namespace: openshift-adp
+  labels:
+    velero.io/pod-volume-restore: RestoreItemAction
+data:
+  spread-config: |
+    {
+      "affinity": {
+        "podAntiAffinity": {
+          "preferredDuringSchedulingIgnoredDuringExecution": [{
+            "weight": 100,
+            "podAffinityTerm": {
+              "labelSelector": {
+                "matchLabels": {
+                  "velero.io/restore-name": "openstack-dr-restore"
+                }
+              },
+              "topologyKey": "kubernetes.io/hostname"
+            }
+          }]
+        }
+      }
+    }
+```
+
+**Note**: This is advanced and may require Velero plugins. Simpler to use Solution 1 or 2.
+
+**Solution 4: Manual PVC Rebalancing After Restore**
+
+If PVCs end up unevenly distributed, rebalance after restore:
+
+```bash
+# 1. Identify problem PVCs
+oc get pvc -n openstack -o custom-columns=NAME:.metadata.name,NODE:.metadata.annotations.'volume\.kubernetes\.io/selected-node'
+
+# Example output:
+# NAME                  NODE
+# mysql-db-galera-0    worker-5
+# mysql-db-galera-1    worker-5  ← Same node!
+# mysql-db-galera-2    worker-6
+
+# 2. Scale down StatefulSet
+oc scale statefulset galera --replicas=0 -n openstack
+
+# 3. Delete problematic PVC (galera-1)
+oc delete pvc mysql-db-galera-1 -n openstack
+
+# 4. Restore just that PVC to a different backup
+# (Complex - might need to restore to new namespace then move)
+
+# 5. Or accept co-location temporarily and fix during maintenance
+```
+
+**Solution 5: Topology-Aware Restore (Future Enhancement)**
+
+File an enhancement request for Velero to support topology-aware restore:
+- Velero could read StatefulSet affinity rules
+- Distribute restore pods according to those rules
+- Ensure PVCs bind to appropriate nodes
+
+**Recommendations by Environment:**
+
+| Environment | Recommendation |
+|------------|----------------|
+| **Production DR** | Use soft anti-affinity + ensure N+2 nodes in DR cluster |
+| **Test/Dev DR** | Accept co-location, rebalance later |
+| **Mission Critical** | Pre-plan DR cluster with same node count + topology labels |
+| **Small Deployments** | Use soft anti-affinity, prioritize data recovery over HA |
+
+**Best Practice for OpenStack:**
+
+Modify operator-generated StatefulSets to use **soft anti-affinity** by default:
+
+```go
+// In operator code
+antiAffinity := &corev1.PodAntiAffinity{
+    PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
+        {
+            Weight: 100,
+            PodAffinityTerm: corev1.PodAffinityTerm{
+                LabelSelector: &metav1.LabelSelector{
+                    MatchLabels: labels,
+                },
+                TopologyKey: "kubernetes.io/hostname",
+            },
+        },
+    },
+}
+// Instead of RequiredDuringSchedulingIgnoredDuringExecution
+```
+
+**Checking After Restore:**
+
+```bash
+# Verify pod distribution
+oc get pods -n openstack -o wide | grep galera
+
+# If uneven distribution, options:
+# 1. Accept it temporarily (service is running)
+# 2. Plan maintenance window to rebalance
+# 3. Use node draining to force rescheduling (requires PVC migration)
+```
+
 **Summary for LVMS Users:**
 - ⚠️ **CSI snapshots provide ZERO DR** for LVMS
 - ✅ **Restic/Kopia is the ONLY DR solution** for local storage
 - ✅ **Works perfectly** - tested and reliable
 - ✅ **Automatic restore** to different nodes
 - ⚠️ **Configure OADP correctly** - enable nodeAgent with Kopia
+- ⚠️ **Use soft anti-affinity** to avoid scheduling conflicts during DR restore
+- ⚠️ **Plan DR cluster capacity** - N+2 nodes for N replicas recommended
 
 ### Strategy 2: CSI Snapshots with Storage Backend Replication
 
