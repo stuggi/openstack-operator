@@ -19,6 +19,7 @@ package backup
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	backupv1beta1 "github.com/openstack-k8s-operators/openstack-operator/api/backup/v1beta1"
@@ -35,6 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -45,8 +47,29 @@ import (
 // OpenStackBackupConfigReconciler reconciles a OpenStackBackupConfig object
 type OpenStackBackupConfigReconciler struct {
 	client.Client
-	Kclient kubernetes.Interface
-	Scheme  *runtime.Scheme
+	Kclient       kubernetes.Interface
+	Scheme        *runtime.Scheme
+	CRDLabelCache backup.CRDLabelCache
+}
+
+// parseGVK parses a GVK string (format: "group/version, Kind=kind") into schema.GroupVersionKind
+func parseGVK(gvkStr string) schema.GroupVersionKind {
+	// Format from CRD cache: "group/version, Kind=kind"
+	parts := strings.Split(gvkStr, ", Kind=")
+	if len(parts) != 2 {
+		return schema.GroupVersionKind{}
+	}
+
+	gv := strings.Split(parts[0], "/")
+	if len(gv) != 2 {
+		return schema.GroupVersionKind{}
+	}
+
+	return schema.GroupVersionKind{
+		Group:   gv[0],
+		Version: gv[1],
+		Kind:    parts[1],
+	}
 }
 
 // shouldLabelResource checks if a resource should be labeled based on ownerReferences and config
@@ -179,12 +202,63 @@ func (r *OpenStackBackupConfigReconciler) labelNetworkAttachmentDefinitions(ctx 
 	return count, nil
 }
 
+// labelCRInstances labels CR instances based on CRD backup-restore labels
+// This labels CRs like OpenStackControlPlane, OpenStackVersion, MariaDBAccount, etc.
+// based on their CRD's backup/restore configuration.
+func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
+	count := 0
+
+	// Iterate through all CRDs that have backup-restore enabled
+	for gvkStr, backupConfig := range r.CRDLabelCache {
+		if !backupConfig.Enabled {
+			continue
+		}
+
+		// Create an unstructured list for this CRD type
+		list := &metav1.PartialObjectMetadataList{}
+		list.SetGroupVersionKind(parseGVK(gvkStr))
+
+		if err := r.List(ctx, list, client.InNamespace(instance.Spec.TargetNamespace)); err != nil {
+			log.Error(err, "Failed to list CR instances", "gvk", gvkStr)
+			continue
+		}
+
+		// Label each CR instance
+		for i := range list.Items {
+			obj := &list.Items[i]
+
+			// Get the full object to update labels
+			patch := client.MergeFrom(obj.DeepCopy())
+			labels := obj.GetLabels()
+			if labels == nil {
+				labels = make(map[string]string)
+			}
+
+			// Merge backup labels based on CRD configuration
+			labels = util.MergeStringMaps(
+				labels,
+				backup.GetBackupLabelsWithCategory(backupConfig.RestoreOrder, backupConfig.Category),
+			)
+			obj.SetLabels(labels)
+
+			if err := r.Patch(ctx, obj, patch); err != nil {
+				log.Error(err, "Failed to label CR instance", "gvk", gvkStr, "name", obj.GetName())
+				continue
+			}
+			count++
+		}
+	}
+
+	return count, nil
+}
+
 // +kubebuilder:rbac:groups=backup.openstack.org,resources=openstackbackupconfigs,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=backup.openstack.org,resources=openstackbackupconfigs/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=backup.openstack.org,resources=openstackbackupconfigs/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=k8s.cni.cncf.io,resources=network-attachment-definitions,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=*.openstack.org,resources=*,verbs=get;list;watch;update;patch
 
 // Reconcile labels user-provided resources (without ownerReferences) for backup/restore
 //
@@ -263,6 +337,18 @@ func (r *OpenStackBackupConfigReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, err
 	}
 
+	// Label CR instances based on CRD backup-restore labels
+	crCount, err := r.labelCRInstances(ctx, log, instance)
+	if err != nil {
+		log.Error(err, "Failed to label CR instances")
+		instance.Status.Conditions.Set(condition.FalseCondition(
+			condition.ReadyCondition,
+			condition.ErrorReason,
+			condition.SeverityWarning,
+			"Failed to label CR instances: %v", err))
+		return ctrl.Result{}, err
+	}
+
 	// Update status
 	instance.Status.LabeledResources.Secrets = secretCount
 	instance.Status.LabeledResources.ConfigMaps = configMapCount
@@ -270,7 +356,7 @@ func (r *OpenStackBackupConfigReconciler) Reconcile(ctx context.Context, req ctr
 
 	instance.Status.Conditions.Set(condition.TrueCondition(
 		condition.ReadyCondition,
-		fmt.Sprintf("Labeled %d secrets, %d configmaps, %d NADs", secretCount, configMapCount, nadCount)))
+		fmt.Sprintf("Labeled %d secrets, %d configmaps, %d NADs, %d CRs", secretCount, configMapCount, nadCount, crCount)))
 
 	log.Info("Successfully labeled resources", "secrets", secretCount, "configmaps", configMapCount, "nads", nadCount)
 	return ctrl.Result{}, nil

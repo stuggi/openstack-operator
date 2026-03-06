@@ -48,6 +48,7 @@ import (
 
 	backupv1beta1 "github.com/openstack-k8s-operators/openstack-operator/api/backup/v1beta1"
 	backupcontroller "github.com/openstack-k8s-operators/openstack-operator/internal/controller/backup"
+	commonbackup "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 
 	// +kubebuilder:scaffold:imports
 	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
@@ -364,10 +365,18 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenStackDataPlaneDeployment")
 		os.Exit(1)
 	}
+	// Build CRD label cache for backup/restore
+	crdLabelCache, err := commonbackup.BuildCRDLabelCache(ctx, mgr.GetClient())
+	if err != nil {
+		setupLog.Error(err, "unable to build CRD label cache")
+		os.Exit(1)
+	}
+
 	if err := (&backupcontroller.OpenStackBackupConfigReconciler{
-		Client:  mgr.GetClient(),
-		Scheme:  mgr.GetScheme(),
-		Kclient: kclient,
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Kclient:       kclient,
+		CRDLabelCache: crdLabelCache,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenStackBackupConfig")
 		os.Exit(1)
