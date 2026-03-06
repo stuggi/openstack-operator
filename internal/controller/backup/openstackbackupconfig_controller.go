@@ -18,7 +18,6 @@ package backup
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -356,7 +355,7 @@ func (r *OpenStackBackupConfigReconciler) Reconcile(ctx context.Context, req ctr
 
 	instance.Status.Conditions.Set(condition.TrueCondition(
 		condition.ReadyCondition,
-		fmt.Sprintf("Labeled %d secrets, %d configmaps, %d NADs, %d CRs", secretCount, configMapCount, nadCount, crCount)))
+		"Labeled %d secrets, %d configmaps, %d NADs, %d CRs", secretCount, configMapCount, nadCount, crCount))
 
 	log.Info("Successfully labeled resources", "secrets", secretCount, "configmaps", configMapCount, "nads", nadCount)
 	return ctrl.Result{}, nil
