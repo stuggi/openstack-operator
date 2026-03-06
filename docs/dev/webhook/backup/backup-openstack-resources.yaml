@@ -1,0 +1,24 @@
+---
+# OpenStack Resources Backup (excluding PVCs)
+# Backs up all resources in the openstack namespace except PVCs
+# Includes: CRs, Secrets, ConfigMaps, NADs, etc.
+# PVCs are backed up separately with backup-openstack-pvcs.yaml
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-backup-resources
+  namespace: openshift-adp  # OADP namespace
+spec:
+  includedNamespaces:
+  - openstack  # OpenStack namespace - adjust as needed
+
+  # Exclude PVCs and PVs (backed up separately)
+  excludedResources:
+  - persistentvolumeclaims
+  - persistentvolumes
+
+  # Storage location for backup
+  storageLocation: velero-1
+
+  # Retention policy
+  ttl: 720h  # 30 days

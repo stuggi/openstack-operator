@@ -1,0 +1,33 @@
+---
+# OpenStack PVC Backup
+# Backs up only PVCs (and their bound PVs) labeled with openstack.org/backup=true
+# These include: Glance image storage PVCs, GaleraBackup PVCs
+#
+# Note: Velero automatically includes the PV bound to each PVC - no need to label PVs
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-backup-pvcs
+  namespace: openshift-adp  # OADP namespace
+spec:
+  includedNamespaces:
+  - openstack  # OpenStack namespace - adjust as needed
+
+  # Only backup resources with the backup label
+  # For PVCs, Velero automatically includes their bound PVs
+  labelSelector:
+    matchLabels:
+      openstack.org/backup: "true"
+
+  # Use CSI snapshots for PVCs
+  snapshotVolumes: true
+  defaultVolumesToFsBackup: false
+
+  # Volume snapshot locations (empty = use default)
+  volumeSnapshotLocations: []
+
+  # Storage location for backup
+  storageLocation: velero-1
+
+  # Retention policy
+  ttl: 720h  # 30 days

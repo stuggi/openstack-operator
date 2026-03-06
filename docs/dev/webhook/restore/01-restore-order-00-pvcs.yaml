@@ -1,0 +1,32 @@
+---
+# Restore Order 00: Storage Foundation - PVCs
+# Restores all PVCs (Glance image storage, GaleraBackup PVCs)
+# Must be restored first before other resources
+#
+# Note: No labelSelector needed - the backup (openstack-backup-pvcs) already
+# filtered to only include PVCs with openstack.org/backup=true label.
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-00-pvcs
+  namespace: openshift-adp
+spec:
+  backupName: openstack-backup-pvcs
+
+  # Restore to the same namespace
+  includedNamespaces:
+  - openstack
+
+  # Remove ownerReferences and last-applied-configuration
+  # This prevents UID mismatch issues and annotation size limit failures
+  resourceModifiers:
+  - conditions: {}  # Match all resources
+    patches:
+    - operation: remove
+      path: "/metadata/ownerReferences"
+    - operation: remove
+      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+
+  # Restore PVCs from volume snapshots
+  restorePVs: true
+

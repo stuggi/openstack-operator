@@ -1,0 +1,31 @@
+---
+# Restore Order 10: Foundation Resources
+# Restores NADs, Secrets, ConfigMaps (user-provided resources without ownerRefs)
+# Must be restored after PVCs and before CRs
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-10-foundation
+  namespace: openshift-adp
+spec:
+  backupName: openstack-backup-resources
+
+  # Restore to the same namespace
+  includedNamespaces:
+  - openstack
+
+  # Only restore resources with backup-restore label and order 10
+  labelSelector:
+    matchLabels:
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "10"
+
+  # Remove ownerReferences and last-applied-configuration
+  resourceModifiers:
+  - conditions: {}
+    patches:
+    - operation: remove
+      path: "/metadata/ownerReferences"
+    - operation: remove
+      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+
