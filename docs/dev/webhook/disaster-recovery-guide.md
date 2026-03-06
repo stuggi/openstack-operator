@@ -15,17 +15,89 @@ This guide covers disaster recovery (DR) scenarios where an OpenStack deployment
 | **Complexity** | Lower | Higher (mapping, reconfiguration) |
 | **Data Location** | Same storage backend | External S3-compatible storage |
 
+## Understanding Backup Approaches
+
+### CSI Volume Snapshots (Current POC)
+
+The current POC implementation uses CSI volume snapshots:
+
+**How CSI Snapshots Work with Velero:**
+- Velero stores VolumeSnapshot **metadata** (YAML manifests) in S3 object storage
+- The actual snapshot **data** remains in the storage backend (Ceph, AWS EBS, etc.)
+- During restore, Velero creates VolumeSnapshot objects which reference the snapshots in the storage backend
+
+**Limitations for Disaster Recovery:**
+
+| What's Backed Up | Location | Survives Cluster Loss? |
+|-----------------|----------|----------------------|
+| VolumeSnapshot metadata (YAML) | S3 object storage | ✅ Yes |
+| Actual snapshot data (PVC contents) | Storage backend (Ceph/EBS/etc) | ❌ No (unless storage is replicated separately) |
+
+**Problem**: If the entire cluster AND storage backend are lost (datacenter failure), the CSI snapshots are gone even though the metadata is in S3.
+
+**Use Case**: CSI snapshots work well for:
+- Same-cluster restores (rollback, recovery from operator issues)
+- When storage backend has independent replication/backup
+- Fast backup/restore operations (storage-level snapshots are quick)
+
+### Restic/Kopia File-Level Backup
+
+**How Restic/Kopia Work with Velero:**
+- OADP deploys a `node-agent` daemonset (one pod per node)
+- During backup: node-agent pods mount PVCs and stream file data to S3 object storage
+- During restore: node-agent pods mount new PVCs and write data from S3 back to volumes
+- **Application pods do NOT need to be running** - the node-agent pods can access the volumes independently
+
+**What Gets Backed Up:**
+
+| What's Backed Up | Location | Survives Cluster Loss? |
+|-----------------|----------|----------------------|
+| VolumeSnapshot metadata (YAML) | S3 object storage | ✅ Yes |
+| **Actual PVC file data** | **S3 object storage** | ✅ **Yes** |
+
+**Node-Agent Pods:**
+```
+# node-agent daemonset runs on each node
+$ oc get pods -n openshift-adp
+
+NAME                    READY   STATUS    NODE
+velero-xxx              1/1     Running   -
+node-agent-abc          1/1     Running   worker-0
+node-agent-def          1/1     Running   worker-1
+node-agent-ghi          1/1     Running   worker-2
+```
+
+**During Backup:**
+```
+1. Velero identifies PVCs to backup (via annotation or defaultVolumesToFsBackup)
+2. Velero creates a backup pod spec
+3. node-agent on the node where PVC is used mounts the volume
+4. node-agent reads files from PVC and streams to S3
+5. Backup completes when all data uploaded
+```
+
+**During Restore:**
+```
+1. Velero creates new PVCs in target cluster
+2. node-agent pods mount the empty PVCs
+3. node-agent downloads data from S3 and writes to PVCs
+4. Restore completes when all data written
+5. Application pods can then mount the restored PVCs
+```
+
+**Key Point**: Your application pods (Galera, Glance, etc.) do NOT need to run during backup. The node-agent pods access the underlying volumes directly.
+
 ## Backup Strategies for DR
 
 ### Strategy 1: Velero with Restic/Kopia (Recommended)
 
-This is the **recommended approach** for true disaster recovery as it stores all data in external object storage.
+This is the **recommended approach** for true disaster recovery as it stores **all data** (resources AND PVC contents) in external object storage.
 
-#### How It Works
+#### Why This Works for DR
 
-1. **Backup Phase**: Velero backs up both Kubernetes resources AND PVC data to S3-compatible object storage
-2. **Storage**: All data stored externally (survives cluster loss)
-3. **Restore Phase**: New cluster connects to same object storage and restores everything
+1. **Backup Phase**: Velero backs up both Kubernetes resources AND complete PVC data to S3-compatible object storage
+2. **Storage**: All data stored externally (survives cluster AND storage backend loss)
+3. **Restore Phase**: New cluster with different storage backend can restore everything from S3
 
 #### Architecture
 
@@ -73,22 +145,61 @@ This is the **recommended approach** for true disaster recovery as it stores all
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Strategy 2: CSI Snapshots with Cross-Region Replication
+### Strategy 2: CSI Snapshots with Storage Backend Replication
 
-Uses storage-level replication to copy snapshots to DR site. **Storage provider dependent**.
+Uses CSI volume snapshots combined with storage-level replication. **Storage provider dependent**.
+
+#### How It Works
+
+1. **Backup**: CSI snapshots created in storage backend (fast, storage-level)
+2. **Replication**: Storage backend replicates snapshots to DR site (e.g., Ceph RBD mirroring, AWS EBS snapshot copy)
+3. **Restore**: Import replicated snapshots into DR cluster's storage backend
 
 #### Limitations
 
-- Requires storage backend support (not all CSI drivers support this)
-- Complex setup and configuration
-- Vendor lock-in
-- May not survive complete datacenter loss
+- **Storage backend dependency**: Requires storage backend to support cross-site replication
+- **Not all CSI drivers support this**: Many CSI drivers don't have cross-cluster snapshot import
+- **Complex setup**: Requires coordination between Velero and storage replication
+- **Vendor lock-in**: DR cluster must use same storage backend type
+- **Datacenter failure risk**: If storage backend is in same datacenter, replication may be affected
+
+**Example Working Scenarios:**
+- AWS EBS: Snapshots can be copied across regions, then imported in DR cluster
+- Ceph RBD Mirroring: Replicate RBD images to remote Ceph cluster
+- NetApp Trident: SnapMirror for volume replication
+
+**Why This Is Complex:**
+- VolumeSnapshot objects contain cluster-specific metadata (UIDs, CSI driver handles)
+- DR cluster needs to create VolumeSnapshotContent pointing to replicated snapshots
+- Manual intervention often required to map snapshot IDs
 
 ### Strategy 3: Hybrid Approach
 
 - Resources backed up to object storage (portable)
 - PVC data replicated using storage-native replication (e.g., Ceph RBD mirroring)
 - Requires coordination between Velero and storage layer
+
+### Comparison: CSI Snapshots vs Restic/Kopia
+
+| Aspect | CSI Volume Snapshots | Restic/Kopia File-Level Backup |
+|--------|---------------------|-------------------------------|
+| **Backup Speed** | ✅ Fast (storage-level snapshot) | ⚠️ Slower (file-by-file copy to S3) |
+| **Restore Speed** | ✅ Fast (storage-level restore) | ⚠️ Slower (download from S3) |
+| **Data Location** | ❌ Storage backend (Ceph/EBS/etc) | ✅ S3 object storage |
+| **Survives Cluster Loss** | ⚠️ Only if storage backend survives | ✅ Yes (data in external S3) |
+| **Survives Datacenter Loss** | ❌ No (unless storage replicated separately) | ✅ Yes (S3 in different region) |
+| **DR to Different Storage Backend** | ❌ Very difficult/impossible | ✅ Yes (storage-agnostic) |
+| **Storage Overhead** | ✅ Minimal (delta snapshots) | ⚠️ Full data in S3 |
+| **Pod Requirements** | ✅ None (CSI driver handles it) | ℹ️ node-agent daemonset (OADP-managed) |
+| **Application Downtime** | ✅ None required | ✅ None required (node-agent accesses volumes) |
+| **S3 Bandwidth Usage** | ✅ Minimal (metadata only) | ⚠️ High (full data transfer) |
+| **Cross-Provider DR** | ❌ No (tied to storage backend) | ✅ Yes (AWS → GCP, on-prem → cloud, etc.) |
+| **Best For** | Same-cluster restore, fast recovery | True DR, cross-cluster, cross-datacenter |
+
+**Recommendation for OpenStack DR:**
+- **In-cluster backups**: Use CSI snapshots (fast, efficient) - Current POC approach
+- **Disaster recovery backups**: Use Restic/Kopia (portable, survives datacenter loss)
+- **Production**: Implement both - CSI for quick recovery, Restic/Kopia for true DR
 
 ## DR Backup Configuration
 
@@ -176,6 +287,35 @@ spec:
 - `restic.enable: true` OR `nodeAgent.enable: true` with `uploaderType: kopia`
 - `objectStorage.prefix` helps separate backups from multiple clusters
 - External S3 endpoint must be reachable from DR site
+
+**What This Deploys:**
+
+When you create the DataProtectionApplication with Restic or Kopia enabled, OADP automatically deploys:
+
+```bash
+# Velero controller pod
+velero-<hash>                1/1     Running
+
+# node-agent daemonset (one pod per node)
+node-agent-<hash>           1/1     Running   worker-0
+node-agent-<hash>           1/1     Running   worker-1
+node-agent-<hash>           1/1     Running   worker-2
+```
+
+**Node-Agent Responsibilities:**
+- **During Backup**: Mounts PVCs, reads file data, uploads to S3
+- **During Restore**: Mounts PVCs, downloads data from S3, writes to volumes
+- **Access Method**: Uses Kubernetes volume mount API (same as application pods)
+- **Application Impact**: Your OpenStack pods (Galera, Glance, etc.) do NOT need to be running or restarted
+
+**How Node-Agent Accesses PVC Data:**
+1. Velero controller identifies PVCs to backup (via annotation or `defaultVolumesToFsBackup`)
+2. Velero schedules backup on appropriate node-agent pod (node where PVC is attached)
+3. Node-agent pod creates a mount to the PVC volume (read-only during backup)
+4. Node-agent streams file contents to S3 object storage
+5. Mount is removed when backup completes
+
+This is completely transparent to your application - no pod restarts or downtime required.
 
 ### Create DR Backup
 
