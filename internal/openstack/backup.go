@@ -56,11 +56,9 @@ func ReconcileBackupConfig(ctx context.Context, instance *corev1beta1.OpenStackC
 	}
 
 	op, err := controllerutil.CreateOrPatch(ctx, helper.GetClient(), backupConfig, func() error {
-		// Set controller reference (ownerRef) to OpenStackControlPlane
-		err := controllerutil.SetControllerReference(helper.GetBeforeObject(), backupConfig, helper.GetScheme())
-		if err != nil {
-			return err
-		}
+		// Note: We do NOT set ownerReference here. OpenStackBackupConfig is a configuration
+		// resource that users may customize. It should persist even if the ControlPlane is
+		// deleted, and should be backed up/restored with user customizations intact.
 
 		// Set spec defaults if not already set (CreateOrPatch might be updating existing)
 		if backupConfig.Spec.TargetNamespace == "" {
