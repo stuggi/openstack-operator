@@ -391,6 +391,158 @@ This is the **recommended approach** for true disaster recovery as it stores **a
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+#### Special Note: LVMS/Local Storage
+
+**If you are using LVMS (Logical Volume Manager Storage) or any local storage**, Restic/Kopia is **MANDATORY** for disaster recovery. This is not optional.
+
+**Why LVMS requires Restic/Kopia:**
+
+| Aspect | LVMS with CSI Snapshots | LVMS with Restic/Kopia |
+|--------|------------------------|------------------------|
+| **Snapshot location** | Same node's local disk | N/A - file-level backup |
+| **Backup to S3** | ❌ Metadata only | ✅ Complete data |
+| **Survives node loss** | ❌ NO | ✅ Yes |
+| **Survives cluster loss** | ❌ NO | ✅ Yes |
+| **DR capability** | ❌ ZERO | ✅ Full DR |
+| **Restore to new cluster** | ❌ Impossible | ✅ Works perfectly |
+
+**How Restic/Kopia works with LVMS:**
+
+**Backup Phase:**
+```bash
+# Source cluster with LVMS
+Node worker-0:
+└── LVMS Volume Group: vg-storage
+    └── LVM Volume: mysql-db (10GB)
+        └── PVC: mysql-db-galera-0 → Mounted by galera-0 pod
+
+# During backup:
+# 1. node-agent on worker-0 mounts the LVM volume (same as galera-0)
+# 2. node-agent reads ALL files from the volume
+# 3. node-agent uploads to S3: s3://bucket/backups/mysql-db-galera-0.tar.gz
+# 4. Result: Complete 10GB of data in S3
+
+# If node/cluster is lost:
+# - LVM volume is gone
+# - But S3 has complete data ✅
+```
+
+**Restore Phase (to new cluster with LVMS):**
+```bash
+# DR cluster (different nodes, different LVMS setup)
+Node worker-5:  # Different node!
+└── LVMS Volume Group: vg-storage  # Different VG, same type
+    └── (empty - will create new volume)
+
+# During restore:
+# 1. Velero creates PVC mysql-db-galera-0 (status: Pending)
+# 2. Velero creates restore pod to mount the PVC
+# 3. Kubernetes scheduler selects worker-5 (has LVMS capacity)
+# 4. LVMS CSI driver creates NEW 10GB volume on worker-5
+# 5. PVC binds to the new volume
+# 6. node-agent on worker-5 downloads data from S3
+# 7. node-agent writes all files to the new LVM volume
+# 8. Restore complete - galera-0 can now use restored data
+
+# Result: Data restored to DIFFERENT node/volume ✅
+```
+
+**Key Benefits for LVMS:**
+- ✅ **Storage-agnostic**: Restore to any cluster with LVMS (or even different storage type)
+- ✅ **Node-agnostic**: Don't need same node names or IPs
+- ✅ **Automatic node selection**: Kubernetes finds node with LVMS capacity
+- ✅ **True DR**: Survives complete cluster and hardware loss
+- ✅ **No manual mapping**: Velero handles everything automatically
+
+**Important Considerations for LVMS DR:**
+
+1. **Capacity Planning**: Ensure DR cluster has enough LVMS capacity on nodes
+   ```bash
+   # Check LVMS capacity on nodes
+   oc get logicalvolume -A
+
+   # Ensure total capacity >= source cluster PVC sizes
+   ```
+
+2. **Storage Class**: DR cluster needs compatible LVMS storage class
+   ```bash
+   # Can use different storage class name with mapping
+   storageClassMapping:
+     lvms-provisioner: lvms-dr
+   ```
+
+3. **Node Scheduling**: PVCs will bind to nodes with available capacity
+   - May be different nodes than source cluster
+   - LVMS scheduler handles this automatically
+   - No manual node affinity needed
+
+4. **Performance**: Restore is slower than CSI snapshots (downloads from S3)
+   - But this is the ONLY way to achieve DR with local storage
+   - Acceptable trade-off for disaster recovery capability
+
+**Example LVMS DR Configuration:**
+
+```yaml
+# DataProtectionApplication for LVMS clusters
+apiVersion: oadp.openshift.io/v1alpha1
+kind: DataProtectionApplication
+metadata:
+  name: velero
+  namespace: openshift-adp
+spec:
+  configuration:
+    velero:
+      defaultPlugins:
+      - openshift
+      - aws
+      # No CSI plugin - not useful for local storage DR
+
+    # REQUIRED for LVMS
+    nodeAgent:
+      enable: true
+      uploaderType: kopia  # Kopia recommended (faster than Restic)
+
+  backupLocations:
+  - velero:
+      provider: aws
+      default: true
+      credential:
+        name: cloud-credentials
+        key: cloud
+      config:
+        s3Url: https://s3.example.com
+        s3ForcePathStyle: "true"
+      objectStorage:
+        bucket: openstack-lvms-dr
+        prefix: prod-cluster
+```
+
+```yaml
+# Backup configuration for LVMS
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-lvms-backup
+spec:
+  includedNamespaces:
+  - openstack
+
+  # CRITICAL: Must use file-level backup for LVMS
+  defaultVolumesToFsBackup: true  # ← REQUIRED
+
+  # Don't use CSI snapshots
+  snapshotVolumes: false
+
+  storageLocation: default
+```
+
+**Summary for LVMS Users:**
+- ⚠️ **CSI snapshots provide ZERO DR** for LVMS
+- ✅ **Restic/Kopia is the ONLY DR solution** for local storage
+- ✅ **Works perfectly** - tested and reliable
+- ✅ **Automatic restore** to different nodes
+- ⚠️ **Configure OADP correctly** - enable nodeAgent with Kopia
+
 ### Strategy 2: CSI Snapshots with Storage Backend Replication
 
 Uses CSI volume snapshots combined with storage-level replication. **Storage provider dependent**.
@@ -1533,10 +1685,157 @@ velero restore logs openstack-dr-restore
 oc get restore openstack-dr-restore -n openshift-adp -o yaml
 ```
 
-**PVC not binding:**
+**PVC stuck in "Pending" or "Waiting for first consumer":**
+
+This is a common issue with local storage (LVMS/TopoLVM) or any storage class with `volumeBindingMode: WaitForFirstConsumer`.
+
+```bash
+# Check PVC status
+$ oc get pvc -n openstack
+NAME                STATUS    VOLUME
+mysql-db-galera-0  Pending
+
+$ oc describe pvc mysql-db-galera-0 -n openstack
+Events:
+  Type     Reason                Age   Message
+  ----     ------                ----  -------
+  Normal   WaitForFirstConsumer  30s   waiting for first consumer to be created before binding
+```
+
+**What's happening:**
+- Storage class has `volumeBindingMode: WaitForFirstConsumer`
+- PVC won't bind until a Pod tries to use it
+- Common with local storage (LVMS, TopoLVM, LocalPV)
+- Storage needs to know which node the pod will run on
+
+**Check your storage class:**
+```bash
+# Check volumeBindingMode
+oc get storageclass <storage-class-name> -o yaml | grep volumeBindingMode
+
+# Example - LVMS/TopoLVM (local storage)
+volumeBindingMode: WaitForFirstConsumer  # ← Causes this issue
+
+# Example - Some storage with immediate binding
+volumeBindingMode: Immediate  # ← Binds immediately
+```
+
+**Solution 1: Using Restic/Kopia (Recommended - Works Automatically)**
+
+With Restic/Kopia, this is **handled automatically**:
+
+1. Velero creates empty PVC (stays in Pending/WaitForFirstConsumer)
+2. Velero creates temporary restore pod to mount the PVC
+3. PVC binding is triggered (pod is the "consumer")
+4. For local storage (LVMS), volume is created on the node where pod scheduled
+5. node-agent writes data from S3 to the PVC
+6. Temporary pod is deleted
+7. Your application pods can use the restored PVC
+
+**No manual intervention needed!**
+
+```yaml
+# This works automatically with WaitForFirstConsumer storage
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-dr-restore
+spec:
+  backupName: openstack-dr-full
+  includedNamespaces:
+  - openstack
+  restorePVs: true  # Restic/Kopia handles WaitForFirstConsumer automatically
+```
+
+**How Restic/Kopia chooses which node (for LVMS/local storage):**
+
+For local storage, the node is selected automatically by Kubernetes scheduler:
+
+```bash
+# During restore:
+# 1. Velero creates PVC (Pending state)
+# 2. Velero creates restore pod with PVC mount
+# 3. Scheduler looks at nodes with available LVMS capacity
+# 4. Scheduler selects node with enough free space
+# 5. LVMS CSI driver creates volume on that node
+# 6. PVC binds to that node
+# 7. node-agent on that node writes data from S3
+
+# The node might be DIFFERENT from original cluster
+# This is OK - data is restored from S3, not from original volume
+```
+
+**Check restore pod and node selection:**
+```bash
+# Watch restore pods being created
+oc get pods -n openstack -w
+
+# Check which node the restore pod landed on
+oc get pods -n openstack -o wide
+
+# Verify PVC bound after restore pod created
+oc get pvc -n openstack
+```
+
+**Solution 2: Using CSI Snapshots (More Complex)**
+
+With CSI snapshots, you need to restore PVCs together with pods:
+
+```yaml
+# Don't restore only PVCs - also restore StatefulSets/Deployments
+apiVersion: velero.io/v1
+kind: Restore
+spec:
+  backupName: openstack-backup
+
+  # Include both PVCs and the workloads that use them
+  includedResources:
+  - persistentvolumeclaims
+  - statefulsets
+  - deployments
+```
+
+**Solution 3: Temporary Storage Class with Immediate Binding**
+
+For testing, create temporary storage class:
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: lvms-immediate  # Temporary
+provisioner: topolvm.io  # Same as original
+volumeBindingMode: Immediate  # ← Bind immediately
+allowVolumeExpansion: true
+parameters:
+  # Same parameters as original storage class
+```
+
+Use storage class mapping during restore:
+
+```yaml
+apiVersion: velero.io/v1
+kind: Restore
+spec:
+  backupName: openstack-dr-full
+  storageClassMapping:
+    lvms-provisioner: lvms-immediate  # Map to Immediate binding
+```
+
+**Important Notes for LVMS/Local Storage:**
+
+- ✅ **Restic/Kopia is REQUIRED for local storage DR** (CSI snapshots don't provide DR)
+- ✅ **Node selection is automatic** - Kubernetes scheduler picks node with capacity
+- ✅ **Data comes from S3** - original node/volume doesn't matter
+- ⚠️ **Ensure sufficient capacity** - DR cluster nodes need free LVMS space
+- ⚠️ **Node might differ** - Restored PVC might be on different node than original
+
+**PVC not binding (other reasons):**
 - Check storage class exists in DR cluster
 - Verify storage class mapping is correct
-- Check node affinity requirements
+- Check node affinity requirements (if using pod affinity)
+- Verify CSI driver is installed and running
+- Check storage backend has available capacity
 
 **Pods stuck in Init or CrashLoopBackOff:**
 - Check PVC bindings
