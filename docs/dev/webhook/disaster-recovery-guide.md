@@ -213,6 +213,126 @@ node-agent-ghi          1/1     Running   worker-2
 
 **Key Point**: Your application pods (Galera, Glance, etc.) do NOT need to run during backup. The node-agent pods access the underlying volumes directly.
 
+**Detailed: Which Pods Access Storage?**
+
+❓ **Common Question**: "Do my application pods need to be running for Restic/Kopia backup?"
+
+✅ **Answer**: NO! Your application pods do NOT need to be running.
+
+**Who accesses the storage:**
+
+| Pod | Provided By | Accesses PVC? | Required for Backup? |
+|-----|-------------|---------------|---------------------|
+| node-agent-xxx | OADP (daemonset) | ✅ Yes | ✅ **Required** |
+| galera-0 | OpenStack operator | ✅ Yes | ❌ Not needed |
+| glance-api-xxx | OpenStack operator | ✅ Yes | ❌ Not needed |
+
+**How node-agent accesses storage:**
+
+The node-agent pods use the **same Kubernetes volume mount API** that your application uses:
+
+```yaml
+# What node-agent does internally (conceptual)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: node-agent-abc
+  namespace: openshift-adp
+spec:
+  volumes:
+  - name: backup-target
+    persistentVolumeClaim:
+      claimName: mysql-db-galera-0  # ← Same PVC your app uses
+  containers:
+  - name: node-agent
+    volumeMounts:
+    - name: backup-target
+      mountPath: /host/pvc-data
+      readOnly: true  # ← Read-only to avoid data corruption
+    # Then runs: restic backup /host/pvc-data --repo s3:...
+```
+
+**Scenario 1: Application Running**
+```bash
+# Your application pod is running
+$ oc get pods -n openstack
+NAME        READY   STATUS    NODE
+galera-0   1/1     Running   worker-0
+
+# galera-0 is using PVC mysql-db-galera-0
+# node-agent on worker-0 ALSO mounts mysql-db-galera-0 (read-only)
+# Both pods access same underlying volume simultaneously
+# Safe because node-agent uses read-only mount
+
+# Backup proceeds normally - no impact to galera-0
+```
+
+**Scenario 2: Application Stopped**
+```bash
+# Scale down your application
+$ oc scale statefulset galera --replicas=0 -n openstack
+
+# galera-0 is now gone, PVC not mounted by any app pod
+$ oc get pvc -n openstack
+NAME                  STATUS   VOLUME
+mysql-db-galera-0    Bound    pv-456
+
+# node-agent can STILL mount and backup the PVC
+# The PVC exists, so the PV data is accessible
+# Backup works perfectly - might even be safer (no writes during backup)
+```
+
+**Scenario 3: Application Deleted**
+```bash
+# Delete the entire StatefulSet
+$ oc delete statefulset galera -n openstack
+
+# As long as PVC exists (not deleted), backup works
+# PVC is independent of the StatefulSet/Pods
+# node-agent mounts the orphaned PVC and backs it up
+```
+
+**Volume Access Modes:**
+
+How node-agent accesses volumes depends on access mode:
+
+| Access Mode | Description | node-agent Behavior |
+|------------|-------------|---------------------|
+| **ReadWriteOnce (RWO)** | Volume mounted by one node only | node-agent on same node as app pod mounts it |
+| **ReadOnlyMany (ROX)** | Multiple nodes, read-only | node-agent on any node can mount it |
+| **ReadWriteMany (RWX)** | Multiple nodes, read-write | node-agent on any node can mount it |
+
+**For most OpenStack PVCs (RWO - LVM, block storage):**
+- PVC is bound to specific node where app pod runs
+- node-agent daemonset pod on **that same node** performs backup
+- This is automatic - Velero schedules backup on correct node
+
+**Example with RWO volume:**
+```bash
+# App pod using RWO volume
+$ oc get pod galera-0 -n openstack -o wide
+NAME       NODE
+galera-0  worker-0
+
+# PVC is mounted on worker-0
+$ oc get pvc mysql-db-galera-0 -n openstack -o yaml | grep nodeName
+
+# node-agent on worker-0 will perform the backup
+$ oc get pod -n openshift-adp -o wide | grep worker-0
+NAME              NODE
+node-agent-abc   worker-0  ← This pod backs up the PVC
+
+# If app pod moves to worker-1, different node-agent handles it
+```
+
+**Summary:**
+- ✅ **node-agent pods** (OADP-provided) do ALL the backup work
+- ❌ **Application pods** (Galera, Glance) are NOT involved
+- ✅ **Application can be running, stopped, or deleted** - doesn't matter
+- ✅ **node-agent mounts PVCs directly** using Kubernetes volume API
+- ✅ **Read-only mounts** ensure no data corruption
+- ✅ **Automatic node selection** based on PVC location (for RWO volumes)
+
 ## Backup Strategies for DR
 
 ### Strategy 1: Velero with Restic/Kopia (Recommended)
