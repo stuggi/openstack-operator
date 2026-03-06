@@ -91,6 +91,7 @@ func (r *OpenStackControlPlaneReconciler) GetLogger(ctx context.Context) logr.Lo
 // +kubebuilder:rbac:groups=core.openstack.org,resources=openstackcontrolplanes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=core.openstack.org,resources=openstackcontrolplanes/finalizers,verbs=update;patch
 // +kubebuilder:rbac:groups=core.openstack.org,resources=openstackversions,verbs=get;list;create
+// +kubebuilder:rbac:groups=backup.openstack.org,resources=openstackbackupconfigs,verbs=get;list;create;update;patch
 // +kubebuilder:rbac:groups=ironic.openstack.org,resources=ironics,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=client.openstack.org,resources=openstackclients,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=horizon.openstack.org,resources=horizons,verbs=get;list;watch;create;update;patch;delete
@@ -246,6 +247,15 @@ func (r *OpenStackControlPlaneReconciler) Reconcile(ctx context.Context, req ctr
 			condition.SeverityInfo,
 			corev1beta1.OpenStackControlPlaneOpenStackVersionInitializationReadyRunningMessage))
 		return ctrlResult, nil
+	}
+
+	// Automatically create OpenStackBackupConfig CR for this controlplane
+	Log.Info("Reconciling OpenStackBackupConfig")
+	_, _, err = openstack.ReconcileBackupConfig(ctx, instance, helper)
+	if err != nil {
+		Log.Error(err, "Failed to reconcile OpenStackBackupConfig")
+		// Don't fail the reconcile, just log the error - backup config is not critical for controlplane
+		// The user can manually create it if needed
 	}
 
 	versionHelper, err := common_helper.NewHelper(
