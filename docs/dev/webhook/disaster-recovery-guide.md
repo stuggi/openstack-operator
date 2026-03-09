@@ -805,22 +805,355 @@ Uses CSI volume snapshots combined with storage-level replication. **Storage pro
 - PVC data replicated using storage-native replication (e.g., Ceph RBD mirroring)
 - Requires coordination between Velero and storage layer
 
-### Comparison: CSI Snapshots vs Restic/Kopia
+### Strategy 4: OADP Data Mover (Recommended for Production)
 
-| Aspect | CSI Snapshots (Local Storage) | CSI Snapshots (External Storage) | Restic/Kopia File-Level Backup |
-|--------|------------------------------|--------------------------------|-------------------------------|
-| **Backup Speed** | ✅ Fast (storage-level) | ✅ Fast (storage-level) | ⚠️ Slower (file-by-file to S3) |
-| **Restore Speed** | ✅ Fast (storage-level) | ✅ Fast (storage-level) | ⚠️ Slower (download from S3) |
-| **Data in S3** | ❌ **Metadata only** | ❌ **Metadata only** | ✅ **Full data** |
-| **Data Location** | ❌ Same node/disk | ⚠️ External storage backend | ✅ S3 object storage |
-| **Survives Node Loss** | ❌ **NO** | ✅ Yes | ✅ Yes |
-| **Survives Cluster Loss** | ❌ **NO** | ⚠️ Only if storage survives | ✅ Yes |
-| **Survives Datacenter Loss** | ❌ **NO** | ❌ NO (unless replicated) | ✅ Yes (S3 in different region) |
-| **DR to Different Storage** | ❌ Impossible | ❌ Very difficult | ✅ Yes (storage-agnostic) |
-| **Storage Overhead** | ✅ Minimal (COW) | ✅ Minimal (delta) | ⚠️ Full data in S3 |
-| **S3 Bandwidth** | ✅ Minimal (metadata) | ✅ Minimal (metadata) | ⚠️ High (full data) |
-| **DR Capability** | ❌ **NONE** | ⚠️ Limited/Complex | ✅ Full DR capability |
-| **Best For** | Testing, dev, rollback | Same-cluster restore | **Production DR** |
+**Available in OADP 1.2+ (GA in 1.3+)**
+
+OADP Data Mover combines the **best of CSI snapshots and Restic/Kopia** to provide fast, consistent, and portable backups.
+
+#### How Data Mover Works
+
+Data Mover uses a two-phase approach:
+
+1. **Phase 1: CSI Snapshot** - Create fast, crash-consistent, point-in-time snapshot (storage-level)
+2. **Phase 2: Move to S3** - Copy snapshot data to object storage using VolSync/Kopia (portable)
+
+**Architecture:**
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Source Cluster                                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  OpenStack Deployment                                            │
+│    └── PVC: mysql-db (10GB on LVMS)                             │
+│                                                                   │
+│  Phase 1: CSI Snapshot (instant, crash-consistent)              │
+│    └── VolumeSnapshot: mysql-db-snap                            │
+│        └── Snapshot on local LVMS (point-in-time)               │
+│                                                                   │
+│  Phase 2: Data Mover (powered by VolSync/Kopia)                 │
+│    ├── Mounts VolumeSnapshot (not live PVC)                     │
+│    ├── Reads snapshot data                                       │
+│    └── Uploads to S3: s3://bucket/mysql-db-data (10GB)          │
+│                                                                   │
+│  Result:                                                         │
+│    ✅ Fast backup (snapshot instant)                             │
+│    ✅ Crash-consistent (snapshot point-in-time)                  │
+│    ✅ Portable (data in external S3)                             │
+│    ✅ No application impact (reads from snapshot, not live vol)  │
+│                                                                   │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+                    ┌─────────────────────┐
+                    │   Object Storage    │
+                    │   (S3-compatible)   │
+                    │                     │
+                    │ - Snapshot data     │
+                    │ - Resources (JSON)  │
+                    │ - Metadata          │
+                    └─────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│ Target Cluster (DR Site)                                         │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  OADP/Velero Restore                                             │
+│    ├── Creates PVCs in target cluster                           │
+│    ├── Data Mover downloads from S3                             │
+│    └── Populates PVCs with data                                 │
+│                                                                   │
+│  OpenStack Deployment (Restored)                                 │
+│    └── Application pods mount restored PVCs                      │
+│                                                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Benefits Over Other Approaches
+
+**vs Direct Restic/Kopia:**
+- ✅ **Faster backup** - Snapshot is instant (seconds vs minutes/hours)
+- ✅ **Better consistency** - Snapshot captures exact point-in-time, not rolling window
+- ✅ **Less application impact** - Reads from snapshot, not live volume
+- ✅ **Leverages existing CSI infrastructure** - Uses your POC work!
+
+**vs CSI Snapshots Only:**
+- ✅ **Portable** - Data copied to S3, survives cluster/storage loss
+- ✅ **Works with local storage** - LVMS, TopoLVM, LocalPV all supported
+- ✅ **True DR capability** - Can restore to different cluster/storage
+
+**vs Storage-Level Replication:**
+- ✅ **Storage agnostic** - Restore to any storage type
+- ✅ **No storage vendor lock-in** - Works with any CSI driver
+- ✅ **Simpler** - No complex storage replication setup
+
+#### Configuration
+
+**Enable Data Mover in DataProtectionApplication:**
+
+```yaml
+apiVersion: oadp.openshift.io/v1alpha1
+kind: DataProtectionApplication
+metadata:
+  name: velero
+  namespace: openshift-adp
+spec:
+  configuration:
+    velero:
+      defaultPlugins:
+      - openshift
+      - aws
+      - csi  # ← Required for CSI snapshots
+
+    # Enable Data Mover feature
+    features:
+      dataMover:
+        enable: true
+        credentialName: cloud-credentials  # S3 credentials for data transfer
+        timeout: 10m  # Timeout for snapshot data transfer
+
+    # Optional: Also enable node-agent for direct Restic fallback
+    nodeAgent:
+      enable: true
+      uploaderType: kopia
+
+  backupLocations:
+  - velero:
+      provider: aws
+      default: true
+      credential:
+        name: cloud-credentials
+        key: cloud
+      config:
+        region: us-east-1
+        s3Url: https://s3.example.com
+        s3ForcePathStyle: "true"
+      objectStorage:
+        bucket: openstack-dr-backups
+        prefix: prod-cluster
+
+  # VolumeSnapshotLocation for CSI snapshots
+  snapshotLocations:
+  - velero:
+      provider: aws  # Or your CSI driver provider
+      config:
+        region: us-east-1
+```
+
+**Create Backup with Data Mover:**
+
+```yaml
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-backup-datamover
+  namespace: openshift-adp
+spec:
+  includedNamespaces:
+  - openstack
+
+  # Enable CSI snapshots
+  snapshotVolumes: true
+
+  # Enable Data Mover to copy snapshots to S3
+  snapshotMoveData: true  # ← KEY: This triggers Data Mover!
+
+  # Specify data mover configuration
+  datamover:
+    enable: true
+    timeout: 10m  # Adjust based on PVC sizes
+
+  storageLocation: default
+  volumeSnapshotLocations:
+  - velero-sample-1
+
+  ttl: 720h0m0s
+```
+
+**What Happens During Backup:**
+
+1. Velero creates VolumeSnapshots for labeled PVCs (uses your POC labels!)
+2. CSI driver creates storage-level snapshots (instant, crash-consistent)
+3. Data Mover detects `snapshotMoveData: true`
+4. Data Mover creates temporary pods to mount each snapshot
+5. Data is read from snapshots and uploaded to S3 via Kopia
+6. Backup completes when all snapshot data in S3
+7. (Optional) Local CSI snapshots can be deleted to save space
+
+**Restore to DR Cluster:**
+
+```yaml
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-dr-restore
+  namespace: openshift-adp
+spec:
+  backupName: openstack-backup-datamover
+
+  includedNamespaces:
+  - openstack
+
+  # Data Mover automatically handles restore
+  restorePVs: true
+
+  # No CSI snapshots needed in target cluster
+  # Data comes from S3
+
+  # Storage class mapping (if needed)
+  # storageClassMapping:
+  #   lvms-provisioner: ceph-rbd
+```
+
+**What Happens During Restore:**
+
+1. Velero creates PVCs in DR cluster
+2. Data Mover creates restore pods
+3. Data downloaded from S3 to new PVCs
+4. Works even if DR cluster has different storage backend
+5. Application pods can mount restored PVCs
+
+#### Data Mover with LVMS (Local Storage)
+
+**Perfect match for local storage DR!**
+
+**Backup Phase:**
+```bash
+# Source cluster with LVMS
+Node worker-0:
+└── LVMS Volume Group: vg-storage
+    └── LVM Volume: mysql-db (10GB)
+        └── PVC: mysql-db-galera-0
+
+# Data Mover backup:
+# 1. CSI snapshot created (instant, local LVMS snapshot)
+# 2. Data Mover mounts the snapshot
+# 3. Reads all data from snapshot
+# 4. Uploads to S3: s3://bucket/mysql-db-galera-0/ (10GB)
+# 5. Local snapshot can be deleted (data safe in S3)
+
+# If cluster/node lost:
+# - LVMS and local snapshot are gone
+# - S3 has complete data ✅
+```
+
+**Restore Phase:**
+```bash
+# DR cluster (different hardware/nodes)
+Node worker-5:  # Different node!
+└── LVMS Volume Group: vg-storage
+    └── (will create new volume)
+
+# Data Mover restore:
+# 1. Creates PVC mysql-db-galera-0 (Pending)
+# 2. Creates restore pod
+# 3. Kubernetes schedules to worker-5 (has LVMS capacity)
+# 4. LVMS creates NEW 10GB volume on worker-5
+# 5. Data Mover downloads data from S3
+# 6. Writes to new LVM volume
+# 7. galera-0 can now use restored data
+
+# Result: Full DR from local storage! ✅
+```
+
+#### Advantages for Your POC
+
+**Your CSI snapshot POC is the perfect foundation for Data Mover!**
+
+All your work is used:
+- ✅ CRD labels → Velero uses these to identify resources
+- ✅ PVC labels (`openstack.org/backup: "true"`) → Identifies which PVCs to snapshot
+- ✅ CR instance labels → Used for restore ordering
+- ✅ Backup/Restore CRs → Just add `snapshotMoveData: true`
+
+**Migration path:**
+
+```yaml
+# Step 1: Test your current POC (CSI snapshots only)
+# - Validates labeling works
+# - Tests in-cluster restore
+# - Proves backup/restore ordering
+
+# Step 2: Enable Data Mover (add one line to backups)
+apiVersion: velero.io/v1
+kind: Backup
+spec:
+  snapshotVolumes: true
+  snapshotMoveData: true  # ← Add this!
+
+# Step 3: Test DR restore to different cluster
+# - Everything else stays the same
+# - Data Mover handles portability automatically
+```
+
+#### Version Requirements
+
+| OADP Version | Data Mover Status | Notes |
+|-------------|------------------|-------|
+| OADP 1.1.x | ❌ Not available | Use Restic/Kopia |
+| OADP 1.2.x | ⚠️ Tech Preview | Early adopter, may have issues |
+| OADP 1.3.x | ✅ GA (Generally Available) | Recommended minimum version |
+| OADP 1.4.x+ | ✅ Enhanced | Performance improvements, bug fixes |
+
+**Check your version:**
+```bash
+oc get csv -n openshift-adp | grep oadp
+```
+
+#### Limitations and Considerations
+
+**Current Limitations:**
+
+1. **Snapshot must succeed first** - If CSI snapshot fails, Data Mover doesn't run
+2. **Storage overhead** - Both snapshot AND S3 storage used (temporarily)
+3. **Time window** - Snapshot creation + data transfer to S3 (longer than snapshot-only)
+4. **CSI driver dependency** - Requires working CSI snapshot capability
+
+**Best Practices:**
+
+1. **Set appropriate timeout** - Large PVCs need longer `datamover.timeout`
+2. **Monitor transfer progress** - Check Data Mover pod logs
+3. **Test restore regularly** - Verify DR capability works
+4. **Clean up old snapshots** - Delete local CSI snapshots after data in S3
+5. **S3 capacity planning** - Need space for all PVC data
+
+**Cleanup of Local Snapshots:**
+
+```yaml
+# Optional: Delete CSI snapshots after Data Mover completes
+# Saves local storage space, data is safely in S3
+spec:
+  snapshotMoveData: true
+  datamover:
+    enable: true
+    timeout: 10m
+    deleteSnapshotAfterUpload: true  # Clean up local snapshot
+```
+
+### Comparison: CSI-Only vs Restic/Kopia vs Data Mover
+
+| Aspect | CSI Snapshots (Local) | CSI Snapshots (External) | Restic/Kopia | **Data Mover** |
+|--------|----------------------|-------------------------|--------------|----------------|
+| **Backup Speed** | ✅ Instant (snapshot) | ✅ Instant (snapshot) | ⚠️ Slow (file-scan) | ✅ Fast (snapshot + async upload) |
+| **Restore Speed** | ✅ Instant (snapshot) | ✅ Instant (snapshot) | ⚠️ Slow (download) | ⚠️ Medium (download from S3) |
+| **Data in S3** | ❌ **Metadata only** | ❌ **Metadata only** | ✅ **Full data** | ✅ **Full data** |
+| **Data Location** | ❌ Same node/disk | ⚠️ Storage backend | ✅ S3 | ✅ S3 |
+| **Consistency** | ✅ Point-in-time | ✅ Point-in-time | ⚠️ Rolling window | ✅ Point-in-time (snapshot) |
+| **Application Impact** | ✅ None | ✅ None | ⚠️ Reads live volume | ✅ None (reads snapshot) |
+| **Survives Node Loss** | ❌ **NO** | ✅ Yes | ✅ Yes | ✅ Yes |
+| **Survives Cluster Loss** | ❌ **NO** | ⚠️ Only if storage survives | ✅ Yes | ✅ Yes |
+| **Survives Datacenter Loss** | ❌ **NO** | ❌ NO (unless replicated) | ✅ Yes | ✅ Yes |
+| **DR to Different Storage** | ❌ Impossible | ❌ Very difficult | ✅ Yes | ✅ Yes (storage-agnostic) |
+| **Local Storage (LVMS) DR** | ❌ **ZERO** | N/A | ✅ Full DR | ✅ **Full DR** |
+| **Storage Overhead** | ✅ Minimal (COW) | ✅ Minimal (delta) | ⚠️ Full data in S3 | ⚠️ Snapshot + S3 data |
+| **S3 Bandwidth** | ✅ Minimal | ✅ Minimal | ⚠️ High during backup | ⚠️ High (async after snapshot) |
+| **Requires CSI Snapshots** | ✅ Yes | ✅ Yes | ❌ No | ✅ Yes |
+| **Works Without CSI** | ❌ No | ❌ No | ✅ Yes | ❌ No |
+| **OADP Version** | Any | Any | Any | 1.3+ (GA) |
+| **Complexity** | ✅ Simple | ✅ Simple | ⚠️ Medium | ⚠️ Medium |
+| **Production Ready** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes (OADP 1.3+) |
+| **DR Capability** | ❌ **NONE** | ⚠️ Limited/Complex | ✅ Full DR | ✅ **Full DR** |
+| **Best For** | In-cluster rollback | In-cluster restore | Any storage, no CSI | **CSI + DR portability** |
 
 **Storage Type Examples:**
 
@@ -836,22 +1169,232 @@ Uses CSI volume snapshots combined with storage-level replication. **Storage pro
 
 **Critical Recommendations:**
 
-| Environment | Backup Strategy |
-|------------|----------------|
-| **Local Storage (LVM, HostPath)** | ⚠️ **MUST use Restic/Kopia** - CSI snapshots are NOT backups |
-| **External Storage (Ceph, etc.)** | Use both: CSI for fast recovery, Restic/Kopia for true DR |
-| **Production DR** | ⚠️ **MUST use Restic/Kopia** - Only true portable backup solution |
-| **Development/Testing** | CSI snapshots acceptable (data loss acceptable) |
+| Environment | Backup Strategy | Why |
+|------------|----------------|-----|
+| **Local Storage (LVMS, HostPath) + OADP 1.3+** | ✅ **Data Mover** | Fast snapshots + S3 portability + works with local storage |
+| **Local Storage + OADP < 1.3** | ⚠️ **Restic/Kopia** | Data Mover not available, Restic is only DR option |
+| **External Storage (Ceph, etc.) + OADP 1.3+** | ✅ **Data Mover** | Best of both: snapshot speed + DR capability |
+| **External Storage + OADP < 1.3** | Use both: CSI for fast recovery, Restic/Kopia for DR | |
+| **Production DR** | ✅ **Data Mover (preferred)** or Restic/Kopia | Portable backup required |
+| **Development/Testing** | CSI snapshots acceptable | Data loss acceptable |
+| **CSI Not Available** | Restic/Kopia | Only option without CSI support |
 
-**Summary:**
-- **CSI Snapshots with Local Storage**: Not a backup, only a local snapshot (like `cp -al` or LVM snapshot)
-- **CSI Snapshots with External Storage**: Backup IF storage survives (not true DR)
-- **Restic/Kopia**: True backup, all data in S3, full DR capability
+**Decision Tree:**
 
-**Recommendation for OpenStack DR:**
-- **Local Storage Users**: ⚠️ **MUST use Restic/Kopia** - CSI snapshots provide ZERO DR protection
-- **External Storage Users**: Use both - CSI for quick in-cluster recovery, Restic/Kopia for true DR
-- **Production**: ALWAYS use Restic/Kopia for DR regardless of storage type
+```
+Do you have OADP 1.3+ ?
+├─ YES
+│  └─ Does your storage support CSI snapshots?
+│     ├─ YES → ✅ Use Data Mover (best option)
+│     └─ NO  → Use Restic/Kopia
+│
+└─ NO (OADP < 1.3)
+   └─ Local storage (LVMS, etc.)?
+      ├─ YES → ⚠️ MUST use Restic/Kopia (CSI snapshots = no DR)
+      └─ NO  → Use both: CSI (fast) + Restic/Kopia (DR)
+```
+
+**Summary by Approach:**
+
+| Approach | Summary | DR Capability |
+|----------|---------|---------------|
+| **CSI Snapshots (Local)** | Not a backup - local snapshot only (like LVM snapshot) | ❌ **ZERO** |
+| **CSI Snapshots (External)** | Backup IF storage survives (not true DR) | ⚠️ Limited |
+| **Restic/Kopia** | True backup, all data in S3, storage-agnostic | ✅ Full DR |
+| **Data Mover** | Snapshot consistency + S3 portability, best of both worlds | ✅ **Full DR** |
+
+**Updated Recommendation for OpenStack DR:**
+
+| Your Situation | Recommended Solution |
+|---------------|---------------------|
+| **LVMS/Local Storage + OADP 1.3+** | ✅ **Data Mover** - Perfect match! |
+| **LVMS/Local Storage + OADP < 1.3** | ⚠️ **Restic/Kopia** - Only DR option |
+| **External Storage + OADP 1.3+** | ✅ **Data Mover** - Fast + portable |
+| **External Storage + OADP < 1.3** | CSI (daily, fast) + Restic/Kopia (weekly, DR) |
+| **Production (any storage)** | ✅ **Data Mover** if available, else Restic/Kopia |
+| **CSI POC Working** | ✅ Add `snapshotMoveData: true` to enable Data Mover! |
+
+**Why Data Mover is Preferred (when available):**
+- ✅ Leverages your CSI snapshot POC work
+- ✅ Fast backup (snapshot is instant)
+- ✅ Crash-consistent (point-in-time snapshot)
+- ✅ Portable (data copied to S3)
+- ✅ Works with local storage (LVMS, TopoLVM)
+- ✅ Storage-agnostic restore
+- ✅ Less application impact (reads snapshot, not live volume)
+
+## Migration Path: POC to Production DR
+
+If you've completed the CSI snapshot POC and want to add DR capability, here's the migration path:
+
+### Current POC (CSI Snapshots Only)
+
+✅ **What works:**
+- Fast in-cluster backup and restore
+- CRD, PVC, and CR instance labeling
+- Backup/restore ordering
+- Works great for rollback and testing
+
+❌ **What's missing:**
+- No DR capability (especially for local storage)
+- Snapshots don't survive cluster loss
+- Can't restore to different cluster
+
+### Step 1: Verify OADP Version
+
+```bash
+# Check OADP version
+oc get csv -n openshift-adp | grep oadp
+
+# Data Mover available in OADP 1.3+
+# If OADP < 1.3, you'll need to use Restic/Kopia instead
+```
+
+### Step 2: Enable Data Mover (OADP 1.3+)
+
+Update your existing DataProtectionApplication:
+
+```yaml
+# Your existing DPA (from POC)
+apiVersion: oadp.openshift.io/v1alpha1
+kind: DataProtectionApplication
+metadata:
+  name: velero
+  namespace: openshift-adp
+spec:
+  configuration:
+    velero:
+      defaultPlugins:
+      - openshift
+      - aws
+      - csi  # ← Already have this from POC
+
+    # ADD THIS: Enable Data Mover
+    features:
+      dataMover:
+        enable: true
+        credentialName: cloud-credentials
+        timeout: 10m
+
+  backupLocations:
+  - velero:
+      provider: aws
+      default: true
+      credential:
+        name: cloud-credentials
+        key: cloud
+      config:
+        s3Url: https://s3.example.com
+        s3ForcePathStyle: "true"
+      objectStorage:
+        bucket: openstack-dr-backups  # Same or new bucket
+
+  snapshotLocations:
+  - velero:
+      provider: aws  # Or your CSI provider
+      config:
+        region: us-east-1
+```
+
+### Step 3: Update Backup CRs
+
+Add one line to your existing backup CRs:
+
+```yaml
+# Before (POC - CSI snapshots only):
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-backup-pvcs
+  namespace: openshift-adp
+spec:
+  includedNamespaces:
+  - openstack
+
+  labelSelector:
+    matchLabels:
+      openstack.org/backup: "true"
+
+  snapshotVolumes: true  # ← Already have this
+
+  storageLocation: default
+  ttl: 720h0m0s
+
+# After (Production - CSI snapshots + Data Mover):
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-backup-pvcs-dr
+  namespace: openshift-adp
+spec:
+  includedNamespaces:
+  - openstack
+
+  labelSelector:
+    matchLabels:
+      openstack.org/backup: "true"
+
+  snapshotVolumes: true
+  snapshotMoveData: true  # ← ADD THIS LINE for DR!
+
+  storageLocation: default
+  ttl: 720h0m0s
+```
+
+### Step 4: Test DR Backup
+
+```bash
+# Create backup with Data Mover
+oc create -f backup-with-datamover.yaml
+
+# Watch backup progress
+oc get backup openstack-backup-pvcs-dr -n openshift-adp -w
+
+# Check Data Mover pods (appear during backup)
+oc get pods -n openstack | grep datamover
+
+# Verify backup completed
+oc describe backup openstack-backup-pvcs-dr -n openshift-adp
+
+# Check S3 bucket - should see snapshot data uploaded
+```
+
+### Step 5: Test DR Restore (Optional)
+
+Test restore to a different cluster (or different namespace):
+
+```bash
+# On DR cluster:
+# 1. Install OADP and configure same S3 backend
+# 2. Verify backup is visible
+oc get backups -n openshift-adp
+
+# 3. Create restore
+oc apply -f - <<EOF
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-dr-test
+  namespace: openshift-adp
+spec:
+  backupName: openstack-backup-pvcs-dr
+  includedNamespaces:
+  - openstack
+  restorePVs: true
+EOF
+
+# 4. Watch restore
+oc get restore openstack-dr-test -n openshift-adp -w
+
+# 5. Verify PVCs restored with data
+oc get pvc -n openstack
+```
+
+### Alternative: Use Restic/Kopia (OADP < 1.3)
+
+If you can't use Data Mover, add Restic/Kopia for DR:
+
+**See the detailed Restic/Kopia configuration in the sections below.**
 
 ## DR Backup Configuration
 
@@ -867,6 +1410,13 @@ Uses CSI volume snapshots combined with storage-level replication. **Storage pro
    ```bash
    oc create namespace openshift-adp
    # Install OADP operator via OperatorHub or subscription
+   ```
+
+3. **For Data Mover: OADP 1.3+**
+   ```bash
+   # Verify version
+   oc get csv -n openshift-adp | grep oadp
+   # Should show version 1.3.x or higher
    ```
 
 ### Configure DataProtectionApplication for DR
