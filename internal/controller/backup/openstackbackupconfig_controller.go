@@ -129,7 +129,7 @@ func (r *OpenStackBackupConfigReconciler) labelResource(ctx context.Context, log
 	}
 
 	// Check if already labeled
-	if labels[backup.BackupLabel] == "true" && labels[backup.BackupRestoreOrderLabel] == restoreOrder {
+	if labels[backup.BackupRestoreLabel] == "true" && labels[backup.BackupRestoreOrderLabel] == restoreOrder {
 		return nil
 	}
 
@@ -138,7 +138,8 @@ func (r *OpenStackBackupConfigReconciler) labelResource(ctx context.Context, log
 	labels = util.MergeStringMaps(labels, backupLabels)
 	obj.SetLabels(labels)
 
-	log.Info("Labeling resource for backup", "kind", obj.GetObjectKind().GroupVersionKind().Kind, "name", obj.GetName())
+	log.Info("Labeled resource for backup", "kind", obj.GetObjectKind().GroupVersionKind().Kind, "name", obj.GetName(),
+		"restoreOrder", restoreOrder)
 	return r.Update(ctx, obj)
 }
 
@@ -254,14 +255,19 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 		for i := range list.Items {
 			obj := &list.Items[i]
 
-			// Get the full object to update labels
-			patch := client.MergeFrom(obj.DeepCopy())
 			labels := obj.GetLabels()
 			if labels == nil {
 				labels = make(map[string]string)
 			}
 
-			// Merge backup labels based on CRD configuration
+			// Check if already labeled with correct values
+			if labels[backup.BackupRestoreLabel] == "true" &&
+				labels[backup.BackupRestoreOrderLabel] == backupConfig.RestoreOrder &&
+				(backupConfig.Category == "" || labels[backup.BackupCategoryLabel] == backupConfig.Category) {
+				continue
+			}
+
+			patch := client.MergeFrom(obj.DeepCopy())
 			labels = util.MergeStringMaps(
 				labels,
 				backup.GetBackupLabelsWithCategory(backupConfig.RestoreOrder, backupConfig.Category),
@@ -269,9 +275,11 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 			obj.SetLabels(labels)
 
 			if err := r.Patch(ctx, obj, patch); err != nil {
-				log.Error(err, "Failed to label CR instance", "crd", crdName, "name", obj.GetName())
+				log.Error(err, "Failed to label CR instance", "kind", gvk.Kind, "name", obj.GetName())
 				continue
 			}
+			log.Info("Labeled CR instance for backup", "kind", gvk.Kind, "name", obj.GetName(),
+				"restoreOrder", backupConfig.RestoreOrder, "category", backupConfig.Category)
 			count++
 		}
 	}

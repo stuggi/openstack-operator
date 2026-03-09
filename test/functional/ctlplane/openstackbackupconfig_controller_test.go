@@ -102,7 +102,7 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 
 				labels := controlPlane.GetLabels()
 				g.Expect(labels).NotTo(BeNil(), "ControlPlane should have labels")
-				g.Expect(labels[commonbackup.BackupLabel]).To(
+				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(
 					Equal("true"),
 					"ControlPlane should have backup label",
 				)
@@ -123,7 +123,7 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 
 				labels := backupConfig.GetLabels()
 				g.Expect(labels).NotTo(BeNil(), "BackupConfig should have labels")
-				g.Expect(labels[commonbackup.BackupLabel]).To(
+				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(
 					Equal("true"),
 					"BackupConfig should have backup label (CRD has backup-restore: true)",
 				)

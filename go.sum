@@ -228,8 +228,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/stuggi/glance-operator/api v0.0.0-20260306145615-9f64fd5c91e9 h1:tBPkvGo3t7x44hVYL18scD3HrZKyQnkOajXo8ubiIOo=
 github.com/stuggi/glance-operator/api v0.0.0-20260306145615-9f64fd5c91e9/go.mod h1:4Y0Q6mnvhxYe4ZXhfr20NAZ23QOT5qsaU3R1E5tdd34=
-github.com/stuggi/lib-common/modules/common v0.0.0-20260306130207-e607697b6c89 h1:O0uxHVAKiIjmHiBI3FVUx1n8P7q8+BfRnRVy/K5e+Mo=
-github.com/stuggi/lib-common/modules/common v0.0.0-20260306130207-e607697b6c89/go.mod h1:I/VBXZLdjk8DUGsEbB+Ha72JBFYYntP7Pm2FpEto9K8=
+github.com/stuggi/lib-common/modules/common v0.0.0-20260309175117-e79744208cf4 h1:AYnU40LwZBB3Stckb51OtpfGeY2Ul5XLrjTGYLQ1O1k=
+github.com/stuggi/lib-common/modules/common v0.0.0-20260309175117-e79744208cf4/go.mod h1:I/VBXZLdjk8DUGsEbB+Ha72JBFYYntP7Pm2FpEto9K8=
 github.com/stuggi/mariadb-operator/api v0.0.0-20260306144419-2488094f460d h1:zS3ZlThcTUbyNrX5Tdh9z72Bd7+jLugTIxGJq+qwZzQ=
 github.com/stuggi/mariadb-operator/api v0.0.0-20260306144419-2488094f460d/go.mod h1:z/bs1jL8R+hafiMPKpY+aLbyE9efBpLdznbUw1XK5tA=
 github.com/tidwall/gjson v1.18.0 h1:FIDeeyB800efLX89e5a8Y0BNH+LOngJyGrIWxG2FKQY=
