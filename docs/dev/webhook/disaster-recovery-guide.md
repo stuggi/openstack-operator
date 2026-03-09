@@ -4,11 +4,44 @@
 
 This guide covers disaster recovery (DR) scenarios where an OpenStack deployment needs to be restored to a **new cluster** due to catastrophic failure of the original cluster. This is different from in-cluster backup/restore where the cluster infrastructure remains intact.
 
-⚠️ **CRITICAL WARNING - Local Storage Users**:
+## Requirements
 
-If your cluster uses **local storage** (LVM, LocalPV, HostPath), the current POC backup approach using CSI volume snapshots is **NOT A BACKUP** for disaster recovery purposes. CSI snapshots with local storage are stored on the same nodes/disks as your data and will be lost if the cluster is lost.
+⚠️ **OADP 1.3+ REQUIRED**
 
-**For local storage, you MUST use Restic/Kopia** (documented in this guide) to have any disaster recovery capability. CSI snapshots with local storage only provide protection against application errors, NOT against hardware or cluster failures.
+This disaster recovery solution requires **OADP 1.3.0 or higher** to use the Data Mover feature (GA in OADP 1.3).
+
+```bash
+# Check your OADP version
+oc get csv -n openshift-adp | grep oadp
+
+# Required: oadp-operator.v1.3.x or higher
+# If you have OADP < 1.3, upgrade before implementing DR
+```
+
+**Why OADP 1.3+ is required:**
+- Data Mover feature (GA) provides CSI snapshot + S3 portability
+- Perfect solution for local storage (LVMS/TopoLVM) disaster recovery
+- Best combination of speed (snapshot instant) and portability (data in S3)
+- Leverages your CSI snapshot POC work
+- Production-ready, well-tested, and supported
+
+**If you have OADP < 1.3:**
+- Upgrade OADP to 1.3+ (recommended)
+- Or see [Alternative: Restic/Kopia](#alternative-restic-kopia-without-data-mover) section (not recommended)
+
+## Critical Warning - Local Storage Users
+
+If your cluster uses **local storage** (LVMS, LocalPV, HostPath), CSI volume snapshots alone are **NOT A BACKUP** for disaster recovery purposes.
+
+**The Problem:**
+- CSI snapshots with local storage are stored on the same nodes/disks as your data
+- If cluster/nodes are lost, snapshots are also lost
+- VolumeSnapshot metadata in S3 is useless without the actual snapshot data
+
+**The Solution:**
+- **OADP Data Mover** (OADP 1.3+) takes CSI snapshots AND copies data to S3
+- Provides full DR capability even for local storage
+- Fast (snapshot instant) + Portable (data in S3)
 
 See the [Understanding Backup Approaches](#understanding-backup-approaches) section below for detailed explanation.
 
@@ -335,67 +368,40 @@ node-agent-abc   worker-0  ← This pod backs up the PVC
 
 ## Backup Strategies for DR
 
-### Strategy 1: Velero with Restic/Kopia (Recommended)
+### Strategy 1: OADP Data Mover (Recommended - OADP 1.3+)
 
-This is the **recommended approach** for true disaster recovery as it stores **all data** (resources AND PVC contents) in external object storage.
+This is the **recommended approach** for OpenStack disaster recovery as it combines CSI snapshot speed with S3 portability.
 
-#### Why This Works for DR
+**Requirements:**
+- OADP 1.3.0 or higher
+- CSI driver with snapshot support
+- S3-compatible object storage
 
-1. **Backup Phase**: Velero backs up both Kubernetes resources AND complete PVC data to S3-compatible object storage
-2. **Storage**: All data stored externally (survives cluster AND storage backend loss)
-3. **Restore Phase**: New cluster with different storage backend can restore everything from S3
+#### Why Data Mover is Recommended
 
-#### Architecture
+1. **Backup Phase**: CSI snapshot (instant) + data copied to S3 (portable)
+2. **Storage**: All data in S3, survives cluster AND storage backend loss
+3. **Restore Phase**: New cluster downloads from S3, works with any storage type
+4. **Leverages POC Work**: Uses all your CSI snapshot labeling and infrastructure
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│ Source Cluster (Production)                                     │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  OpenStack Deployment                                           │
-│    ├── CRs (ControlPlane, DataPlane, etc.)                     │
-│    ├── Secrets, ConfigMaps, NADs                               │
-│    └── PVCs (Glance, MariaDB backups)                          │
-│                                                                  │
-│  OADP/Velero Backup                                             │
-│    ├── Serializes resources → Object Storage                   │
-│    └── Restic/Kopia: File-level backup of PVC data → Object    │
-│                       Storage                                    │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓
-                    ┌─────────────────────┐
-                    │   Object Storage    │
-                    │   (S3-compatible)   │
-                    │                     │
-                    │ - Resources (JSON)  │
-                    │ - PVC data (tar.gz) │
-                    │ - Metadata          │
-                    └─────────────────────┘
-                              ↓
-┌─────────────────────────────────────────────────────────────────┐
-│ Target Cluster (DR Site)                                        │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  OADP/Velero Restore                                            │
-│    ├── Reads resources from Object Storage                     │
-│    ├── Recreates CRs, Secrets, ConfigMaps                      │
-│    ├── Creates PVCs                                             │
-│    └── Restic/Kopia: Restores file data into PVCs              │
-│                                                                  │
-│  OpenStack Deployment (Restored)                                │
-│    ├── ControlPlane reconciles                                 │
-│    ├── Databases restored from backup data                     │
-│    └── Services come online                                     │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+**See detailed Data Mover configuration in [Data Mover section below](#oadp-data-mover---recommended-solution-oadp-13).**
 
-#### Special Note: LVMS/Local Storage
+### Strategy 2: CSI Snapshots Only (In-Cluster Restore Only)
 
-**If you are using LVMS (Logical Volume Manager Storage) or any local storage**, Restic/Kopia is **MANDATORY** for disaster recovery. This is not optional.
+Fast local snapshots without S3 portability. **Not recommended for production DR.**
 
-**Why LVMS requires Restic/Kopia:**
+**Use case:** Development, testing, quick rollback in same cluster.
+
+#### Why CSI-Only is Limited for DR
+
+| Limitation | Impact |
+|------------|--------|
+| **No S3 copy** | Data stays in storage backend |
+| **Local storage (LVMS)** | Snapshots on same node/disk - lost if hardware fails |
+| **External storage (Ceph)** | Snapshots survive cluster loss only if storage backend survives |
+| **DR capability** | ❌ ZERO for local storage / ⚠️ Limited for external storage |
+
+**For production DR, use Data Mover instead** - it takes CSI snapshots AND copies data to S3.
 
 | Aspect | LVMS with CSI Snapshots | LVMS with Restic/Kopia |
 |--------|------------------------|------------------------|
@@ -771,41 +777,7 @@ oc get pods -n openstack -o wide | grep galera
 - ⚠️ **Use soft anti-affinity** to avoid scheduling conflicts during DR restore
 - ⚠️ **Plan DR cluster capacity** - N+2 nodes for N replicas recommended
 
-### Strategy 2: CSI Snapshots with Storage Backend Replication
-
-Uses CSI volume snapshots combined with storage-level replication. **Storage provider dependent**.
-
-#### How It Works
-
-1. **Backup**: CSI snapshots created in storage backend (fast, storage-level)
-2. **Replication**: Storage backend replicates snapshots to DR site (e.g., Ceph RBD mirroring, AWS EBS snapshot copy)
-3. **Restore**: Import replicated snapshots into DR cluster's storage backend
-
-#### Limitations
-
-- **Storage backend dependency**: Requires storage backend to support cross-site replication
-- **Not all CSI drivers support this**: Many CSI drivers don't have cross-cluster snapshot import
-- **Complex setup**: Requires coordination between Velero and storage replication
-- **Vendor lock-in**: DR cluster must use same storage backend type
-- **Datacenter failure risk**: If storage backend is in same datacenter, replication may be affected
-
-**Example Working Scenarios:**
-- AWS EBS: Snapshots can be copied across regions, then imported in DR cluster
-- Ceph RBD Mirroring: Replicate RBD images to remote Ceph cluster
-- NetApp Trident: SnapMirror for volume replication
-
-**Why This Is Complex:**
-- VolumeSnapshot objects contain cluster-specific metadata (UIDs, CSI driver handles)
-- DR cluster needs to create VolumeSnapshotContent pointing to replicated snapshots
-- Manual intervention often required to map snapshot IDs
-
-### Strategy 3: Hybrid Approach
-
-- Resources backed up to object storage (portable)
-- PVC data replicated using storage-native replication (e.g., Ceph RBD mirroring)
-- Requires coordination between Velero and storage layer
-
-### Strategy 4: OADP Data Mover (Recommended for Production)
+## OADP Data Mover - Recommended Solution (OADP 1.3+)
 
 **Available in OADP 1.2+ (GA in 1.3+)**
 
@@ -1171,57 +1143,54 @@ spec:
 
 | Environment | Backup Strategy | Why |
 |------------|----------------|-----|
-| **Local Storage (LVMS, HostPath) + OADP 1.3+** | ✅ **Data Mover** | Fast snapshots + S3 portability + works with local storage |
-| **Local Storage + OADP < 1.3** | ⚠️ **Restic/Kopia** | Data Mover not available, Restic is only DR option |
-| **External Storage (Ceph, etc.) + OADP 1.3+** | ✅ **Data Mover** | Best of both: snapshot speed + DR capability |
-| **External Storage + OADP < 1.3** | Use both: CSI for fast recovery, Restic/Kopia for DR | |
-| **Production DR** | ✅ **Data Mover (preferred)** or Restic/Kopia | Portable backup required |
-| **Development/Testing** | CSI snapshots acceptable | Data loss acceptable |
-| **CSI Not Available** | Restic/Kopia | Only option without CSI support |
+| **Local Storage (LVMS, TopoLVM, HostPath)** | ✅ **Data Mover** | Fast snapshots + S3 portability + works with local storage |
+| **External Storage (Ceph, AWS EBS, etc.)** | ✅ **Data Mover** | Best of both: snapshot speed + DR capability |
+| **Production DR (any storage)** | ✅ **Data Mover** | Portable backup to S3, survives cluster loss |
+| **Development/Testing (in-cluster only)** | CSI snapshots only | Fast rollback, data loss acceptable |
+| **CSI Not Available** | See [Restic/Kopia Alternative](#alternative-restic-kopia-without-data-mover) | Fallback if no CSI support |
 
 **Decision Tree:**
 
 ```
-Do you have OADP 1.3+ ?
+Does your storage support CSI snapshots?
 ├─ YES
-│  └─ Does your storage support CSI snapshots?
-│     ├─ YES → ✅ Use Data Mover (best option)
-│     └─ NO  → Use Restic/Kopia
+│  └─ ✅ Use Data Mover (OADP 1.3+)
+│     ├─ CSI snapshot (instant, crash-consistent)
+│     ├─ Data copied to S3 (portable, DR-capable)
+│     └─ Works for both local and external storage
 │
-└─ NO (OADP < 1.3)
-   └─ Local storage (LVMS, etc.)?
-      ├─ YES → ⚠️ MUST use Restic/Kopia (CSI snapshots = no DR)
-      └─ NO  → Use both: CSI (fast) + Restic/Kopia (DR)
+└─ NO (CSI not available)
+   └─ Use Restic/Kopia (see Alternative section)
+      └─ File-level backup directly to S3
 ```
 
 **Summary by Approach:**
 
-| Approach | Summary | DR Capability |
-|----------|---------|---------------|
-| **CSI Snapshots (Local)** | Not a backup - local snapshot only (like LVM snapshot) | ❌ **ZERO** |
-| **CSI Snapshots (External)** | Backup IF storage survives (not true DR) | ⚠️ Limited |
-| **Restic/Kopia** | True backup, all data in S3, storage-agnostic | ✅ Full DR |
-| **Data Mover** | Snapshot consistency + S3 portability, best of both worlds | ✅ **Full DR** |
+| Approach | Summary | DR Capability | When to Use |
+|----------|---------|---------------|-------------|
+| **CSI Snapshots Only** | Fast local snapshots, no S3 copy | ❌ **ZERO** (local) / ⚠️ Limited (external) | In-cluster rollback, dev/test |
+| **Data Mover (Recommended)** | CSI snapshot + S3 copy, best of both | ✅ **Full DR** | **Production (OADP 1.3+)** |
+| **Restic/Kopia** | Direct file-level backup to S3, no CSI | ✅ Full DR | CSI not available |
 
-**Updated Recommendation for OpenStack DR:**
+**Recommendation for OpenStack DR (OADP 1.3+):**
 
-| Your Situation | Recommended Solution |
-|---------------|---------------------|
-| **LVMS/Local Storage + OADP 1.3+** | ✅ **Data Mover** - Perfect match! |
-| **LVMS/Local Storage + OADP < 1.3** | ⚠️ **Restic/Kopia** - Only DR option |
-| **External Storage + OADP 1.3+** | ✅ **Data Mover** - Fast + portable |
-| **External Storage + OADP < 1.3** | CSI (daily, fast) + Restic/Kopia (weekly, DR) |
-| **Production (any storage)** | ✅ **Data Mover** if available, else Restic/Kopia |
-| **CSI POC Working** | ✅ Add `snapshotMoveData: true` to enable Data Mover! |
+| Your Situation | Solution |
+|---------------|----------|
+| **Local Storage (LVMS, TopoLVM)** | ✅ **Data Mover** - Perfect for local storage DR! |
+| **External Storage (Ceph, AWS EBS)** | ✅ **Data Mover** - Fast snapshots + portable |
+| **Production DR (any storage)** | ✅ **Data Mover** - Required for true DR |
+| **CSI POC Already Working** | ✅ Add `snapshotMoveData: true` - one line! |
+| **CSI Not Supported** | See [Restic/Kopia Alternative](#alternative-restic-kopia-without-data-mover) |
 
-**Why Data Mover is Preferred (when available):**
-- ✅ Leverages your CSI snapshot POC work
-- ✅ Fast backup (snapshot is instant)
-- ✅ Crash-consistent (point-in-time snapshot)
-- ✅ Portable (data copied to S3)
-- ✅ Works with local storage (LVMS, TopoLVM)
-- ✅ Storage-agnostic restore
-- ✅ Less application impact (reads snapshot, not live volume)
+**Why Data Mover is the Solution:**
+- ✅ **Leverages your CSI snapshot POC work** - all labeling reused
+- ✅ **Fast backup** - snapshot is instant (seconds)
+- ✅ **Crash-consistent** - point-in-time snapshot
+- ✅ **Portable** - data copied to S3 (survives cluster loss)
+- ✅ **Works with local storage** - LVMS, TopoLVM, LocalPV
+- ✅ **Storage-agnostic restore** - restore to any cluster
+- ✅ **Less application impact** - reads snapshot, not live volume
+- ✅ **Production-ready** - GA in OADP 1.3+
 
 ## Migration Path: POC to Production DR
 
@@ -1246,8 +1215,21 @@ If you've completed the CSI snapshot POC and want to add DR capability, here's t
 # Check OADP version
 oc get csv -n openshift-adp | grep oadp
 
-# Data Mover available in OADP 1.3+
-# If OADP < 1.3, you'll need to use Restic/Kopia instead
+# Required: OADP 1.3+ for Data Mover
+# Example output: oadp-operator.v1.3.3
+
+# If OADP < 1.3, upgrade the operator:
+# - Via OperatorHub: Update approval strategy to Automatic
+# - Or manually approve pending update
+```
+
+**Verify Data Mover is available:**
+
+```bash
+# After ensuring OADP 1.3+, check features
+oc get oadpoperator -n openshift-adp -o yaml | grep -A 5 features
+
+# Data Mover should be available in capabilities
 ```
 
 ### Step 2: Enable Data Mover (OADP 1.3+)
@@ -1365,7 +1347,7 @@ Test restore to a different cluster (or different namespace):
 
 ```bash
 # On DR cluster:
-# 1. Install OADP and configure same S3 backend
+# 1. Install OADP 1.3+ and configure same S3 backend
 # 2. Verify backup is visible
 oc get backups -n openshift-adp
 
@@ -1390,11 +1372,13 @@ oc get restore openstack-dr-test -n openshift-adp -w
 oc get pvc -n openstack
 ```
 
-### Alternative: Use Restic/Kopia (OADP < 1.3)
+### Migration Complete!
 
-If you can't use Data Mover, add Restic/Kopia for DR:
-
-**See the detailed Restic/Kopia configuration in the sections below.**
+Your DR solution is now ready:
+- ✅ Fast backups (CSI snapshot instant)
+- ✅ Portable (data in S3)
+- ✅ DR-capable (restore to any cluster)
+- ✅ Works with local storage (LVMS)
 
 ## DR Backup Configuration
 
@@ -2423,6 +2407,89 @@ RPO depends on backup frequency:
 | Every 6 hours | 6 hours | Production (balanced) |
 | Daily | 24 hours | Development/testing |
 | Weekly | 7 days | Long-term archives |
+
+## Alternative: Restic/Kopia (Without Data Mover)
+
+**When to use this approach:**
+- CSI snapshots not supported by your storage driver
+- OADP version cannot be upgraded to 1.3+
+- Need backup solution independent of CSI
+
+**Note:** This approach is **not recommended** if Data Mover is available. Data Mover provides better consistency and less application impact.
+
+### How Restic/Kopia Works
+
+Direct file-level backup to S3 without using CSI snapshots:
+
+1. node-agent daemonset pods mount PVCs directly
+2. Scan and upload all files to S3 object storage
+3. No snapshot created, reads from live volume
+4. Restore downloads files from S3 to new PVCs
+
+**Configuration:**
+
+```yaml
+apiVersion: oadp.openshift.io/v1alpha1
+kind: DataProtectionApplication
+metadata:
+  name: velero
+  namespace: openshift-adp
+spec:
+  configuration:
+    velero:
+      defaultPlugins:
+      - openshift
+      - aws
+      # No CSI plugin
+
+    # Enable node-agent for Restic/Kopia
+    nodeAgent:
+      enable: true
+      uploaderType: kopia  # Or restic
+
+  backupLocations:
+  - velero:
+      provider: aws
+      credential:
+        name: cloud-credentials
+        key: cloud
+      config:
+        s3Url: https://s3.example.com
+        s3ForcePathStyle: "true"
+      objectStorage:
+        bucket: openstack-backups
+```
+
+**Backup:**
+
+```yaml
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-backup-restic
+spec:
+  includedNamespaces:
+  - openstack
+
+  # File-level backup to S3
+  defaultVolumesToFsBackup: true
+
+  # Don't use CSI snapshots
+  snapshotVolumes: false
+
+  storageLocation: default
+```
+
+**Limitations vs Data Mover:**
+
+| Aspect | Data Mover | Restic/Kopia |
+|--------|-----------|--------------|
+| Backup speed | ✅ Fast (snapshot instant) | ⚠️ Slow (file scan) |
+| Consistency | ✅ Point-in-time (snapshot) | ⚠️ Rolling window |
+| Application impact | ✅ None (reads snapshot) | ⚠️ Reads live volume |
+| Requires CSI | ✅ Yes | ❌ No |
+
+**Use Data Mover if possible - it's superior in every way except CSI requirement.**
 
 ## Troubleshooting
 
