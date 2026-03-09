@@ -285,7 +285,38 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=k8s.cni.cncf.io,resources=network-attachment-definitions,verbs=get;list;watch;update;patch
-// +kubebuilder:rbac:groups=*.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch
+// RBAC for labeling CR instances across all openstack.org API groups.
+// Kubernetes RBAC does not support wildcard group patterns (*.openstack.org),
+// so each group must be listed explicitly.
+// +kubebuilder:rbac:groups=barbican.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=baremetal.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=cinder.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=client.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=core.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=dataplane.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=designate.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=glance.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=heat.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=horizon.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=instanceha.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=ironic.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=keystone.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=manila.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=mariadb.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=memcached.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=network.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=neutron.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=nova.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=octavia.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=ovn.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=placement.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=rabbitmq.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=redis.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=swift.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=telemetry.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=topology.openstack.org,resources=*,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=watcher.openstack.org,resources=*,verbs=get;list;watch;update;patch
 
 // Reconcile labels user-provided resources (without ownerReferences) for backup/restore
 //

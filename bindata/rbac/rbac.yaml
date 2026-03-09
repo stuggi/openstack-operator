@@ -177,16 +177,6 @@ rules:
   verbs:
   - get
 - apiGroups:
-  - '*.openstack.org'
-  resources:
-  - '*'
-  verbs:
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - admissionregistration.k8s.io
   resources:
   - mutatingwebhookconfigurations
@@ -199,6 +189,14 @@ rules:
   - '*'
   verbs:
   - '*'
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - apps
   resources:
@@ -244,6 +242,43 @@ rules:
   verbs:
   - create
   - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - barbican.openstack.org
+  - baremetal.openstack.org
+  - cinder.openstack.org
+  - client.openstack.org
+  - core.openstack.org
+  - dataplane.openstack.org
+  - designate.openstack.org
+  - glance.openstack.org
+  - heat.openstack.org
+  - horizon.openstack.org
+  - instanceha.openstack.org
+  - ironic.openstack.org
+  - keystone.openstack.org
+  - manila.openstack.org
+  - mariadb.openstack.org
+  - memcached.openstack.org
+  - network.openstack.org
+  - neutron.openstack.org
+  - nova.openstack.org
+  - octavia.openstack.org
+  - ovn.openstack.org
+  - placement.openstack.org
+  - rabbitmq.openstack.org
+  - redis.openstack.org
+  - swift.openstack.org
+  - telemetry.openstack.org
+  - topology.openstack.org
+  - watcher.openstack.org
+  resources:
+  - '*'
+  verbs:
   - get
   - list
   - patch
