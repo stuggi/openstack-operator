@@ -18,6 +18,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -27,6 +28,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -34,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -100,6 +103,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	utilruntime.Must(corev1.AddToScheme(scheme))
 	utilruntime.Must(dataplanev1.AddToScheme(scheme))
 	utilruntime.Must(keystonev1.AddToScheme(scheme))
@@ -365,20 +369,33 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenStackDataPlaneDeployment")
 		os.Exit(1)
 	}
-	// Build CRD label cache for backup/restore
-	crdLabelCache, err := commonbackup.BuildCRDLabelCache(ctx, mgr.GetClient())
-	if err != nil {
-		setupLog.Error(err, "unable to build CRD label cache")
+
+	// Setup OpenStackBackupConfig controller
+	backupReconciler := &backupcontroller.OpenStackBackupConfigReconciler{
+		Client:  mgr.GetClient(),
+		Scheme:  mgr.GetScheme(),
+		Kclient: kclient,
+	}
+	if err := backupReconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "OpenStackBackupConfig")
 		os.Exit(1)
 	}
 
-	if err := (&backupcontroller.OpenStackBackupConfigReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		Kclient:       kclient,
-		CRDLabelCache: crdLabelCache,
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "OpenStackBackupConfig")
+	// Build CRD label cache after manager starts
+	// This must run after the cache is ready
+	err = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		setupLog.Info("Building CRD label cache")
+		crdLabelCache, err := commonbackup.BuildCRDLabelCache(ctx, mgr.GetClient())
+		if err != nil {
+			setupLog.Error(err, "unable to build CRD label cache")
+			return err
+		}
+		backupReconciler.CRDLabelCache = crdLabelCache
+		setupLog.Info("CRD label cache built successfully", "entries", len(crdLabelCache))
+		return nil
+	}))
+	if err != nil {
+		setupLog.Error(err, "unable to add CRD cache builder to manager")
 		os.Exit(1)
 	}
 
@@ -430,13 +447,6 @@ func main() {
 			os.Exit(1)
 		}
 		checker = mgr.GetWebhookServer().StartedChecker()
-	}
-	if err := (&backupcontroller.OpenStackBackupConfigReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "controller", "OpenStackBackupConfig")
-		os.Exit(1)
 	}
 	// +kubebuilder:scaffold:builder
 

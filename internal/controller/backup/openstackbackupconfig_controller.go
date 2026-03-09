@@ -215,7 +215,14 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 
 		// Create an unstructured list for this CRD type
 		list := &metav1.PartialObjectMetadataList{}
-		list.SetGroupVersionKind(parseGVK(gvkStr))
+		gvk := parseGVK(gvkStr)
+		// List GVK needs the "List" suffix on the Kind
+		listGVK := schema.GroupVersionKind{
+			Group:   gvk.Group,
+			Version: gvk.Version,
+			Kind:    gvk.Kind + "List",
+		}
+		list.SetGroupVersionKind(listGVK)
 
 		if err := r.List(ctx, list, client.InNamespace(instance.Spec.TargetNamespace)); err != nil {
 			log.Error(err, "Failed to list CR instances", "gvk", gvkStr)

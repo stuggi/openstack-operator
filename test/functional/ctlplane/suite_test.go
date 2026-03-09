@@ -24,6 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -48,6 +49,7 @@ import (
 	neutronv1 "github.com/openstack-k8s-operators/neutron-operator/api/v1beta1"
 	novav1 "github.com/openstack-k8s-operators/nova-operator/api/v1beta1"
 	octaviav1 "github.com/openstack-k8s-operators/octavia-operator/api/v1beta1"
+	backupv1 "github.com/openstack-k8s-operators/openstack-operator/api/backup/v1beta1"
 	openstackclientv1 "github.com/openstack-k8s-operators/openstack-operator/api/client/v1beta1"
 	corev1 "github.com/openstack-k8s-operators/openstack-operator/api/core/v1beta1"
 	dataplanev1beta1 "github.com/openstack-k8s-operators/openstack-operator/api/dataplane/v1beta1"
@@ -58,6 +60,7 @@ import (
 	telemetryv1 "github.com/openstack-k8s-operators/telemetry-operator/api/v1beta1"
 	watcherv1 "github.com/openstack-k8s-operators/watcher-operator/api/v1beta1"
 
+	backup_ctrl "github.com/openstack-k8s-operators/openstack-operator/internal/controller/backup"
 	client_ctrl "github.com/openstack-k8s-operators/openstack-operator/internal/controller/client"
 	core_ctrl "github.com/openstack-k8s-operators/openstack-operator/internal/controller/core"
 
@@ -67,6 +70,7 @@ import (
 	topologyv1 "github.com/openstack-k8s-operators/infra-operator/apis/topology/v1beta1"
 	keystone_test "github.com/openstack-k8s-operators/keystone-operator/api/test/helpers"
 	certmanager_test "github.com/openstack-k8s-operators/lib-common/modules/certmanager/test/helpers"
+	commonbackup "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	common_test "github.com/openstack-k8s-operators/lib-common/modules/common/test/helpers"
 	test "github.com/openstack-k8s-operators/lib-common/modules/test"
 	mariadb_test "github.com/openstack-k8s-operators/mariadb-operator/api/test/helpers"
@@ -312,6 +316,8 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	err = watcherv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
+	err = backupv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
 
@@ -387,6 +393,29 @@ var _ = BeforeSuite(func() {
 		Scheme:  k8sManager.GetScheme(),
 		Kclient: kclient,
 	}).SetupWithManager(ctx, k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	// Setup OpenStackBackupConfig controller
+	backupReconciler := &backup_ctrl.OpenStackBackupConfigReconciler{
+		Client:  k8sManager.GetClient(),
+		Scheme:  k8sManager.GetScheme(),
+		Kclient: kclient,
+	}
+	err = backupReconciler.SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	// Build CRD label cache after manager starts
+	err = k8sManager.Add(manager.RunnableFunc(func(runCtx context.Context) error {
+		logger.Info("Building CRD label cache for tests")
+		crdLabelCache, buildErr := commonbackup.BuildCRDLabelCache(runCtx, k8sManager.GetClient())
+		if buildErr != nil {
+			logger.Error(buildErr, "Failed to build CRD label cache")
+			return buildErr
+		}
+		backupReconciler.CRDLabelCache = crdLabelCache
+		logger.Info("CRD label cache built successfully", "entries", len(crdLabelCache))
+		return nil
+	}))
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {
