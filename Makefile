@@ -48,6 +48,10 @@ ifeq ($(USE_IMAGE_DIGESTS), true)
 	BUNDLE_GEN_FLAGS += --use-image-digests
 endif
 
+# REPLACES is the previous version that this version replaces (for OLM upgrades)
+# Example: make bundle REPLACES=openstack-operator.v0.6.0 VERSION=0.6.1
+REPLACES ?=
+
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
 OPERATOR_SDK_VERSION ?= v1.41.1
@@ -398,10 +402,16 @@ endif
 .PHONY: bundle
 bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
-	cd config/operator/deployment/ && $(KUSTOMIZE) edit set image controller=$(IMG) && \
+	cd config/operator/deployment/ && \
+	sed -i '/^patches:/,$$d' kustomization.yaml && \
+	$(KUSTOMIZE) edit set image controller=$(IMG) && \
 	$(KUSTOMIZE) edit add patch --kind Deployment --name openstack-operator-controller-init --namespace system --patch "[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/env/0\", \"value\": {\"name\": \"OPENSTACK_RELEASE_VERSION\", \"value\": \"$(OPENSTACK_RELEASE_VERSION)\"}}]" && \
 	$(KUSTOMIZE) edit add patch --kind Deployment --name openstack-operator-controller-init --namespace system --patch "[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/env/1\", \"value\": {\"name\": \"OPERATOR_IMAGE_URL\", \"value\": \"$(IMG)\"}}]"
 	$(KUSTOMIZE) build config/operator --load-restrictor='LoadRestrictionsNone' | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS)
+ifneq ($(REPLACES),)
+	@echo "Adding replaces: $(REPLACES) to CSV"
+	sed -i "/^  name: openstack-operator.v$(VERSION)/a\  replaces: $(REPLACES)" bundle/manifests/openstack-operator.clusterserviceversion.yaml
+endif
 	$(OPERATOR_SDK) bundle validate ./bundle
 
 .PHONY: bundle-build
@@ -448,12 +458,30 @@ SHELL_EXPORT = $(foreach v,$(MAKE_ENV),$(v)='$($(v))')
 # These images MUST exist in a registry and be pull-able.
 BUNDLE_IMGS = "$(BUNDLE_IMG)$(shell $(SHELL_EXPORT) /bin/bash hack/pin-bundle-images.sh || echo bundle-fail-tag)"
 
+# When REPLACES is set, include the previous version's bundle in the catalog for upgrade support
+# PREV_BUNDLE_IMG can be set to override the default (defaults to upstream :latest)
+# Example: make catalog-build REPLACES=openstack-operator.v0.6.0 PREV_BUNDLE_IMG=quay.io/openstack-k8s-operators/openstack-operator-bundle:latest
+ifneq ($(REPLACES),)
+PREV_BUNDLE_IMG ?= quay.io/openstack-k8s-operators/openstack-operator-bundle:latest
+endif
+
 # The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
 CATALOG_IMG ?= $(IMAGE_TAG_BASE)-index:v$(VERSION)
 
 # Set CATALOG_BASE_IMG to an existing catalog image tag to add $BUNDLE_IMGS to that image.
+# When using a base catalog, only add the NEW bundle (base already has everything else)
+# Alternatively, set CATALOG_BUNDLE_IMGS directly to specify all bundles (for building from scratch without a base)
 ifneq ($(origin CATALOG_BASE_IMG), undefined)
 FROM_INDEX_OPT := --from-index $(CATALOG_BASE_IMG)
+CATALOG_BUNDLE_IMGS ?= $(BUNDLE_IMG)
+else
+# Building from scratch: include previous bundle if REPLACES is set, plus all dependency bundles
+# Can be overridden by setting CATALOG_BUNDLE_IMGS on command line
+ifneq ($(REPLACES),)
+CATALOG_BUNDLE_IMGS ?= $(PREV_BUNDLE_IMG),$(BUNDLE_IMGS)
+else
+CATALOG_BUNDLE_IMGS ?= $(BUNDLE_IMGS)
+endif
 endif
 
 # Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
@@ -462,7 +490,7 @@ endif
 .PHONY: catalog-build
 catalog-build: opm ## Build a catalog image.
 	# FIXME: hardcoded bundle below should use go.mod pinned version for manila bundle
-	$(OPM) index add --container-tool podman --mode semver --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMGS) $(FROM_INDEX_OPT)
+	$(OPM) index add --container-tool podman --mode semver --tag $(CATALOG_IMG) --bundles $(CATALOG_BUNDLE_IMGS) $(FROM_INDEX_OPT)
 
 # Push the catalog image.
 .PHONY: catalog-push
