@@ -15,6 +15,7 @@ import (
 	. "github.com/onsi/gomega"    //revive:disable:dot-imports
 	"go.uber.org/zap/zapcore"
 
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -24,12 +25,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
+	k8s_networkingv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	rabbitmqv2 "github.com/rabbitmq/cluster-operator/v2/api/v1beta1"
 
@@ -70,7 +71,6 @@ import (
 	topologyv1 "github.com/openstack-k8s-operators/infra-operator/apis/topology/v1beta1"
 	keystone_test "github.com/openstack-k8s-operators/keystone-operator/api/test/helpers"
 	certmanager_test "github.com/openstack-k8s-operators/lib-common/modules/certmanager/test/helpers"
-	commonbackup "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	common_test "github.com/openstack-k8s-operators/lib-common/modules/common/test/helpers"
 	test "github.com/openstack-k8s-operators/lib-common/modules/test"
 	mariadb_test "github.com/openstack-k8s-operators/mariadb-operator/api/test/helpers"
@@ -191,6 +191,9 @@ var _ = BeforeSuite(func() {
 	watcherCRDs, err := test.GetCRDDirFromModule(
 		"github.com/openstack-k8s-operators/watcher-operator/api", gomod, "bases")
 	Expect(err).ShouldNot(HaveOccurred())
+	nadCRDs, err := test.GetCRDDirFromModule(
+		"github.com/k8snetworkplumbingwg/network-attachment-definition-client", gomod, "artifacts/networks-crd.yaml")
+	Expect(err).ShouldNot(HaveOccurred())
 
 	By("bootstrapping test environment")
 	testEnv = &envtest.Environment{
@@ -224,6 +227,9 @@ var _ = BeforeSuite(func() {
 		ControlPlaneStartTimeout: 2 * time.Minute,
 		ControlPlaneStopTimeout:  2 * time.Minute,
 		CRDInstallOptions: envtest.CRDInstallOptions{
+			Paths: []string{
+				nadCRDs,
+			},
 			MaxTime: 5 * time.Minute,
 		},
 		ControlPlane: envtest.ControlPlane{
@@ -318,6 +324,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	err = backupv1.AddToScheme(scheme.Scheme)
 	Expect(err).NotTo(HaveOccurred())
+	err = apiextensionsv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
+	err = k8s_networkingv1.AddToScheme(scheme.Scheme)
+	Expect(err).NotTo(HaveOccurred())
 
 	// +kubebuilder:scaffold:scheme
 
@@ -396,26 +406,12 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	// Setup OpenStackBackupConfig controller
-	backupReconciler := &backup_ctrl.OpenStackBackupConfigReconciler{
+	// CRD label cache is built lazily on first reconcile
+	err = (&backup_ctrl.OpenStackBackupConfigReconciler{
 		Client:  k8sManager.GetClient(),
 		Scheme:  k8sManager.GetScheme(),
 		Kclient: kclient,
-	}
-	err = backupReconciler.SetupWithManager(k8sManager)
-	Expect(err).ToNot(HaveOccurred())
-
-	// Build CRD label cache after manager starts
-	err = k8sManager.Add(manager.RunnableFunc(func(runCtx context.Context) error {
-		logger.Info("Building CRD label cache for tests")
-		crdLabelCache, buildErr := commonbackup.BuildCRDLabelCache(runCtx, k8sManager.GetClient())
-		if buildErr != nil {
-			logger.Error(buildErr, "Failed to build CRD label cache")
-			return buildErr
-		}
-		backupReconciler.CRDLabelCache = crdLabelCache
-		logger.Info("CRD label cache built successfully", "entries", len(crdLabelCache))
-		return nil
-	}))
+	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
 	go func() {

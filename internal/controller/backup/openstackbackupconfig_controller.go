@@ -18,7 +18,7 @@ package backup
 
 import (
 	"context"
-	"strings"
+	"fmt"
 
 	"github.com/go-logr/logr"
 	backupv1beta1 "github.com/openstack-k8s-operators/openstack-operator/api/backup/v1beta1"
@@ -32,6 +32,7 @@ import (
 
 	k8s_networkingv1 "github.com/k8snetworkplumbingwg/network-attachment-definition-client/pkg/apis/k8s.cni.cncf.io/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -51,24 +52,30 @@ type OpenStackBackupConfigReconciler struct {
 	CRDLabelCache backup.CRDLabelCache
 }
 
-// parseGVK parses a GVK string (format: "group/version, Kind=kind") into schema.GroupVersionKind
-func parseGVK(gvkStr string) schema.GroupVersionKind {
-	// Format from CRD cache: "group/version, Kind=kind"
-	parts := strings.Split(gvkStr, ", Kind=")
-	if len(parts) != 2 {
-		return schema.GroupVersionKind{}
+// getGVKFromCRD looks up a CRD by name and returns its GVK
+func (r *OpenStackBackupConfigReconciler) getGVKFromCRD(ctx context.Context, crdName string) (schema.GroupVersionKind, error) {
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := r.Get(ctx, types.NamespacedName{Name: crdName}, crd); err != nil {
+		return schema.GroupVersionKind{}, err
 	}
 
-	gv := strings.Split(parts[0], "/")
-	if len(gv) != 2 {
-		return schema.GroupVersionKind{}
+	// Find the served version (prefer storage version, fall back to first served)
+	var version string
+	for _, v := range crd.Spec.Versions {
+		if v.Storage {
+			version = v.Name
+			break
+		}
+		if v.Served && version == "" {
+			version = v.Name
+		}
 	}
 
 	return schema.GroupVersionKind{
-		Group:   gv[0],
-		Version: gv[1],
-		Kind:    parts[1],
-	}
+		Group:   crd.Spec.Group,
+		Version: version,
+		Kind:    crd.Spec.Names.Kind,
+	}, nil
 }
 
 // shouldLabelResource checks if a resource should be labeled based on ownerReferences and config
@@ -205,27 +212,41 @@ func (r *OpenStackBackupConfigReconciler) labelNetworkAttachmentDefinitions(ctx 
 // This labels CRs like OpenStackControlPlane, OpenStackVersion, MariaDBAccount, etc.
 // based on their CRD's backup/restore configuration.
 func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
+	// Build cache lazily on first use (the manager's client cache is ready by reconcile time)
+	if len(r.CRDLabelCache) == 0 {
+		cache, err := backup.BuildCRDLabelCache(ctx, r.Client)
+		if err != nil {
+			return 0, fmt.Errorf("failed to build CRD label cache: %w", err)
+		}
+		r.CRDLabelCache = cache
+		log.Info("Built CRD label cache", "entries", len(cache))
+	}
+
 	count := 0
 
 	// Iterate through all CRDs that have backup-restore enabled
-	for gvkStr, backupConfig := range r.CRDLabelCache {
+	for crdName, backupConfig := range r.CRDLabelCache {
 		if !backupConfig.Enabled {
 			continue
 		}
 
-		// Create an unstructured list for this CRD type
+		// Look up the CRD to get proper group, version, and kind
+		gvk, err := r.getGVKFromCRD(ctx, crdName)
+		if err != nil {
+			log.Error(err, "Failed to get CRD", "name", crdName)
+			continue
+		}
+
+		// Create a metadata-only list for this CRD type
 		list := &metav1.PartialObjectMetadataList{}
-		gvk := parseGVK(gvkStr)
-		// List GVK needs the "List" suffix on the Kind
-		listGVK := schema.GroupVersionKind{
+		list.SetGroupVersionKind(schema.GroupVersionKind{
 			Group:   gvk.Group,
 			Version: gvk.Version,
 			Kind:    gvk.Kind + "List",
-		}
-		list.SetGroupVersionKind(listGVK)
+		})
 
 		if err := r.List(ctx, list, client.InNamespace(instance.Spec.TargetNamespace)); err != nil {
-			log.Error(err, "Failed to list CR instances", "gvk", gvkStr)
+			log.Error(err, "Failed to list CR instances", "crd", crdName)
 			continue
 		}
 
@@ -248,7 +269,7 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 			obj.SetLabels(labels)
 
 			if err := r.Patch(ctx, obj, patch); err != nil {
-				log.Error(err, "Failed to label CR instance", "gvk", gvkStr, "name", obj.GetName())
+				log.Error(err, "Failed to label CR instance", "crd", crdName, "name", obj.GetName())
 				continue
 			}
 			count++

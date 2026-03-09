@@ -17,8 +17,6 @@ limitations under the License.
 package functional_test
 
 import (
-	"time"
-
 	. "github.com/onsi/ginkgo/v2" //revive:disable:dot-imports
 	. "github.com/onsi/gomega"    //revive:disable:dot-imports
 
@@ -53,10 +51,9 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 		})
 
 		It("Should exist and be retrievable", func() {
-			// Simple test - just verify the object exists
 			backupConfig := &backupv1.OpenStackBackupConfig{}
 			Expect(k8sClient.Get(ctx, backupConfigName, backupConfig)).Should(Succeed())
-			logger.Info("BackupConfig exists", "name", backupConfig.Name, "namespace", backupConfig.Namespace)
+			Expect(backupConfig.Spec.TargetNamespace).To(Equal(namespace))
 		})
 	})
 
@@ -67,8 +64,7 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 				Namespace: namespace,
 			}
 
-			// Create some CRs that should get labeled
-			// Create OpenStackControlPlane (which has backup labels in CRD)
+			// Create OpenStackControlPlane (CRD has backup-restore labels)
 			controlPlaneName := types.NamespacedName{
 				Name:      "test-controlplane",
 				Namespace: namespace,
@@ -91,42 +87,47 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 		})
 
 		It("Should label CR instances with backup labels", func() {
-			// Give controller time to reconcile and label CRs
-			time.Sleep(2 * time.Second)
+			controlPlaneName := types.NamespacedName{
+				Name:      "test-controlplane",
+				Namespace: namespace,
+			}
 
-			// Check that OpenStackControlPlane got backup labels
-			controlPlane := &corev1.OpenStackControlPlane{}
+			// The controller should look up the OpenStackControlPlane CRD
+			// (which has openstack.org/backup-restore: "true" and
+			// openstack.org/backup-restore-order: "30") and apply
+			// backup labels to the CR instance.
 			Eventually(func(g Gomega) {
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
-					Name:      "test-controlplane",
-					Namespace: namespace,
-				}, controlPlane)).Should(Succeed())
+				controlPlane := &corev1.OpenStackControlPlane{}
+				g.Expect(k8sClient.Get(ctx, controlPlaneName, controlPlane)).Should(Succeed())
 
 				labels := controlPlane.GetLabels()
-				logger.Info("ControlPlane labels", "labels", labels)
-
-				// Check for backup labels
-				if labels != nil {
-					backupLabel := labels[commonbackup.BackupLabel]
-					if backupLabel == "true" {
-						logger.Info("Found backup label", "value", backupLabel)
-					}
-
-					restoreLabel := labels[commonbackup.BackupRestoreLabel]
-					if restoreLabel == "true" {
-						logger.Info("Found backup-restore label", "value", restoreLabel)
-					}
-				}
+				g.Expect(labels).NotTo(BeNil(), "ControlPlane should have labels")
+				g.Expect(labels[commonbackup.BackupLabel]).To(
+					Equal("true"),
+					"ControlPlane should have backup label",
+				)
+				g.Expect(labels[commonbackup.BackupRestoreOrderLabel]).To(
+					Equal("30"),
+					"ControlPlane should have restore-order label from CRD",
+				)
 			}, timeout, interval).Should(Succeed())
 		})
 
-		It("Should reconcile without 'Kind is missing' errors", func() {
-			// Give controller time to reconcile
-			time.Sleep(3 * time.Second)
+		It("Should reconcile without apiVersion/Kind errors", func() {
+			// Verify the controller reconciles successfully by checking
+			// that the BackupConfig itself gets labeled (its CRD also
+			// has backup-restore labels with order "20")
+			Eventually(func(g Gomega) {
+				backupConfig := &backupv1.OpenStackBackupConfig{}
+				g.Expect(k8sClient.Get(ctx, backupConfigName, backupConfig)).Should(Succeed())
 
-			// Verify no errors in logs (the controller will log errors if Kind is missing)
-			// The fact that we got here without test failures means no critical errors occurred
-			logger.Info("Test completed - controller reconciled successfully without Kind errors")
+				labels := backupConfig.GetLabels()
+				g.Expect(labels).NotTo(BeNil(), "BackupConfig should have labels")
+				g.Expect(labels[commonbackup.BackupLabel]).To(
+					Equal("true"),
+					"BackupConfig should have backup label (CRD has backup-restore: true)",
+				)
+			}, timeout, interval).Should(Succeed())
 		})
 	})
 })

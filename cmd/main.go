@@ -18,7 +18,6 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"crypto/tls"
 	"flag"
 	"os"
@@ -36,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -49,7 +47,6 @@ import (
 	webhookcorev1beta1 "github.com/openstack-k8s-operators/openstack-operator/internal/webhook/core/v1beta1"
 	webhookdataplanev1beta1 "github.com/openstack-k8s-operators/openstack-operator/internal/webhook/dataplane/v1beta1"
 
-	commonbackup "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	backupv1beta1 "github.com/openstack-k8s-operators/openstack-operator/api/backup/v1beta1"
 	backupcontroller "github.com/openstack-k8s-operators/openstack-operator/internal/controller/backup"
 
@@ -378,24 +375,6 @@ func main() {
 	}
 	if err := backupReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "OpenStackBackupConfig")
-		os.Exit(1)
-	}
-
-	// Build CRD label cache after manager starts
-	// This must run after the cache is ready
-	err = mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
-		setupLog.Info("Building CRD label cache")
-		crdLabelCache, err := commonbackup.BuildCRDLabelCache(ctx, mgr.GetClient())
-		if err != nil {
-			setupLog.Error(err, "unable to build CRD label cache")
-			return err
-		}
-		backupReconciler.CRDLabelCache = crdLabelCache
-		setupLog.Info("CRD label cache built successfully", "entries", len(crdLabelCache))
-		return nil
-	}))
-	if err != nil {
-		setupLog.Error(err, "unable to add CRD cache builder to manager")
 		os.Exit(1)
 	}
 
