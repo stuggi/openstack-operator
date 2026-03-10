@@ -90,6 +90,15 @@ Examples:
 
 To fix existing PVCs: Edit the PVC to change storage units (e.g., `5G` → `5Gi`), then restart pods using the PVC. See [Storage Volume Troubleshooting](backup-restore-storage-volumes.md#fix-lvms-snapshot-size-mismatch-error) for details.
 
+**Tracking:** [OSPRH-27441](https://issues.redhat.com/browse/OSPRH-27441) tracks converting `G` → `Gi` defaults across operator code and samples. Affected areas:
+
+- **mariadb-operator**: `galera_types.go` — `storageRequestProdMin = "5G"`
+- **telemetry-operator**: `metricstorage_types.go` — kubebuilder defaults `"20G"` for `pvcStorageRequest`
+- **openstack-operator**: all `config/samples/` use `storageRequest: 10G`
+- **glance-operator**, **ironic-operator**, **ovn-operator**, **swift-operator**, **designate-operator**: samples and kuttl tests use `G`
+- **architecture**: base controlplane and DT examples use `G`
+- **data-plane-adoption**: test role defaults use `G`
+
 **Verification:**
 ```bash
 # Check if VolumeSnapshotClass exists
