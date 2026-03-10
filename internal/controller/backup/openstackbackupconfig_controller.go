@@ -133,8 +133,8 @@ func (r *OpenStackBackupConfigReconciler) labelResource(ctx context.Context, log
 		return nil
 	}
 
-	// Add backup labels
-	backupLabels := backup.GetBackupLabels(restoreOrder)
+	// Add restore labels for ordered restore
+	backupLabels := backup.GetRestoreLabels(restoreOrder, "")
 	labels = util.MergeStringMaps(labels, backupLabels)
 	obj.SetLabels(labels)
 
@@ -270,7 +270,7 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 			patch := client.MergeFrom(obj.DeepCopy())
 			labels = util.MergeStringMaps(
 				labels,
-				backup.GetBackupLabelsWithCategory(backupConfig.RestoreOrder, backupConfig.Category),
+				backup.GetRestoreLabels(backupConfig.RestoreOrder, backupConfig.Category),
 			)
 			obj.SetLabels(labels)
 
