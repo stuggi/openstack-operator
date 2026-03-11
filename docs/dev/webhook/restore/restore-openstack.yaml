@@ -7,14 +7,12 @@
 # Restore order:
 # 1. PVCs (CSI snapshots) - storage foundation
 # 2. Foundation resources (Secrets, ConfigMaps, NADs)
-#    - RabbitMQ *-default-user secrets are renamed to *-restored-user
-#      via resource modifiers (adjust rabbitmq_clusters for your deployment)
 # 3. Infrastructure CRs (OpenStackVersion, MariaDBAccount, etc.)
 # 4. OpenStackControlPlane (with infrastructure-only staging)
 # 5. GaleraBackup CRs (backup configuration)
 # 6. Wait for infrastructure (Galera, OVN, RabbitMQ) to be ready
 # 7. Database restore (create GaleraRestore CRs, exec restore)
-# 8. RabbitMQ credential restore (create RabbitMQUser CRs)
+# 8. RabbitMQ credential restore (restore old secrets to temp ns, copy, create RabbitMQUser CRs)
 # 9. Resume full deployment (remove staging annotation)
 # 10. DataPlane resources (optional)
 #
@@ -147,17 +145,6 @@
                     annotations:
                       kubectl.kubernetes.io/last-applied-configuration: null
                       core.openstack.org/deployment-stage: "infrastructure-only"
-        {% for cluster in rabbitmq_clusters %}
-            - conditions:
-                groupResource: secrets
-                resourceNameRegex: "^{{ cluster }}-default-user$"
-                namespaces:
-                - {{ openstack_namespace }}
-              jsonPatches:
-              - operation: replace
-                path: "/metadata/name"
-                value: "{{ cluster }}-restored-user"
-        {% endfor %}
         CMEOF
       changed_when: true
 
@@ -460,7 +447,7 @@
       when: galerabackup_names.stdout == ""
 
     # ========================================
-    # Step 8: Create RabbitMQUser CRs
+    # Step 8: Restore RabbitMQ Credentials
     # ========================================
     - name: "Step 8: Restore RabbitMQ credentials"
       ansible.builtin.debug:
@@ -468,15 +455,78 @@
           - "========================================"
           - "Step 8: Restore RabbitMQ User Credentials"
           - "========================================"
-          - "Creating RabbitMQUser CRs from restored *-restored-user secrets"
-          - "to re-establish original credentials for EDPM connectivity."
+          - "Restoring old *-default-user secrets from backup to a temp"
+          - "namespace, copying as *-restored-user, then creating"
+          - "RabbitMQUser CRs for EDPM connectivity."
+
+    - name: Delete temp namespace if it exists from a previous run
+      ansible.builtin.shell: |
+        if oc get namespace openstack-restore-tmp &>/dev/null; then
+          oc delete namespace openstack-restore-tmp --wait=true --timeout=60s
+        fi
+      changed_when: true
+
+    - name: Create temp namespace for RabbitMQ secret restore
+      ansible.builtin.shell: |
+        oc create namespace openstack-restore-tmp
+      changed_when: true
+
+    - name: Restore secrets from backup to temp namespace
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: velero.io/v1
+        kind: Restore
+        metadata:
+          name: openstack-restore-rabbitmq-secrets-{{ restore_suffix }}
+          namespace: {{ oadp_namespace }}
+        spec:
+          backupName: {{ resources_backup_name }}
+          includedNamespaces:
+          - {{ openstack_namespace }}
+          namespaceMapping:
+            {{ openstack_namespace }}: openstack-restore-tmp
+          includedResources:
+          - secrets
+        EOF
+      changed_when: true
+
+    - name: Wait for RabbitMQ secret restore
+      ansible.builtin.include_tasks:
+        file: wait-for-restore.yaml
+      vars:
+        restore_name: "openstack-restore-rabbitmq-secrets-{{ restore_suffix }}"
+        step_name: "Step 8 (RabbitMQ secret restore)"
+
+    - name: Copy default-user secrets to restored-user in target namespace
+      ansible.builtin.shell: |
+        CLUSTER_NAME="{{ item }}"
+        SOURCE_SECRET="${CLUSTER_NAME}-default-user"
+        TARGET_SECRET="${CLUSTER_NAME}-restored-user"
+
+        if ! oc get secret "${SOURCE_SECRET}" -n openstack-restore-tmp &>/dev/null; then
+          echo "WARNING: Secret ${SOURCE_SECRET} not found in temp namespace - skipping"
+          exit 0
+        fi
+
+        # Extract secret data and create a standalone copy in target namespace
+        TMPDIR=$(mktemp -d)
+        oc extract secret/${SOURCE_SECRET} -n openstack-restore-tmp --to=${TMPDIR} --confirm
+        oc create secret generic ${TARGET_SECRET} -n {{ openstack_namespace }} --from-file=${TMPDIR}
+        rm -rf ${TMPDIR}
+        echo "Created ${TARGET_SECRET} in {{ openstack_namespace }}"
+      loop: "{{ rabbitmq_clusters }}"
+      changed_when: true
+
+    - name: Delete temp namespace
+      ansible.builtin.shell: |
+        oc delete namespace openstack-restore-tmp --wait=false
+      changed_when: true
 
     - name: Create RabbitMQUser CRs for restored credentials
       ansible.builtin.shell: |
         CLUSTER_NAME="{{ item }}"
         RESTORED_SECRET_NAME="${CLUSTER_NAME}-restored-user"
 
-        # Verify the restored secret exists
         if ! oc get secret "${RESTORED_SECRET_NAME}" -n {{ openstack_namespace }} &>/dev/null; then
           echo "WARNING: Secret ${RESTORED_SECRET_NAME} not found - skipping"
           exit 0

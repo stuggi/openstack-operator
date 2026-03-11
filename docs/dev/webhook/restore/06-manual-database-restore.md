@@ -86,17 +86,47 @@ oc exec -it galera-0 -n openstack -- mysql -e "SHOW DATABASES;"
 
 ### 6. Restore RabbitMQ user credentials
 
-The new RabbitMQ clusters have random credentials. The original `*-default-user`
-secrets were renamed to `*-restored-user` by the resource modifier during the
-foundation restore (Step 2). Create RabbitMQUser CRs to re-establish the
-original credentials:
+The new RabbitMQ clusters have random credentials. Restore the original
+`*-default-user` secrets from the backup to recover the old credentials,
+then create RabbitMQUser CRs to re-establish them.
+
+#### 6a. Restore secrets to a temporary namespace
+
+```bash
+# Create temp namespace
+oc create namespace openstack-restore-tmp
+
+# Restore all secrets from backup to temp namespace
+# Edit backupName in 06b-restore-rabbitmq-secrets.yaml first, then:
+oc apply -f 06b-restore-rabbitmq-secrets.yaml
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  restore/openstack-restore-rabbitmq-secrets -n openshift-adp --timeout=5m
+```
+
+#### 6b. Copy old credentials to target namespace
 
 ```bash
 # For each RabbitMQ cluster (adjust cluster names for your deployment)
 for CLUSTER in rabbitmq rabbitmq-cell1; do
+  if ! oc get secret "${CLUSTER}-default-user" -n openstack-restore-tmp &>/dev/null; then
+    echo "Secret ${CLUSTER}-default-user not found in temp namespace - skipping"
+    continue
+  fi
+
+  TMPDIR=$(mktemp -d)
+  oc extract secret/${CLUSTER}-default-user -n openstack-restore-tmp --to=${TMPDIR} --confirm
+  oc create secret generic ${CLUSTER}-restored-user -n openstack --from-file=${TMPDIR}
+  rm -rf ${TMPDIR}
+  echo "Created ${CLUSTER}-restored-user in openstack"
+done
+```
+
+#### 6c. Create RabbitMQUser CRs
+
+```bash
+for CLUSTER in rabbitmq rabbitmq-cell1; do
   RESTORED_SECRET="${CLUSTER}-restored-user"
 
-  # Skip if secret doesn't exist
   if ! oc get secret "${RESTORED_SECRET}" -n openstack &>/dev/null; then
     echo "Secret ${RESTORED_SECRET} not found - skipping"
     continue
@@ -120,6 +150,12 @@ for CLUSTER in rabbitmq rabbitmq-cell1; do
 EOF
   echo "Created RabbitMQUser CR for ${CLUSTER}"
 done
+```
+
+#### 6d. Clean up temp namespace
+
+```bash
+oc delete namespace openstack-restore-tmp
 ```
 
 ### 7. Remove deployment-stage annotation
