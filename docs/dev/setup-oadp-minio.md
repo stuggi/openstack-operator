@@ -339,8 +339,9 @@ spec:
       - openshift
       - aws
       - csi
-    restic:
+    nodeAgent:
       enable: true
+      uploaderType: kopia
   backupLocations:
   - velero:
       provider: aws
@@ -369,7 +370,7 @@ EOF
   - `csi` - CSI volume snapshots (CRITICAL for OpenStack backups)
 - **snapshotLocations is NOT included** - This is intentional! For CSI volume snapshots (used with LVMS/TopoLVM, Ceph RBD, etc.), you must NOT configure `snapshotLocations`. The `snapshotLocations` field is only for cloud provider snapshots (AWS EBS, Azure Disk, GCP PD). If you include it, OADP will try to use provider snapshots instead of CSI snapshots, which will fail for local storage.
 - **backupLocations** is for storing backup metadata in S3 (MinIO), which is separate from how volumes are snapshotted
-- **Restic/Kopia** is enabled but not used for OpenStack backups. OpenStack uses CSI volume snapshots instead (configured via VolumeSnapshotClass with `velero.io/csi-volumesnapshot-class: "true"` label)
+- **Node Agent (Kopia)** is enabled for Data Mover support. When `snapshotMoveData: true` is set on a Backup CR, Kopia uploads CSI snapshot data to the BackupStorageLocation (MinIO), enabling restore even after cluster loss. OpenStack CSI volume snapshots are configured via VolumeSnapshotClass with `velero.io/csi-volumesnapshot-class: "true"` label
 
 ### Step 4: Verify OADP Installation
 
@@ -382,7 +383,7 @@ oc get pods -n openshift-adp
 You should see:
 - `openshift-adp-controller-manager-*`
 - `velero-*`
-- `restic-*` (one per node)
+- `node-agent-*` (one per node)
 
 Check the BackupStorageLocation:
 
@@ -427,7 +428,7 @@ metadata:
 spec:
   includedNamespaces:
   - test-backup
-  defaultVolumesToRestic: true
+  snapshotMoveData: true
   storageLocation: velero-1
 EOF
 ```
@@ -523,7 +524,7 @@ echo "Password: minio123"
        │   │   ├── openstack-volumes-20260225-140530-volumesnapshots.json.gz
        │   │   └── velero-backup.json
        │   └── <other-backups>/
-       └── restic/
+       └── kopia/
            └── openstack/
                └── <volume-data>/
    ```
@@ -531,13 +532,13 @@ echo "Password: minio123"
 5. **Verify backup files exist**:
    - `<backup-name>.tar.gz` - Main backup archive with Kubernetes resources
    - `<backup-name>-logs.gz` - Backup operation logs
-   - `<backup-name>-podvolumebackups.json.gz` - Restic backup metadata
+   - `<backup-name>-podvolumebackups.json.gz` - Volume backup metadata
    - `velero-backup.json` - Backup CR metadata
 
-6. **Check Restic data** (for PVC backups):
-   - Navigate to `restic/openstack/` directory
+6. **Check Kopia data** (for PVC backups with Data Mover):
+   - Navigate to `kopia/openstack/` directory
    - You should see subdirectories for each PVC backup
-   - Data is deduplicated and stored in Restic repository format
+   - Data is deduplicated and stored in Kopia repository format
 
 ### Option 2: Using MinIO Client (mc) CLI
 
@@ -612,9 +613,9 @@ After accessing MinIO, verify:
    # Compare with expected PVC sizes
    ```
 
-4. **Restic data exists** (for PVC backups):
+4. **Kopia data exists** (for PVC backups with Data Mover):
    ```bash
-   mc ls minio-oadp/velero/rhoso/restic/openstack/ --insecure
+   mc ls minio-oadp/velero/rhoso/kopia/openstack/ --insecure
    # Should show directories for each backed-up PVC
    ```
 
@@ -668,32 +669,12 @@ oc run -it --rm debug --image=curlimages/curl --restart=Never -- \
   curl -v https://$(oc get route minio-api -n minio -o jsonpath='{.spec.host}')
 ```
 
-### Restic Pods Not Running
+### Node Agent Pods Not Running
 
 Check node selector and tolerations if using specialized nodes:
 
 ```bash
-oc get daemonset restic -n openshift-adp -o yaml
-```
-
-### Backup Fails with "Volume Snapshot" Errors
-
-This indicates OADP is trying to use CSI snapshots. Ensure `defaultVolumesToRestic: true` is set in the Backup spec to use Restic instead:
-
-```yaml
-spec:
-  defaultVolumesToRestic: true
-```
-
-Or configure DPA to default to Restic:
-
-```yaml
-spec:
-  configuration:
-    restic:
-      enable: true
-    velero:
-      defaultVolumesToRestic: true
+oc get daemonset node-agent -n openshift-adp -o yaml
 ```
 
 ### MinIO Storage Full
@@ -736,7 +717,7 @@ spec:
   template:
     includedNamespaces:
     - openstack
-    defaultVolumesToRestic: true
+    snapshotMoveData: true
 ```
 
 3. **Backup Retention**: Configure TTL for automatic cleanup:
@@ -747,7 +728,7 @@ spec:
     ttl: 720h  # 30 days
 ```
 
-4. **Resource Limits**: Set appropriate resource limits for Velero and Restic
+4. **Resource Limits**: Set appropriate resource limits for Velero and node-agent
 
 5. **Monitoring**: Set up monitoring and alerts for backup failures
 
