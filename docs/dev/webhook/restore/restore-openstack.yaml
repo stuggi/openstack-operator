@@ -38,7 +38,7 @@
 #   resources_backup_name: Name of the resources backup (REQUIRED)
 #   restore_timeout: Timeout in seconds for each restore step (default: 900)
 #   infra_ready_timeout: Timeout waiting for infrastructure (default: 20m)
-#   ctlplane_ready_timeout: Timeout waiting for full control plane (default: 5m)
+#   ctlplane_ready_timeout: Timeout waiting for full control plane (default: 10m)
 #   strict_restore: Fail on PartiallyFailed restores (default: true)
 #   restore_dataplane: Whether to restore dataplane (default: true)
 
@@ -51,7 +51,7 @@
     oadp_namespace: openshift-adp
     restore_timeout: 900
     infra_ready_timeout: 20m
-    ctlplane_ready_timeout: 5m
+    ctlplane_ready_timeout: 10m
     strict_restore: true
     restore_dataplane: true
 
