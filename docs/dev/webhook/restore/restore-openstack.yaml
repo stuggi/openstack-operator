@@ -36,8 +36,9 @@
 #   oadp_namespace: OADP namespace (default: openshift-adp)
 #   pvc_backup_name: Name of the PVC backup (REQUIRED)
 #   resources_backup_name: Name of the resources backup (REQUIRED)
-#   restore_timeout: Timeout for each restore step (default: 15m)
+#   restore_timeout: Timeout in seconds for each restore step (default: 900)
 #   infra_ready_timeout: Timeout waiting for infrastructure (default: 20m)
+#   strict_restore: Fail on PartiallyFailed restores (default: true)
 #   restore_dataplane: Whether to restore dataplane (default: true)
 
 - name: OpenStack Full Restore
@@ -47,8 +48,9 @@
   vars:
     openstack_namespace: openstack
     oadp_namespace: openshift-adp
-    restore_timeout: 15m
+    restore_timeout: 900
     infra_ready_timeout: 20m
+    strict_restore: true
     restore_dataplane: true
 
   tasks:
@@ -123,16 +125,12 @@
         EOF
       changed_when: true
 
-    - name: Wait for PVC restore to complete
-      ansible.builtin.shell: |
-        oc wait --for=jsonpath='{.status.phase}'=Completed \
-          restore/openstack-restore-00-pvcs-{{ restore_suffix }} \
-          -n {{ oadp_namespace }} --timeout={{ restore_timeout }}
-      changed_when: false
-
-    - name: Print Step 1 result
-      ansible.builtin.debug:
-        msg: "PVC restore completed"
+    - name: Wait for PVC restore
+      ansible.builtin.include_tasks:
+        file: wait-for-restore.yaml
+      vars:
+        restore_name: "openstack-restore-00-pvcs-{{ restore_suffix }}"
+        step_name: "Step 1 (PVC restore)"
 
     # ========================================
     # Step 2: Restore Foundation (Order 10)
@@ -163,16 +161,12 @@
         EOF
       changed_when: true
 
-    - name: Wait for foundation restore to complete
-      ansible.builtin.shell: |
-        oc wait --for=jsonpath='{.status.phase}'=Completed \
-          restore/openstack-restore-10-foundation-{{ restore_suffix }} \
-          -n {{ oadp_namespace }} --timeout={{ restore_timeout }}
-      changed_when: false
-
-    - name: Print Step 2 result
-      ansible.builtin.debug:
-        msg: "Foundation resources restored"
+    - name: Wait for foundation restore
+      ansible.builtin.include_tasks:
+        file: wait-for-restore.yaml
+      vars:
+        restore_name: "openstack-restore-10-foundation-{{ restore_suffix }}"
+        step_name: "Step 2 (Foundation restore)"
 
     # ========================================
     # Step 3: Restore Infrastructure (Order 20)
@@ -204,16 +198,12 @@
         EOF
       changed_when: true
 
-    - name: Wait for infrastructure restore to complete
-      ansible.builtin.shell: |
-        oc wait --for=jsonpath='{.status.phase}'=Completed \
-          restore/openstack-restore-20-infra-{{ restore_suffix }} \
-          -n {{ oadp_namespace }} --timeout={{ restore_timeout }}
-      changed_when: false
-
-    - name: Print Step 3 result
-      ansible.builtin.debug:
-        msg: "Infrastructure CRs restored"
+    - name: Wait for infrastructure restore
+      ansible.builtin.include_tasks:
+        file: wait-for-restore.yaml
+      vars:
+        restore_name: "openstack-restore-20-infra-{{ restore_suffix }}"
+        step_name: "Step 3 (Infrastructure restore)"
 
     # ========================================
     # Step 4: Restore ControlPlane (Order 30)
@@ -256,16 +246,12 @@
         EOF
       changed_when: true
 
-    - name: Wait for controlplane restore to complete
-      ansible.builtin.shell: |
-        oc wait --for=jsonpath='{.status.phase}'=Completed \
-          restore/openstack-restore-30-ctlplane-{{ restore_suffix }} \
-          -n {{ oadp_namespace }} --timeout={{ restore_timeout }}
-      changed_when: false
-
-    - name: Print Step 4 result
-      ansible.builtin.debug:
-        msg: "OpenStackControlPlane restored with infrastructure-only staging"
+    - name: Wait for controlplane restore
+      ansible.builtin.include_tasks:
+        file: wait-for-restore.yaml
+      vars:
+        restore_name: "openstack-restore-30-ctlplane-{{ restore_suffix }}"
+        step_name: "Step 4 (ControlPlane restore)"
 
     # ========================================
     # Step 5: Restore GaleraBackup CRs (Order 40)
@@ -296,16 +282,12 @@
         EOF
       changed_when: true
 
-    - name: Wait for backup config restore to complete
-      ansible.builtin.shell: |
-        oc wait --for=jsonpath='{.status.phase}'=Completed \
-          restore/openstack-restore-40-backup-{{ restore_suffix }} \
-          -n {{ oadp_namespace }} --timeout={{ restore_timeout }}
-      changed_when: false
-
-    - name: Print Step 5 result
-      ansible.builtin.debug:
-        msg: "GaleraBackup CRs restored"
+    - name: Wait for backup config restore
+      ansible.builtin.include_tasks:
+        file: wait-for-restore.yaml
+      vars:
+        restore_name: "openstack-restore-40-backup-{{ restore_suffix }}"
+        step_name: "Step 5 (GaleraBackup restore)"
 
     # ========================================
     # Step 6: Wait for Infrastructure Ready
@@ -465,17 +447,12 @@
       changed_when: true
       when: restore_dataplane | bool
 
-    - name: Wait for dataplane restore to complete
-      ansible.builtin.shell: |
-        oc wait --for=jsonpath='{.status.phase}'=Completed \
-          restore/openstack-restore-60-dataplane-{{ restore_suffix }} \
-          -n {{ oadp_namespace }} --timeout={{ restore_timeout }}
-      changed_when: false
-      when: restore_dataplane | bool
-
-    - name: Print Step 9 result
-      ansible.builtin.debug:
-        msg: "DataPlane resources restored"
+    - name: Wait for dataplane restore
+      ansible.builtin.include_tasks:
+        file: wait-for-restore.yaml
+      vars:
+        restore_name: "openstack-restore-60-dataplane-{{ restore_suffix }}"
+        step_name: "Step 9 (DataPlane restore)"
       when: restore_dataplane | bool
 
     - name: Print Step 9 skip

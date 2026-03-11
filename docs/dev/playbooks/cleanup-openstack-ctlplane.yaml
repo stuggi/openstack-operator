@@ -68,6 +68,8 @@
           - All operator-managed pods and services
           - GaleraRestore CRs
           - GaleraBackup CRs
+          - OpenStackBackupConfig CRs
+          - OpenStackVersion CRs
           - PVCs labeled with openstack.org/backup=true (Galera backups, Glance, Cinder, Swift, Manila)
           - Galera database PVCs (app=galera)
           - RabbitMQUser CRs (all)
@@ -157,11 +159,11 @@
         msg: "✓ All pods terminated"
       when: ctlplane_count.stdout|int > 0
 
-    - name: Step 3 - Delete GaleraRestore and GaleraBackup CRs
+    - name: Step 3 - Delete GaleraRestore, GaleraBackup, OpenStackBackupConfig, and OpenStackVersion CRs
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 3: Deleting GaleraRestore and GaleraBackup CRs"
+          - "Step 3: Deleting Galera, BackupConfig, and Version CRs"
           - "========================================"
 
     - name: Delete GaleraRestore CRs
@@ -176,9 +178,21 @@
       changed_when: true
       failed_when: false
 
-    - name: Print Galera cleanup status
+    - name: Delete OpenStackBackupConfig CRs
+      ansible.builtin.shell: |
+        oc delete openstackbackupconfig --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+
+    - name: Delete OpenStackVersion CRs
+      ansible.builtin.shell: |
+        oc delete openstackversion --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+
+    - name: Print Galera and infrastructure cleanup status
       ansible.builtin.debug:
-        msg: "✓ GaleraRestore and GaleraBackup CRs deleted"
+        msg: "GaleraRestore, GaleraBackup, OpenStackBackupConfig, and OpenStackVersion CRs deleted"
 
     - name: Step 4 - Delete PVCs
       ansible.builtin.debug:
