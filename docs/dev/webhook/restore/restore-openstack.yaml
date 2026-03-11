@@ -75,6 +75,11 @@
     # ========================================
     # Pre-flight checks
     # ========================================
+    - name: Ensure target namespace exists
+      ansible.builtin.shell: |
+        oc create namespace {{ openstack_namespace }} --dry-run=client -o yaml | oc apply -f -
+      changed_when: true
+
     - name: Verify OADP backups exist
       ansible.builtin.shell: |
         oc get backup {{ pvc_backup_name }} -n {{ oadp_namespace }} -o jsonpath='{.status.phase}'
