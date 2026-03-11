@@ -17,6 +17,8 @@
 #
 # Usage:
 #   ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml
+#   # With Data Mover (upload snapshots to S3/MinIO):
+#   ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml -e snapshot_move_data=true
 #
 # Variables:
 #   openstack_namespace: Target namespace (default: openstack)
@@ -26,6 +28,7 @@
 #   oadp_backup_timeout: Timeout for OADP backups (default: 30m)
 #   storage_location: Velero storage location (default: velero-1)
 #   backup_ttl: Backup retention (default: 720h / 30 days)
+#   snapshot_move_data: Upload snapshots to BSL via Data Mover (default: false)
 
 - name: OpenStack Full Backup
   hosts: localhost
@@ -38,6 +41,7 @@
     oadp_backup_timeout: 30m
     storage_location: velero-1
     backup_ttl: 720h
+    snapshot_move_data: false
 
   tasks:
     - name: Set backup timestamp
@@ -135,6 +139,7 @@
             matchLabels:
               openstack.org/backup: "true"
           snapshotVolumes: true
+          snapshotMoveData: {{ snapshot_move_data | lower }}
           defaultVolumesToFsBackup: false
           volumeSnapshotLocations: []
           storageLocation: {{ storage_location }}

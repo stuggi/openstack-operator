@@ -1,0 +1,42 @@
+---
+# OpenStack PVC Backup with Data Mover
+# Backs up PVCs labeled with openstack.org/backup=true and uploads
+# CSI snapshot data to the BackupStorageLocation (S3/MinIO) via Kopia.
+# This allows restore even after total cluster loss.
+#
+# Requires:
+# - OADP DPA with nodeAgent enabled and uploaderType: kopia
+# - BackupStorageLocation configured and Available
+#
+# Note: Data Mover backups take longer than local-only snapshots
+# as snapshot data must be uploaded to the BSL.
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-backup-pvcs
+  namespace: openshift-adp  # OADP namespace
+spec:
+  includedNamespaces:
+  - openstack  # OpenStack namespace - adjust as needed
+
+  # Only backup resources with the backup label
+  # For PVCs, Velero automatically includes their bound PVs
+  labelSelector:
+    matchLabels:
+      openstack.org/backup: "true"
+
+  # Use CSI snapshots for PVCs
+  snapshotVolumes: true
+  defaultVolumesToFsBackup: false
+
+  # Upload snapshot data to BSL via Data Mover (Kopia)
+  snapshotMoveData: true
+
+  # Volume snapshot locations (empty = use default)
+  volumeSnapshotLocations: []
+
+  # Storage location for backup
+  storageLocation: velero-1
+
+  # Retention policy
+  ttl: 720h  # 30 days
