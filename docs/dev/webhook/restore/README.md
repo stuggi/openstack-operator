@@ -25,33 +25,60 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 
 ## Quick Start
 
+### Automated (Recommended)
+
+Use the restore playbook to orchestrate the full restore flow:
+
+```bash
+ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml
+```
+
+The playbook runs all restore steps in order, including:
+- Ordered OADP restores (PVCs → Foundation → Infrastructure → ControlPlane → GaleraBackup)
+- Waits for infrastructure to be ready (Galera, OVN, RabbitMQ)
+- Automated database restore (creates GaleraRestore CRs, runs restore script)
+- Removes deployment-stage annotation to resume full deployment
+- Optional DataPlane restore
+
+Override defaults with extra vars:
+```bash
+ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml \
+  -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
+  -e resources_backup_name=openstack-backup-resources-20260311-081234 \
+  -e restore_dataplane=false
+```
+
+### Manual
+
+Apply the restore CRs in order, waiting for each to complete:
+
 ```bash
 # 1. Storage foundation - PVCs
 oc apply -f 01-restore-order-00-pvcs.yaml
-oc wait --for=condition=complete restore/openstack-restore-00-pvcs -n openshift-adp --timeout=15m
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-pvcs -n openshift-adp --timeout=15m
 
 # 2. Foundation resources
 oc apply -f 02-restore-order-10-foundation.yaml
-oc wait --for=condition=complete restore/openstack-restore-10-foundation -n openshift-adp --timeout=5m
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-10-foundation -n openshift-adp --timeout=5m
 
 # 3. Infrastructure CRs
 oc apply -f 03-restore-order-20-infrastructure.yaml
-oc wait --for=condition=complete restore/openstack-restore-20-infrastructure -n openshift-adp --timeout=5m
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-20-infrastructure -n openshift-adp --timeout=5m
 
 # 4. OpenStackControlPlane (with staging annotation)
 oc apply -f 04-restore-order-30-controlplane.yaml
-oc wait --for=condition=complete restore/openstack-restore-30-controlplane -n openshift-adp --timeout=5m
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-30-controlplane -n openshift-adp --timeout=5m
 
 # 5. Backup configuration
 oc apply -f 05-restore-order-40-backup-config.yaml
-oc wait --for=condition=complete restore/openstack-restore-40-backup-config -n openshift-adp --timeout=5m
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-40-backup-config -n openshift-adp --timeout=5m
 
 # 6. Manual database restore
 # See 06-manual-database-restore.md for detailed steps
 
 # 7. DataPlane (if applicable)
 oc apply -f 07-restore-order-60-dataplane.yaml
-oc wait --for=condition=complete restore/openstack-restore-60-dataplane -n openshift-adp --timeout=5m
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-60-dataplane -n openshift-adp --timeout=5m
 ```
 
 ## Verification
