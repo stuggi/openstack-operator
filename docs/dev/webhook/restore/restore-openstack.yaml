@@ -7,13 +7,16 @@
 # Restore order:
 # 1. PVCs (CSI snapshots) - storage foundation
 # 2. Foundation resources (Secrets, ConfigMaps, NADs)
+#    - RabbitMQ *-default-user secrets are renamed to *-restored-user
+#      via resource modifiers (adjust rabbitmq_clusters for your deployment)
 # 3. Infrastructure CRs (OpenStackVersion, MariaDBAccount, etc.)
 # 4. OpenStackControlPlane (with infrastructure-only staging)
 # 5. GaleraBackup CRs (backup configuration)
 # 6. Wait for infrastructure (Galera, OVN, RabbitMQ) to be ready
 # 7. Database restore (create GaleraRestore CRs, exec restore)
-# 8. Resume full deployment (remove staging annotation)
-# 9. DataPlane resources (optional)
+# 8. RabbitMQ credential restore (create RabbitMQUser CRs)
+# 9. Resume full deployment (remove staging annotation)
+# 10. DataPlane resources (optional)
 #
 # Prerequisites:
 # - OADP operator installed and configured
@@ -41,6 +44,7 @@
 #   ctlplane_ready_timeout: Timeout waiting for full control plane (default: 10m)
 #   strict_restore: Fail on PartiallyFailed restores (default: true)
 #   restore_dataplane: Whether to restore dataplane (default: true)
+#   rabbitmq_clusters: List of RabbitMQ cluster names (default: [rabbitmq, rabbitmq-cell1])
 
 - name: OpenStack Full Restore
   hosts: localhost
@@ -54,6 +58,9 @@
     ctlplane_ready_timeout: 10m
     strict_restore: true
     restore_dataplane: true
+    rabbitmq_clusters:
+    - rabbitmq
+    - rabbitmq-cell1
 
   tasks:
     - name: Validate required parameters
@@ -140,6 +147,17 @@
                     annotations:
                       kubectl.kubernetes.io/last-applied-configuration: null
                       core.openstack.org/deployment-stage: "infrastructure-only"
+        {% for cluster in rabbitmq_clusters %}
+            - conditions:
+                groupResource: secrets
+                resourceNameRegex: "^{{ cluster }}-default-user$"
+                namespaces:
+                - {{ openstack_namespace }}
+              jsonPatches:
+              - operation: replace
+                path: "/metadata/name"
+                value: "{{ cluster }}-restored-user"
+        {% endfor %}
         CMEOF
       changed_when: true
 
@@ -442,13 +460,60 @@
       when: galerabackup_names.stdout == ""
 
     # ========================================
-    # Step 8: Resume Full Deployment
+    # Step 8: Create RabbitMQUser CRs
     # ========================================
-    - name: "Step 8: Resume deployment"
+    - name: "Step 8: Restore RabbitMQ credentials"
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 8: Resume Full Deployment"
+          - "Step 8: Restore RabbitMQ User Credentials"
+          - "========================================"
+          - "Creating RabbitMQUser CRs from restored *-restored-user secrets"
+          - "to re-establish original credentials for EDPM connectivity."
+
+    - name: Create RabbitMQUser CRs for restored credentials
+      ansible.builtin.shell: |
+        CLUSTER_NAME="{{ item }}"
+        RESTORED_SECRET_NAME="${CLUSTER_NAME}-restored-user"
+
+        # Verify the restored secret exists
+        if ! oc get secret "${RESTORED_SECRET_NAME}" -n {{ openstack_namespace }} &>/dev/null; then
+          echo "WARNING: Secret ${RESTORED_SECRET_NAME} not found - skipping"
+          exit 0
+        fi
+
+        cat <<EOF | oc apply -f -
+        apiVersion: rabbitmq.openstack.org/v1beta1
+        kind: RabbitMQUser
+        metadata:
+          name: ${CLUSTER_NAME}-restored-user
+          namespace: {{ openstack_namespace }}
+        spec:
+          rabbitmqClusterName: ${CLUSTER_NAME}
+          secret: ${RESTORED_SECRET_NAME}
+          tags:
+            - administrator
+          permissions:
+            configure: ".*"
+            read: ".*"
+            write: ".*"
+        EOF
+        echo "Created RabbitMQUser CR for ${CLUSTER_NAME}"
+      loop: "{{ rabbitmq_clusters }}"
+      changed_when: true
+
+    - name: Print Step 8 result
+      ansible.builtin.debug:
+        msg: "RabbitMQ user credentials restored"
+
+    # ========================================
+    # Step 9: Resume Full Deployment
+    # ========================================
+    - name: "Step 9: Resume deployment"
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 9: Resume Full Deployment"
           - "========================================"
           - "Removing deployment-stage annotation"
 
@@ -466,18 +531,18 @@
           --timeout={{ ctlplane_ready_timeout }}
       changed_when: false
 
-    - name: Print Step 8 result
+    - name: Print Step 9 result
       ansible.builtin.debug:
         msg: "Full control plane deployment is ready"
 
     # ========================================
-    # Step 9: Restore DataPlane (Order 60)
+    # Step 10: Restore DataPlane (Order 60)
     # ========================================
-    - name: "Step 9: Restore DataPlane"
+    - name: "Step 10: Restore DataPlane"
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 9: Restore DataPlane Resources"
+          - "Step 10: Restore DataPlane Resources"
           - "========================================"
       when: restore_dataplane | bool
 
@@ -509,10 +574,10 @@
         file: wait-for-restore.yaml
       vars:
         restore_name: "openstack-restore-60-dataplane-{{ restore_suffix }}"
-        step_name: "Step 9 (DataPlane restore)"
+        step_name: "Step 10 (DataPlane restore)"
       when: restore_dataplane | bool
 
-    - name: Print Step 9 skip
+    - name: Print Step 10 skip
       ansible.builtin.debug:
         msg: "DataPlane restore skipped (restore_dataplane=false)"
       when: not (restore_dataplane | bool)

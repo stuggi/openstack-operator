@@ -84,7 +84,45 @@ The script will:
 oc exec -it galera-0 -n openstack -- mysql -e "SHOW DATABASES;"
 ```
 
-### 6. Remove deployment-stage annotation
+### 6. Restore RabbitMQ user credentials
+
+The new RabbitMQ clusters have random credentials. The original `*-default-user`
+secrets were renamed to `*-restored-user` by the resource modifier during the
+foundation restore (Step 2). Create RabbitMQUser CRs to re-establish the
+original credentials:
+
+```bash
+# For each RabbitMQ cluster (adjust cluster names for your deployment)
+for CLUSTER in rabbitmq rabbitmq-cell1; do
+  RESTORED_SECRET="${CLUSTER}-restored-user"
+
+  # Skip if secret doesn't exist
+  if ! oc get secret "${RESTORED_SECRET}" -n openstack &>/dev/null; then
+    echo "Secret ${RESTORED_SECRET} not found - skipping"
+    continue
+  fi
+
+  cat <<EOF | oc apply -f -
+  apiVersion: rabbitmq.openstack.org/v1beta1
+  kind: RabbitMQUser
+  metadata:
+    name: ${CLUSTER}-restored-user
+    namespace: openstack
+  spec:
+    rabbitmqClusterName: ${CLUSTER}
+    secret: ${RESTORED_SECRET}
+    tags:
+      - administrator
+    permissions:
+      configure: ".*"
+      read: ".*"
+      write: ".*"
+EOF
+  echo "Created RabbitMQUser CR for ${CLUSTER}"
+done
+```
+
+### 7. Remove deployment-stage annotation
 
 Resume full OpenStack deployment by removing the annotation:
 
@@ -94,7 +132,7 @@ oc annotate openstackcontrolplane <name> -n openstack core.openstack.org/deploym
 
 Replace `<name>` with your OpenStackControlPlane CR name.
 
-### 7. Wait for OpenStack services to start
+### 8. Wait for OpenStack services to start
 
 ```bash
 oc get pods -n openstack
@@ -103,5 +141,5 @@ oc get openstackcontrolplane -n openstack
 
 ## Next Step
 
-After manual database restore and annotation removal, proceed to:
+After database restore, RabbitMQ credential restore, and annotation removal, proceed to:
 - **Order 60**: Restore DataPlane resources (if applicable)

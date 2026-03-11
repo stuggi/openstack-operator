@@ -6,10 +6,16 @@ This directory contains OADP Backup CRs for backing up OpenStack environments.
 
 We use a two-backup strategy:
 
-1. **backup-openstack-pvcs.yaml** - PVCs only (with CSI snapshots)
+1. **backup-openstack-pvcs.yaml** - PVCs only (with CSI snapshots, local only)
    - Filters at backup time using `labelSelector`
    - Only includes PVCs labeled with `openstack.org/backup: "true"`
    - Includes: Glance image storage PVCs, GaleraBackup PVCs
+
+1. **backup-openstack-pvcs-datamover.yaml** - PVCs with Data Mover (uploads to S3/MinIO)
+   - Same as above but with `snapshotMoveData: true`
+   - Uploads CSI snapshot data to BackupStorageLocation via Kopia
+   - Enables restore even after total cluster loss
+   - Requires OADP DPA with `nodeAgent` enabled
 
 2. **backup-openstack-resources.yaml** - Everything except PVCs
    - Backs up all resources in the namespace
@@ -52,6 +58,10 @@ ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml \
   -e openstack_namespace=openstack \
   -e storage_location=velero-1 \
   -e backup_ttl=168h
+
+# With Data Mover (upload snapshots to S3/MinIO):
+ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml \
+  -e snapshot_move_data=true
 ```
 
 ### Manual

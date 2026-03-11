@@ -14,7 +14,9 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 | `03-restore-order-20-infrastructure.yaml` | 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase | Infrastructure base |
 | `04-restore-order-30-controlplane.yaml` | 30 | OpenStackControlPlane | **Adds `deployment-stage: infrastructure-only` annotation** |
 | `05-restore-order-40-backup-config.yaml` | 40 | GaleraBackup | Backup configuration CRs |
-| `06-manual-database-restore.md` | 50 | **Manual** | Create GaleraRestore CRs, run restore script, remove deployment-stage annotation |
+| `06-manual-database-restore.md` | 50 | **Manual** | Create GaleraRestore CRs, run restore script |
+| *(Step 8 in playbook)* | - | RabbitMQUser CRs | Restore RabbitMQ credentials from renamed `*-restored-user` secrets |
+| *(Step 9 in playbook)* | - | **Manual** | Remove deployment-stage annotation, wait for control plane ready |
 | `07-restore-order-60-dataplane.yaml` | 60 | OpenStackDataPlaneNodeSet | DataPlane resources (optional) |
 
 ## Prerequisites
@@ -38,7 +40,9 @@ The playbook runs all restore steps in order, including:
 - Ordered OADP restores (PVCs → Foundation → Infrastructure → ControlPlane → GaleraBackup)
 - Waits for infrastructure to be ready (Galera, OVN, RabbitMQ)
 - Automated database restore (creates GaleraRestore CRs, runs restore script)
+- RabbitMQ credential restore (creates RabbitMQUser CRs from renamed secrets)
 - Removes deployment-stage annotation to resume full deployment
+- Waits for control plane to be ready
 - Optional DataPlane restore
 
 Override defaults with extra vars:
@@ -47,6 +51,12 @@ ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml \
   -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
   -e resources_backup_name=openstack-backup-resources-20260311-081234 \
   -e restore_dataplane=false
+
+# With additional RabbitMQ clusters:
+ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml \
+  -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
+  -e resources_backup_name=openstack-backup-resources-20260311-081234 \
+  -e '{"rabbitmq_clusters": ["rabbitmq", "rabbitmq-cell1", "rabbitmq-cell2"]}'
 ```
 
 ### Manual
