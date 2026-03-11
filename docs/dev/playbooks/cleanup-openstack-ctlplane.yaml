@@ -64,10 +64,9 @@
           Found {{ ctlplane_count.stdout }} OpenStackControlPlane CR(s) in namespace {{ openstack_namespace }}
 
           This will DELETE:
+          - GaleraRestore and GaleraBackup CRs (before ControlPlane)
           - OpenStackControlPlane CR
           - All operator-managed pods and services
-          - GaleraRestore CRs
-          - GaleraBackup CRs
           - OpenStackBackupConfig CRs
           - OpenStackVersion CRs
           - PVCs labeled with openstack.org/backup=true (Galera backups, Glance, Cinder, Swift, Manila)
@@ -86,11 +85,36 @@
         msg: "Cleanup cancelled by user"
       when: (skip_confirmation | default(false) | bool) == false and ctlplane_count.stdout|int > 0 and delete_confirm.user_input != "yes"
 
-    - name: Step 1 - Delete OpenStackControlPlane CR
+    - name: Step 1 - Delete GaleraRestore and GaleraBackup CRs
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 1: Deleting OpenStackControlPlane CR"
+          - "Step 1: Deleting GaleraRestore and GaleraBackup CRs"
+          - "========================================"
+          - "Must be deleted before ControlPlane (requires running Galera pods)"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Delete GaleraRestore CRs
+      ansible.builtin.shell: |
+        oc delete galerarestore --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+
+    - name: Delete GaleraBackup CRs
+      ansible.builtin.shell: |
+        oc delete galerabackup --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+
+    - name: Print Step 1 status
+      ansible.builtin.debug:
+        msg: "GaleraRestore and GaleraBackup CRs deleted"
+
+    - name: Step 2 - Delete OpenStackControlPlane CR
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 2: Deleting OpenStackControlPlane CR"
           - "========================================"
       when: ctlplane_count.stdout|int > 0
 
@@ -105,11 +129,11 @@
         seconds: 30
       when: ctlplane_count.stdout|int > 0
 
-    - name: Step 2 - Wait for pods to terminate
+    - name: Step 3 - Wait for pods to terminate
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 2: Waiting for pods to terminate"
+          - "Step 3: Waiting for pods to terminate"
           - "========================================"
       when: ctlplane_count.stdout|int > 0
 
@@ -140,7 +164,7 @@
 
     - name: Print stuck pods status
       ansible.builtin.debug:
-        msg: "✓ Force deleted {{ stuck_pods.stdout_lines | length }} stuck pod(s)"
+        msg: "Force deleted {{ stuck_pods.stdout_lines | length }} stuck pod(s)"
       when: ctlplane_count.stdout|int > 0 and pod_count.stdout|int > 0 and stuck_pods.stdout != ""
 
     - name: Wait again after force delete
@@ -156,27 +180,15 @@
 
     - name: Print pod cleanup status
       ansible.builtin.debug:
-        msg: "✓ All pods terminated"
+        msg: "All pods terminated"
       when: ctlplane_count.stdout|int > 0
 
-    - name: Step 3 - Delete GaleraRestore, GaleraBackup, OpenStackBackupConfig, and OpenStackVersion CRs
+    - name: Step 4 - Delete OpenStackBackupConfig and OpenStackVersion CRs
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 3: Deleting Galera, BackupConfig, and Version CRs"
+          - "Step 4: Deleting BackupConfig and Version CRs"
           - "========================================"
-
-    - name: Delete GaleraRestore CRs
-      ansible.builtin.shell: |
-        oc delete galerarestore --all -n {{ openstack_namespace }}
-      changed_when: true
-      failed_when: false
-
-    - name: Delete GaleraBackup CRs
-      ansible.builtin.shell: |
-        oc delete galerabackup --all -n {{ openstack_namespace }}
-      changed_when: true
-      failed_when: false
 
     - name: Delete OpenStackBackupConfig CRs
       ansible.builtin.shell: |
@@ -190,15 +202,15 @@
       changed_when: true
       failed_when: false
 
-    - name: Print Galera and infrastructure cleanup status
+    - name: Print Step 4 status
       ansible.builtin.debug:
-        msg: "GaleraRestore, GaleraBackup, OpenStackBackupConfig, and OpenStackVersion CRs deleted"
+        msg: "OpenStackBackupConfig and OpenStackVersion CRs deleted"
 
-    - name: Step 4 - Delete PVCs
+    - name: Step 5 - Delete PVCs
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 4: Deleting PVCs"
+          - "Step 5: Deleting PVCs"
           - "========================================"
           - "Backup storage PVCs (Galera backups, Glance, Cinder, Swift, Manila)"
           - "Galera database PVCs"
@@ -217,13 +229,13 @@
 
     - name: Print PVC cleanup status
       ansible.builtin.debug:
-        msg: "✓ PVCs with openstack.org/backup=true label and Galera database PVCs deleted"
+        msg: "PVCs with openstack.org/backup=true label and Galera database PVCs deleted"
 
-    - name: Step 5 - Delete RabbitMQUser CRs and restored secrets
+    - name: Step 6 - Delete RabbitMQUser CRs and restored secrets
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 5: Deleting RabbitMQUser CRs and Restored Secrets"
+          - "Step 6: Deleting RabbitMQUser CRs and Restored Secrets"
           - "========================================"
 
     - name: Delete all RabbitMQUser CRs
@@ -242,13 +254,13 @@
 
     - name: Print RabbitMQ cleanup status
       ansible.builtin.debug:
-        msg: "✓ RabbitMQUser CRs and restored secrets deleted"
+        msg: "RabbitMQUser CRs and restored secrets deleted"
 
-    - name: Step 6 - Delete certificate secrets
+    - name: Step 7 - Delete certificate secrets
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 6: Deleting certificate secrets"
+          - "Step 7: Deleting certificate secrets"
           - "========================================"
           - "(Excluding EDPM, compute node, and Ceph certs)"
 
@@ -282,7 +294,7 @@
 
     - name: Print certificate cleanup status
       ansible.builtin.debug:
-        msg: "✓ Certificate secrets deleted"
+        msg: "Certificate secrets deleted"
 
     - name: Verify cleanup
       ansible.builtin.shell: |
