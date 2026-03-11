@@ -31,6 +31,33 @@ We use a two-backup strategy:
 
 ## Quick Start
 
+### Automated (Recommended)
+
+Use the backup playbook to orchestrate the full backup flow:
+
+```bash
+ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml
+```
+
+The playbook runs three steps:
+1. **Trigger Galera DB dumps** — creates jobs from GaleraBackup cronjobs
+2. **OADP PVC backup** — CSI snapshots of PVCs labeled with `openstack.org/backup=true`
+3. **OADP resources backup** — all resources in the namespace except PVCs
+
+PVC backup labels are set automatically by service operators (glance-operator, mariadb-operator).
+
+Override defaults with extra vars:
+```bash
+ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml \
+  -e openstack_namespace=openstack \
+  -e storage_location=velero-1 \
+  -e backup_ttl=168h
+```
+
+### Manual
+
+Apply the backup CRs directly:
+
 ```bash
 # Create both backups
 oc apply -f backup-openstack-resources.yaml
@@ -43,6 +70,8 @@ oc get backup -n openshift-adp -w
 oc describe backup openstack-backup-resources -n openshift-adp
 oc describe backup openstack-backup-pvcs -n openshift-adp
 ```
+
+**Note:** When running manually, trigger Galera DB dumps first to ensure fresh database backups on the PVCs before the CSI snapshot.
 
 ## Backup Contents
 

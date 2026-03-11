@@ -1,0 +1,230 @@
+---
+# Full OpenStack Backup Playbook
+#
+# Orchestrates a complete backup of an OpenStack control plane:
+# 1. Trigger Galera database dumps (creates fresh DB dumps on PVCs)
+# 2. OADP PVC backup (CSI snapshots of labeled PVCs)
+# 3. OADP resources backup (CRs, Secrets, ConfigMaps, NADs, etc.)
+#
+# PVC backup labels (openstack.org/backup=true) are set automatically
+# by the service operators (glance-operator, mariadb-operator, etc.).
+#
+# Prerequisites:
+# - OADP operator installed and configured (see docs/dev/setup-oadp-minio.md)
+# - GaleraBackup CRs created (cronjobs exist for DB dumps)
+# - VolumeSnapshotClass with velero label configured
+# - PVC sizes use binary units (Gi, not G) - see OSPRH-27441
+#
+# Usage:
+#   ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml
+#
+# Variables:
+#   openstack_namespace: Target namespace (default: openstack)
+#   oadp_namespace: OADP namespace (default: openshift-adp)
+#   backup_name_suffix: Suffix for backup names (default: timestamp)
+#   galera_backup_timeout: Timeout for DB dump jobs (default: 10m)
+#   oadp_backup_timeout: Timeout for OADP backups (default: 30m)
+#   storage_location: Velero storage location (default: velero-1)
+#   backup_ttl: Backup retention (default: 720h / 30 days)
+
+- name: OpenStack Full Backup
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    openstack_namespace: openstack
+    oadp_namespace: openshift-adp
+    galera_backup_timeout: 10m
+    oadp_backup_timeout: 30m
+    storage_location: velero-1
+    backup_ttl: 720h
+
+  tasks:
+    - name: Set backup timestamp
+      ansible.builtin.set_fact:
+        backup_name_suffix: "{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
+    # ========================================
+    # Step 1: Trigger Galera Database Dumps
+    # ========================================
+    - name: "Step 1: Trigger Galera database dumps"
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 1: Trigger Galera Database Dumps"
+          - "========================================"
+          - "Creating jobs from GaleraBackup cronjobs to dump databases to PVCs"
+
+    - name: Get list of GaleraBackup cronjobs
+      ansible.builtin.shell: |
+        oc get cronjob -n {{ openstack_namespace }} -l app=galera -o jsonpath='{.items[*].metadata.name}'
+      register: galera_backup_cronjobs
+      changed_when: false
+
+    - name: Print GaleraBackup cronjobs found
+      ansible.builtin.debug:
+        msg: "Found GaleraBackup cronjobs: {{ galera_backup_cronjobs.stdout.split() if galera_backup_cronjobs.stdout != '' else 'none' }}"
+
+    - name: Trigger Galera backup jobs
+      ansible.builtin.shell: |
+        BACKUP_JOB_NAME="{{ item }}-{{ backup_name_suffix }}"
+        oc -n {{ openstack_namespace }} create job --from=cronjob/{{ item }} ${BACKUP_JOB_NAME}
+        echo ${BACKUP_JOB_NAME}
+      loop: "{{ galera_backup_cronjobs.stdout.split() }}"
+      register: galera_backup_jobs
+      changed_when: true
+      when: galera_backup_cronjobs.stdout != ""
+
+    - name: Wait for Galera backup jobs to complete
+      ansible.builtin.shell: |
+        oc -n {{ openstack_namespace }} wait --for=condition=complete job/{{ item.stdout_lines[-1] }} --timeout={{ galera_backup_timeout }}
+      loop: "{{ galera_backup_jobs.results }}"
+      changed_when: false
+      when: galera_backup_cronjobs.stdout != ""
+
+    - name: Print Step 1 result
+      ansible.builtin.debug:
+        msg: "Galera database backups completed"
+      when: galera_backup_cronjobs.stdout != ""
+
+    - name: Print Step 1 skip
+      ansible.builtin.debug:
+        msg: "No GaleraBackup cronjobs found - skipping database dump"
+      when: galera_backup_cronjobs.stdout == ""
+
+    # ========================================
+    # Step 2: OADP PVC Backup (CSI Snapshots)
+    # ========================================
+    - name: "Step 2: OADP PVC backup"
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 2: OADP PVC Backup (CSI Snapshots)"
+          - "========================================"
+          - "PVCs are auto-labeled by operators (glance-operator, mariadb-operator)"
+
+    - name: List PVCs marked for backup
+      ansible.builtin.shell: |
+        oc get pvc -n {{ openstack_namespace }} -l openstack.org/backup=true \
+          -o custom-columns=NAME:.metadata.name,SIZE:.spec.resources.requests.storage,SERVICE:.metadata.labels.service --no-headers
+      register: labeled_pvcs
+      changed_when: false
+      failed_when: false
+
+    - name: Print labeled PVCs
+      ansible.builtin.debug:
+        msg: "{{ labeled_pvcs.stdout_lines }}"
+      when: labeled_pvcs.stdout_lines | default([]) | length > 0
+
+    - name: Warn if no PVCs labeled
+      ansible.builtin.debug:
+        msg: "WARNING: No PVCs found with openstack.org/backup=true label"
+      when: labeled_pvcs.stdout_lines | default([]) | length == 0
+
+    - name: Create OADP PVC backup
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: velero.io/v1
+        kind: Backup
+        metadata:
+          name: openstack-backup-pvcs-{{ backup_name_suffix }}
+          namespace: {{ oadp_namespace }}
+        spec:
+          includedNamespaces:
+          - {{ openstack_namespace }}
+          labelSelector:
+            matchLabels:
+              openstack.org/backup: "true"
+          snapshotVolumes: true
+          defaultVolumesToFsBackup: false
+          volumeSnapshotLocations: []
+          storageLocation: {{ storage_location }}
+          ttl: {{ backup_ttl }}
+        EOF
+      changed_when: true
+
+    - name: Wait for PVC backup to complete
+      ansible.builtin.shell: |
+        oc wait --for=jsonpath='{.status.phase}'=Completed \
+          backup/openstack-backup-pvcs-{{ backup_name_suffix }} \
+          -n {{ oadp_namespace }} \
+          --timeout={{ oadp_backup_timeout }}
+      changed_when: false
+
+    - name: Get PVC backup status
+      ansible.builtin.shell: |
+        oc get backup openstack-backup-pvcs-{{ backup_name_suffix }} -n {{ oadp_namespace }} \
+          -o jsonpath='{.status.phase}'
+      register: pvc_backup_status
+      changed_when: false
+
+    - name: Print Step 2 result
+      ansible.builtin.debug:
+        msg: "PVC backup status: {{ pvc_backup_status.stdout }}"
+
+    # ========================================
+    # Step 3: OADP Resources Backup
+    # ========================================
+    - name: "Step 3: OADP resources backup"
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 3: OADP Resources Backup"
+          - "========================================"
+          - "Backing up all resources except PVCs"
+
+    - name: Create OADP resources backup
+      ansible.builtin.shell: |
+        cat <<EOF | oc apply -f -
+        apiVersion: velero.io/v1
+        kind: Backup
+        metadata:
+          name: openstack-backup-resources-{{ backup_name_suffix }}
+          namespace: {{ oadp_namespace }}
+        spec:
+          includedNamespaces:
+          - {{ openstack_namespace }}
+          excludedResources:
+          - persistentvolumeclaims
+          - persistentvolumes
+          storageLocation: {{ storage_location }}
+          ttl: {{ backup_ttl }}
+        EOF
+      changed_when: true
+
+    - name: Wait for resources backup to complete
+      ansible.builtin.shell: |
+        oc wait --for=jsonpath='{.status.phase}'=Completed \
+          backup/openstack-backup-resources-{{ backup_name_suffix }} \
+          -n {{ oadp_namespace }} \
+          --timeout={{ oadp_backup_timeout }}
+      changed_when: false
+
+    - name: Get resources backup status
+      ansible.builtin.shell: |
+        oc get backup openstack-backup-resources-{{ backup_name_suffix }} -n {{ oadp_namespace }} \
+          -o jsonpath='{.status.phase}'
+      register: resources_backup_status
+      changed_when: false
+
+    - name: Print Step 3 result
+      ansible.builtin.debug:
+        msg: "Resources backup status: {{ resources_backup_status.stdout }}"
+
+    # ========================================
+    # Summary
+    # ========================================
+    - name: Print backup summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Backup Complete"
+          - "========================================"
+          - ""
+          - "Backup name suffix: {{ backup_name_suffix }}"
+          - "PVC backup:       openstack-backup-pvcs-{{ backup_name_suffix }}"
+          - "Resources backup: openstack-backup-resources-{{ backup_name_suffix }}"
+          - ""
+          - "To verify:"
+          - "  oc get backup -n {{ oadp_namespace }} | grep {{ backup_name_suffix }}"
+          - ""
+          - "To restore, see: docs/dev/webhook/restore/README.md"
