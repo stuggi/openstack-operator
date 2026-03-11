@@ -4,6 +4,12 @@
 # This tells the controller to only deploy infrastructure, not full services
 # Must be restored after infrastructure CRs (order 20)
 # Manual database restore happens at order 50 before removing this annotation
+#
+# The deployment-stage=infrastructure-only annotation is added automatically
+# by the resource modifier ConfigMap during restore.
+#
+# Prerequisite: Create the resource modifier ConfigMap first:
+#   oc apply -f 00-resource-modifiers-configmap.yaml
 apiVersion: velero.io/v1
 kind: Restore
 metadata:
@@ -22,16 +28,9 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "30"
 
-  # Remove ownerReferences and last-applied-configuration
-  # Add deployment-stage annotation to prevent full deployment
-  resourceModifiers:
-  - conditions: {}
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
-    - operation: add
-      path: "/metadata/annotations/openstack.org~1deployment-stage"
-      value: "infrastructure-only"
-
+  # Remove last-applied-configuration and add deployment-stage annotation
+  # via ConfigMap-based resource modifiers
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers

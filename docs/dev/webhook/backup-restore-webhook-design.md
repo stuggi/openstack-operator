@@ -533,23 +533,43 @@ The `kubectl.kubernetes.io/last-applied-configuration` annotation stores the ent
 
 **The Solution:**
 
-Use OADP `resourceModifiers` to **strip ownerReferences and large annotations** from ALL resources during restore:
+Use Velero `resourceModifier` (via a ConfigMap) to **strip large annotations and add staging annotations** during restore. Velero requires resource modifier rules to be defined in a ConfigMap and referenced by the Restore CR.
+
+**Step 1: Create the resource modifier ConfigMap** in the OADP namespace:
 
 ```yaml
-resourceModifiers:
-- conditions: {}  # Match all resources
-  patches:
-  # Remove ownerReferences (operators will adopt during reconciliation)
-  - operation: remove
-    path: "/metadata/ownerReferences"
-  # Remove last-applied-configuration (can be too large)
-  - operation: remove
-    path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openstack-restore-resource-modifiers
+  namespace: openshift-adp
+data:
+  resource-modifiers.yaml: |
+    version: v1
+    resourceModifierRules:
+    # Strip last-applied-configuration from all resources
+    - conditions:
+        groupResource: "*"
+        namespaces:
+        - openstack
+      mergePatches:
+      - patchData: |
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/last-applied-configuration: null
+    # Add deployment-stage annotation to OpenStackControlPlane
+    - conditions:
+        groupResource: openstackcontrolplanes.core.openstack.org
+        namespaces:
+        - openstack
+      mergePatches:
+      - patchData: |
+          metadata:
+            annotations:
+              openstack.org/deployment-stage: "infrastructure-only"
 ```
 
-**Applied to ALL restore orders** for simplicity and safety - no need to think about which resources need it.
-
-**Example Restore CRs:**
+**Step 2: Reference the ConfigMap** in each Restore CR via `spec.resourceModifier.ref`:
 
 ```yaml
 # Restore Order 10: Secrets, ConfigMaps, NADs
@@ -564,18 +584,12 @@ spec:
     matchLabels:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "10"
-  restorePVs: false  # Don't restore PVCs in this order
-  # CRITICAL: Remove problematic metadata to prevent issues
-  # Operators will adopt resources and set correct ownerReferences during reconciliation
-  resourceModifiers:
-  - conditions: {}  # Match all resources
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 ---
-# Restore Order 20: TLS Issuers
+# Restore Order 20: Infrastructure CRs
 apiVersion: velero.io/v1
 kind: Restore
 metadata:
@@ -587,18 +601,14 @@ spec:
     matchLabels:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "20"
-  restorePVs: false
-  # Remove problematic metadata from all resources
-  resourceModifiers:
-  - conditions: {}  # Match all resources
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 ---
-# And so on for each restore order...
-# NOTE: ALL restore orders use resourceModifiers to strip ownerReferences and large annotations
+# All restore orders reference the same ConfigMap.
+# The deployment-stage rule only matches OpenStackControlPlane resources,
+# so it is harmless in other restore steps.
 ```
 
 **Key Points:**
@@ -1175,6 +1185,9 @@ oc get backup -n openshift-adp -w
 
 **Example Manual Restore:**
 ```bash
+# Step 0: Create the resource modifier ConfigMap (required for all restores)
+oc apply -f docs/dev/webhook/restore/00-resource-modifiers-configmap.yaml
+
 # Order 00: PVCs (Storage Foundation)
 cat <<EOF | oc apply -f -
 apiVersion: velero.io/v1
@@ -1189,14 +1202,10 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "00"
   restorePVs: true  # CSI snapshots
-  # Remove problematic metadata (operators will adopt during reconciliation)
-  resourceModifiers:
-  - conditions: {}  # Match all resources
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 EOF
 
 # Wait for completion (CSI snapshot restore may take time)
@@ -1216,22 +1225,17 @@ spec:
     matchLabels:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "10"
-  restorePVs: false
-  # Remove problematic metadata
-  resourceModifiers:
-  - conditions: {}  # Match all resources
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 EOF
 
 # Wait for completion
 oc wait --for=jsonpath='{.status.phase}'=Completed \
   restore/openstack-restore-order-10 -n openshift-adp --timeout=10m
 
-# Order 20: TLS & Infrastructure (Issuers, MariaDB CRs, NetConfig)
+# Order 20: Infrastructure CRs (MariaDB CRs, OpenStackVersion, etc.)
 cat <<EOF | oc apply -f -
 apiVersion: velero.io/v1
 kind: Restore
@@ -1244,22 +1248,17 @@ spec:
     matchLabels:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "20"
-  restorePVs: false
-  # Remove problematic metadata
-  resourceModifiers:
-  - conditions: {}  # Match all resources
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 EOF
 
 # Wait for completion
 oc wait --for=jsonpath='{.status.phase}'=Completed \
   restore/openstack-restore-order-20 -n openshift-adp --timeout=10m
 
-# Order 30: ControlPlane + Networking (with staged deployment annotation)
+# Order 30: ControlPlane (with staged deployment annotation added by ConfigMap)
 cat <<EOF | oc apply -f -
 apiVersion: velero.io/v1
 kind: Restore
@@ -1272,28 +1271,16 @@ spec:
     matchLabels:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "30"
-  restorePVs: false
-  resourceModifiers:
-  # Remove problematic metadata from all resources
-  - conditions: {}  # Match all resources
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
-  # Add staged deployment annotation to OpenStackControlPlane
-  - conditions:
-      groupResource: openstackcontrolplanes.core.openstack.org
-    patches:
-    - operation: add
-      path: "/metadata/annotations/core.openstack.org~1deployment-stage"
-      value: "infrastructure-only"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
   restore/openstack-restore-order-30 -n openshift-adp --timeout=10m
 
-# Wait for infrastructure ready (annotation already applied by OADP)
+# Wait for infrastructure ready (annotation already applied by resource modifier)
 oc wait --for=condition=OpenStackControlPlaneInfrastructureReady \
   openstackcontrolplane/openstack-galera-network-isolation \
   -n openstack --timeout=20m
@@ -1311,15 +1298,10 @@ spec:
     matchLabels:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "40"
-  restorePVs: false
-  # Remove problematic metadata
-  resourceModifiers:
-  - conditions: {}  # Match all resources
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
@@ -1345,7 +1327,7 @@ echo "Step 2: RabbitMQ Credentials"
 # 50.3: Resume Deployment
 echo "Step 3: Resume Deployment"
 oc annotate openstackcontrolplane openstack-galera-network-isolation \
-  -n openstack core.openstack.org/deployment-stage-
+  -n openstack openstack.org/deployment-stage-
 
 # Operator will now reconcile and start all services
 # Wait for full deployment ready
@@ -1366,21 +1348,16 @@ spec:
     matchLabels:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "60"
-  restorePVs: false
-  # Remove problematic metadata
-  resourceModifiers:
-  - conditions: {}  # Match all resources
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
   restore/openstack-restore-order-60 -n openshift-adp --timeout=10m
 
-echo "✓ Full restore completed!"
+echo "Full restore completed!"
 ```
 
 ### Phase 4: Golang Controller (Full Automation)

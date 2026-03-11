@@ -5,6 +5,9 @@
 #
 # Note: No labelSelector needed - the backup (openstack-backup-pvcs) already
 # filtered to only include PVCs with openstack.org/backup=true label.
+#
+# Prerequisite: Create the resource modifier ConfigMap first:
+#   oc apply -f 00-resource-modifiers-configmap.yaml
 apiVersion: velero.io/v1
 kind: Restore
 metadata:
@@ -17,16 +20,11 @@ spec:
   includedNamespaces:
   - openstack
 
-  # Remove ownerReferences and last-applied-configuration
-  # This prevents UID mismatch issues and annotation size limit failures
-  resourceModifiers:
-  - conditions: {}  # Match all resources
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  # Remove last-applied-configuration via ConfigMap-based resource modifiers
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 
   # Restore PVCs from volume snapshots
   restorePVs: true
-

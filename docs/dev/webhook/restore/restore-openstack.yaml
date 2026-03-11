@@ -100,6 +100,42 @@
           - "Resources backup: {{ resources_backup_name }} ({{ resources_backup_phase.stdout }})"
 
     # ========================================
+    # Create resource modifier ConfigMap
+    # ========================================
+    - name: Create resource modifier ConfigMap
+      ansible.builtin.shell: |
+        cat <<'CMEOF' | oc apply -f -
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: openstack-restore-resource-modifiers
+          namespace: {{ oadp_namespace }}
+        data:
+          resource-modifiers.yaml: |
+            version: v1
+            resourceModifierRules:
+            - conditions:
+                groupResource: "*"
+                namespaces:
+                - {{ openstack_namespace }}
+              mergePatches:
+              - patchData: |
+                  metadata:
+                    annotations:
+                      kubectl.kubernetes.io/last-applied-configuration: null
+            - conditions:
+                groupResource: openstackcontrolplanes.core.openstack.org
+                namespaces:
+                - {{ openstack_namespace }}
+              mergePatches:
+              - patchData: |
+                  metadata:
+                    annotations:
+                      openstack.org/deployment-stage: "infrastructure-only"
+        CMEOF
+      changed_when: true
+
+    # ========================================
     # Step 1: Restore PVCs (Order 00)
     # ========================================
     - name: "Step 1: Restore PVCs"
@@ -158,6 +194,10 @@
             matchLabels:
               openstack.org/backup-restore: "true"
               openstack.org/backup-restore-order: "10"
+          resourceModifier:
+            ref:
+              kind: ConfigMap
+              name: openstack-restore-resource-modifiers
         EOF
       changed_when: true
 
@@ -195,6 +235,10 @@
             matchLabels:
               openstack.org/backup-restore: "true"
               openstack.org/backup-restore-order: "20"
+          resourceModifier:
+            ref:
+              kind: ConfigMap
+              name: openstack-restore-resource-modifiers
         EOF
       changed_when: true
 
@@ -219,7 +263,7 @@
 
     - name: Create controlplane restore with staging annotation
       ansible.builtin.shell: |
-        cat <<'EOF' | oc apply -f -
+        cat <<EOF | oc apply -f -
         apiVersion: velero.io/v1
         kind: Restore
         metadata:
@@ -233,16 +277,10 @@
             matchLabels:
               openstack.org/backup-restore: "true"
               openstack.org/backup-restore-order: "30"
-          resourceModifiers:
-          - conditions: {}
-            patches:
-            - operation: remove
-              path: "/metadata/ownerReferences"
-            - operation: remove
-              path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
-            - operation: add
-              path: "/metadata/annotations/openstack.org~1deployment-stage"
-              value: "infrastructure-only"
+          resourceModifier:
+            ref:
+              kind: ConfigMap
+              name: openstack-restore-resource-modifiers
         EOF
       changed_when: true
 
@@ -279,6 +317,10 @@
             matchLabels:
               openstack.org/backup-restore: "true"
               openstack.org/backup-restore-order: "40"
+          resourceModifier:
+            ref:
+              kind: ConfigMap
+              name: openstack-restore-resource-modifiers
         EOF
       changed_when: true
 
@@ -443,6 +485,10 @@
             matchLabels:
               openstack.org/backup-restore: "true"
               openstack.org/backup-restore-order: "60"
+          resourceModifier:
+            ref:
+              kind: ConfigMap
+              name: openstack-restore-resource-modifiers
         EOF
       changed_when: true
       when: restore_dataplane | bool

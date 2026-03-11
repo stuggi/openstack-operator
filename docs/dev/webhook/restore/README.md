@@ -8,6 +8,7 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 
 | File | Order | Resources | Notes |
 |------|-------|-----------|-------|
+| `00-resource-modifiers-configmap.yaml` | - | ConfigMap | **Prerequisite:** resource modifier rules for all restores |
 | `01-restore-order-00-pvcs.yaml` | 00 | PVCs (Glance images, GaleraBackup) | Storage foundation, restored from CSI snapshots |
 | `02-restore-order-10-foundation.yaml` | 10 | Secrets, ConfigMaps, NADs | User-provided resources without ownerRefs |
 | `03-restore-order-20-infrastructure.yaml` | 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase | Infrastructure base |
@@ -50,9 +51,12 @@ ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml \
 
 ### Manual
 
-Apply the restore CRs in order, waiting for each to complete:
+Create the resource modifier ConfigMap first, then apply restore CRs in order:
 
 ```bash
+# 0. Create resource modifier ConfigMap (required for all restores)
+oc apply -f 00-resource-modifiers-configmap.yaml
+
 # 1. Storage foundation - PVCs
 oc apply -f 01-restore-order-00-pvcs.yaml
 oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-pvcs -n openshift-adp --timeout=15m

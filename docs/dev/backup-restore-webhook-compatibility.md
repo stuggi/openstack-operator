@@ -479,15 +479,14 @@ spec:
     matchLabels:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "6"
-  restorePVs: false
-  # CRITICAL: Add staged deployment annotation during restore
-  resourceModifiers:
-  - conditions:
-      groupResource: openstackcontrolplanes.core.openstack.org
-    patches:
-    - operation: add
-      path: "/metadata/annotations/core.openstack.org~1deployment-stage"
-      value: "infrastructure-only"
+  # Add staged deployment annotation via ConfigMap-based resource modifiers
+  # The ConfigMap adds openstack.org/deployment-stage=infrastructure-only
+  # to OpenStackControlPlane during restore
+  # See: docs/dev/webhook/restore/00-resource-modifiers-configmap.yaml
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 ```
 
 **Restore flow:**

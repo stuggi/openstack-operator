@@ -1319,12 +1319,17 @@ spec:
 
 File: `oadp/restore-openstack-controlplane.yaml`
 
+Velero requires resource modifier rules to be defined in a ConfigMap, referenced by the Restore CR
+via `spec.resourceModifier.ref`. See `docs/dev/webhook/restore/00-resource-modifiers-configmap.yaml`
+for the shared ConfigMap that strips `last-applied-configuration` and adds the `deployment-stage`
+annotation for OpenStackControlPlane.
+
 ```yaml
 apiVersion: velero.io/v1
 kind: Restore
 metadata:
   name: openstack-controlplane-restore
-  namespace: openstack-oadp-operator
+  namespace: openshift-adp
 spec:
   backupName: openstack-controlplane-backup
 
@@ -1332,23 +1337,21 @@ spec:
   includedNamespaces:
   - openstack
 
-  # Remove ownerReferences and last-applied-configuration
-  resourceModifiers:
-  - conditions: {}  # Match all resources
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  # Remove last-applied-configuration and add deployment-stage annotation
+  # via ConfigMap-based resource modifiers
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 
   # Restore PVCs from volume snapshots
   restorePVs: true
 ```
 
 **Key Points:**
-- resourceModifiers apply to ALL resources (conditions: {})
-- Removes ownerReferences to prevent UID mismatch issues
+- Resource modifiers are defined in a ConfigMap (`openstack-restore-resource-modifiers`)
 - Removes last-applied-configuration to prevent size limit failures
+- Adds `deployment-stage: infrastructure-only` to OpenStackControlPlane during restore
 - restorePVs: true restores PVCs from CSI snapshots
 
 ### Multi-Phase Restore Example
@@ -1378,7 +1381,7 @@ apiVersion: velero.io/v1
 kind: Restore
 metadata:
   name: restore-00-pvcs
-  namespace: openstack-oadp-operator
+  namespace: openshift-adp
 spec:
   backupName: openstack-backup-pvcs
   includedNamespaces:
@@ -1387,13 +1390,10 @@ spec:
   # No labelSelector needed - the backup already filtered to only include
   # PVCs with openstack.org/backup=true label. Restore everything from this backup.
 
-  resourceModifiers:
-  - conditions: {}
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 
   restorePVs: true
 ```
@@ -1411,7 +1411,7 @@ apiVersion: velero.io/v1
 kind: Restore
 metadata:
   name: restore-10-foundation
-  namespace: openstack-oadp-operator
+  namespace: openshift-adp
 spec:
   backupName: openstack-backup-resources
   includedNamespaces:
@@ -1423,15 +1423,10 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "10"
 
-  resourceModifiers:
-  - conditions: {}
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
-
-  restorePVs: false
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 ```
 
 **Resources Restored:** User-provided Secrets, ConfigMaps, database password secrets
@@ -1445,25 +1440,21 @@ apiVersion: velero.io/v1
 kind: Restore
 metadata:
   name: restore-20-infrastructure
-  namespace: openstack-oadp-operator
+  namespace: openshift-adp
 spec:
-  backupName: openstack-controlplane-backup
+  backupName: openstack-backup-resources
   includedNamespaces:
   - openstack
 
   labelSelector:
     matchLabels:
-      openstack.org/restore-order: "20"
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "20"
 
-  resourceModifiers:
-  - conditions: {}
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
-
-  restorePVs: false
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 ```
 
 **Resources Restored:** OpenStackVersion, MariaDBDatabase, MariaDBAccount, NetConfig, DNSData
@@ -1477,33 +1468,27 @@ apiVersion: velero.io/v1
 kind: Restore
 metadata:
   name: restore-30-controlplane
-  namespace: openstack-oadp-operator
+  namespace: openshift-adp
 spec:
-  backupName: openstack-controlplane-backup
+  backupName: openstack-backup-resources
   includedNamespaces:
   - openstack
 
   labelSelector:
     matchLabels:
-      openstack.org/restore-order: "30"
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "30"
 
-  resourceModifiers:
-  - conditions: {}
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
-    - operation: add
-      path: "/metadata/annotations/openstack.org~1deployment-stage"
-      value: "infrastructure-only"
-
-  restorePVs: false
+  # The ConfigMap adds deployment-stage=infrastructure-only to OpenStackControlPlane
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 ```
 
 **Resources Restored:** OpenStackControlPlane (with staged deployment annotation)
 
-**Important:** The `deployment-stage: infrastructure-only` annotation prevents full deployment until database is restored.
+**Important:** The `deployment-stage: infrastructure-only` annotation is added automatically by the resource modifier ConfigMap, preventing full deployment until database is restored.
 
 #### Order 40: Backup Configuration
 
@@ -1514,25 +1499,21 @@ apiVersion: velero.io/v1
 kind: Restore
 metadata:
   name: restore-40-backup-config
-  namespace: openstack-oadp-operator
+  namespace: openshift-adp
 spec:
-  backupName: openstack-controlplane-backup
+  backupName: openstack-backup-resources
   includedNamespaces:
   - openstack
 
   labelSelector:
     matchLabels:
-      openstack.org/restore-order: "40"
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "40"
 
-  resourceModifiers:
-  - conditions: {}
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
-
-  restorePVs: false
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 ```
 
 **Resources Restored:** GaleraBackup CRs, user-created RabbitMQUser/RabbitMQVhost
@@ -1561,25 +1542,21 @@ apiVersion: velero.io/v1
 kind: Restore
 metadata:
   name: restore-60-dataplane
-  namespace: openstack-oadp-operator
+  namespace: openshift-adp
 spec:
-  backupName: openstack-controlplane-backup
+  backupName: openstack-backup-resources
   includedNamespaces:
   - openstack
 
   labelSelector:
     matchLabels:
-      openstack.org/restore-order: "60"
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "60"
 
-  resourceModifiers:
-  - conditions: {}
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
-
-  restorePVs: false
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 ```
 
 **Resources Restored:** OpenStackDataPlaneNodeSet, IPSet, Reservation

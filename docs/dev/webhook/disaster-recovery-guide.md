@@ -1797,14 +1797,13 @@ spec:
   # Restore PVCs from object storage
   restorePVs: true
 
-  # Remove problematic metadata
-  resourceModifiers:
-  - conditions: {}
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  # Remove last-applied-configuration and add deployment-stage annotation
+  # via ConfigMap-based resource modifiers
+  # See: docs/dev/webhook/restore/00-resource-modifiers-configmap.yaml
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 
   # Storage class mapping (if needed)
   # storageClassMapping:
@@ -1850,13 +1849,10 @@ spec:
 
   restorePVs: true
 
-  resourceModifiers:
-  - conditions: {}
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 ```
 
 ```bash
@@ -1891,13 +1887,10 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "10"
 
-  resourceModifiers:
-  - conditions: {}
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 ```
 
 Repeat for orders 20, 30, 40, 60 (see [restore examples](restore/)).
@@ -2047,13 +2040,10 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "60"
 
-  resourceModifiers:
-  - conditions: {}
-    patches:
-    - operation: remove
-      path: "/metadata/ownerReferences"
-    - operation: remove
-      path: "/metadata/annotations/kubectl.kubernetes.io~1last-applied-configuration"
+  resourceModifier:
+    ref:
+      kind: ConfigMap
+      name: openstack-restore-resource-modifiers
 ```
 
 **Note**: DataPlane nodes may require reconfiguration if:
@@ -2123,15 +2113,18 @@ PVCs with node affinity may fail to bind if:
 - DR cluster has different node labels
 - Storage topology differs
 
-**Solution**: Remove node affinity from PVCs during restore:
+**Solution**: Add a rule to the resource modifier ConfigMap to remove node affinity from PVCs:
 
 ```yaml
-resourceModifiers:
+# Add this rule to the openstack-restore-resource-modifiers ConfigMap
 - conditions:
     groupResource: persistentvolumeclaims
-  patches:
-  - operation: remove
-    path: "/spec/nodeAffinity"
+    namespaces:
+    - openstack
+  mergePatches:
+  - patchData: |
+      spec:
+        nodeAffinity: null
 ```
 
 ### Service IPs and Load Balancers
