@@ -1801,9 +1801,8 @@ spec:
   # via ConfigMap-based resource modifiers
   # See: docs/dev/webhook/restore/00-resource-modifiers-configmap.yaml
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 
   # Storage class mapping (if needed)
   # storageClassMapping:
@@ -1850,9 +1849,8 @@ spec:
   restorePVs: true
 
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 ```
 
 ```bash
@@ -1888,9 +1886,8 @@ spec:
       openstack.org/backup-restore-order: "10"
 
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 ```
 
 Repeat for orders 20, 30, 40, 60 (see [restore examples](restore/)).
@@ -1925,7 +1922,7 @@ oc get pods -n openstack | grep rabbitmq
 CTLPLANE_NAME=$(oc get openstackcontrolplane -n openstack -o jsonpath='{.items[0].metadata.name}')
 oc annotate openstackcontrolplane $CTLPLANE_NAME \
   -n openstack \
-  openstack.org/deployment-stage-
+  core.openstack.org/deployment-stage-
 ```
 
 #### C. Restore MariaDB Databases
@@ -2041,9 +2038,8 @@ spec:
       openstack.org/backup-restore-order: "60"
 
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 ```
 
 **Note**: DataPlane nodes may require reconfiguration if:

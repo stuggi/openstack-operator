@@ -25,6 +25,5 @@ spec:
 
   # Remove last-applied-configuration via ConfigMap-based resource modifiers
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers

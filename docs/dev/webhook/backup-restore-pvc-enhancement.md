@@ -342,7 +342,7 @@ func restoreResources(ctx context.Context, client client.Client, backupPath stri
                 if annotations == nil {
                     annotations = make(map[string]string)
                 }
-                annotations["openstack.org/deployment-stage"] = "infrastructure-only"
+                annotations["core.openstack.org/deployment-stage"] = "infrastructure-only"
                 resource.SetAnnotations(annotations)
             }
 

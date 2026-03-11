@@ -131,7 +131,7 @@
               - patchData: |
                   metadata:
                     annotations:
-                      openstack.org/deployment-stage: "infrastructure-only"
+                      core.openstack.org/deployment-stage: "infrastructure-only"
         CMEOF
       changed_when: true
 
@@ -195,9 +195,8 @@
               openstack.org/backup-restore: "true"
               openstack.org/backup-restore-order: "10"
           resourceModifier:
-            ref:
-              kind: ConfigMap
-              name: openstack-restore-resource-modifiers
+            kind: ConfigMap
+            name: openstack-restore-resource-modifiers
         EOF
       changed_when: true
 
@@ -236,9 +235,8 @@
               openstack.org/backup-restore: "true"
               openstack.org/backup-restore-order: "20"
           resourceModifier:
-            ref:
-              kind: ConfigMap
-              name: openstack-restore-resource-modifiers
+            kind: ConfigMap
+            name: openstack-restore-resource-modifiers
         EOF
       changed_when: true
 
@@ -278,9 +276,8 @@
               openstack.org/backup-restore: "true"
               openstack.org/backup-restore-order: "30"
           resourceModifier:
-            ref:
-              kind: ConfigMap
-              name: openstack-restore-resource-modifiers
+            kind: ConfigMap
+            name: openstack-restore-resource-modifiers
         EOF
       changed_when: true
 
@@ -318,9 +315,8 @@
               openstack.org/backup-restore: "true"
               openstack.org/backup-restore-order: "40"
           resourceModifier:
-            ref:
-              kind: ConfigMap
-              name: openstack-restore-resource-modifiers
+            kind: ConfigMap
+            name: openstack-restore-resource-modifiers
         EOF
       changed_when: true
 
@@ -451,7 +447,7 @@
     - name: Remove deployment-stage annotation
       ansible.builtin.shell: |
         oc annotate openstackcontrolplane {{ ctlplane_name.stdout }} \
-          -n {{ openstack_namespace }} openstack.org/deployment-stage-
+          -n {{ openstack_namespace }} core.openstack.org/deployment-stage-
       changed_when: true
 
     - name: Print Step 8 result
@@ -486,9 +482,8 @@
               openstack.org/backup-restore: "true"
               openstack.org/backup-restore-order: "60"
           resourceModifier:
-            ref:
-              kind: ConfigMap
-              name: openstack-restore-resource-modifiers
+            kind: ConfigMap
+            name: openstack-restore-resource-modifiers
         EOF
       changed_when: true
       when: restore_dataplane | bool

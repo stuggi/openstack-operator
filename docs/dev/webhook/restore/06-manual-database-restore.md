@@ -89,7 +89,7 @@ oc exec -it galera-0 -n openstack -- mysql -e "SHOW DATABASES;"
 Resume full OpenStack deployment by removing the annotation:
 
 ```bash
-oc annotate openstackcontrolplane <name> -n openstack openstack.org/deployment-stage-
+oc annotate openstackcontrolplane <name> -n openstack core.openstack.org/deployment-stage-
 ```
 
 Replace `<name>` with your OpenStackControlPlane CR name.

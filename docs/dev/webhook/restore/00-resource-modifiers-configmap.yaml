@@ -7,7 +7,7 @@
 # 1. Strip kubectl.kubernetes.io/last-applied-configuration from all resources
 #    (can be too large and cause restore failures, unnecessary after restore)
 #
-# 2. Add openstack.org/deployment-stage=infrastructure-only to
+# 2. Add core.openstack.org/deployment-stage=infrastructure-only to
 #    OpenStackControlPlane CRs (staged deployment - only infra services start)
 #
 # Usage:
@@ -41,4 +41,4 @@ data:
       - patchData: |
           metadata:
             annotations:
-              openstack.org/deployment-stage: "infrastructure-only"
+              core.openstack.org/deployment-stage: "infrastructure-only"

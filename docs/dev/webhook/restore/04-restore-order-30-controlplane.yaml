@@ -31,6 +31,5 @@ spec:
   # Remove last-applied-configuration and add deployment-stage annotation
   # via ConfigMap-based resource modifiers
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers

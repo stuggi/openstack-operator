@@ -1340,9 +1340,8 @@ spec:
   # Remove last-applied-configuration and add deployment-stage annotation
   # via ConfigMap-based resource modifiers
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 
   # Restore PVCs from volume snapshots
   restorePVs: true
@@ -1391,9 +1390,8 @@ spec:
   # PVCs with openstack.org/backup=true label. Restore everything from this backup.
 
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 
   restorePVs: true
 ```
@@ -1424,9 +1422,8 @@ spec:
       openstack.org/backup-restore-order: "10"
 
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 ```
 
 **Resources Restored:** User-provided Secrets, ConfigMaps, database password secrets
@@ -1452,9 +1449,8 @@ spec:
       openstack.org/backup-restore-order: "20"
 
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 ```
 
 **Resources Restored:** OpenStackVersion, MariaDBDatabase, MariaDBAccount, NetConfig, DNSData
@@ -1481,9 +1477,8 @@ spec:
 
   # The ConfigMap adds deployment-stage=infrastructure-only to OpenStackControlPlane
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 ```
 
 **Resources Restored:** OpenStackControlPlane (with staged deployment annotation)
@@ -1511,9 +1506,8 @@ spec:
       openstack.org/backup-restore-order: "40"
 
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 ```
 
 **Resources Restored:** GaleraBackup CRs, user-created RabbitMQUser/RabbitMQVhost
@@ -1530,7 +1524,7 @@ spec:
 After database restore, remove staged deployment annotation:
 
 ```bash
-oc annotate openstackcontrolplane openstack openstack.org/deployment-stage- -n openstack
+oc annotate openstackcontrolplane openstack core.openstack.org/deployment-stage- -n openstack
 ```
 
 #### Order 60: DataPlane
@@ -1554,9 +1548,8 @@ spec:
       openstack.org/backup-restore-order: "60"
 
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 ```
 
 **Resources Restored:** OpenStackDataPlaneNodeSet, IPSet, Reservation
@@ -1688,7 +1681,7 @@ spec:
 - [ ] Verify database restore completed successfully
 - [ ] Remove deployment-stage annotation:
   ```bash
-  oc annotate openstackcontrolplane openstack openstack.org/deployment-stage- -n openstack
+  oc annotate openstackcontrolplane openstack core.openstack.org/deployment-stage- -n openstack
   ```
 - [ ] Verify full deployment starts (service CRs created)
 

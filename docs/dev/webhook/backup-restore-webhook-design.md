@@ -566,7 +566,7 @@ data:
       - patchData: |
           metadata:
             annotations:
-              openstack.org/deployment-stage: "infrastructure-only"
+              core.openstack.org/deployment-stage: "infrastructure-only"
 ```
 
 **Step 2: Reference the ConfigMap** in each Restore CR via `spec.resourceModifier.ref`:
@@ -585,9 +585,8 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "10"
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 ---
 # Restore Order 20: Infrastructure CRs
 apiVersion: velero.io/v1
@@ -602,9 +601,8 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "20"
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 ---
 # All restore orders reference the same ConfigMap.
 # The deployment-stage rule only matches OpenStackControlPlane resources,
@@ -1203,9 +1201,8 @@ spec:
       openstack.org/backup-restore-order: "00"
   restorePVs: true  # CSI snapshots
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 EOF
 
 # Wait for completion (CSI snapshot restore may take time)
@@ -1226,9 +1223,8 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "10"
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 EOF
 
 # Wait for completion
@@ -1249,9 +1245,8 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "20"
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 EOF
 
 # Wait for completion
@@ -1272,9 +1267,8 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "30"
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
@@ -1299,9 +1293,8 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "40"
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
@@ -1327,7 +1320,7 @@ echo "Step 2: RabbitMQ Credentials"
 # 50.3: Resume Deployment
 echo "Step 3: Resume Deployment"
 oc annotate openstackcontrolplane openstack-galera-network-isolation \
-  -n openstack openstack.org/deployment-stage-
+  -n openstack core.openstack.org/deployment-stage-
 
 # Operator will now reconcile and start all services
 # Wait for full deployment ready
@@ -1349,9 +1342,8 @@ spec:
       openstack.org/backup-restore: "true"
       openstack.org/backup-restore-order: "60"
   resourceModifier:
-    ref:
-      kind: ConfigMap
-      name: openstack-restore-resource-modifiers
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
 EOF
 
 oc wait --for=jsonpath='{.status.phase}'=Completed \
