@@ -67,8 +67,7 @@
           - GaleraRestore and GaleraBackup CRs (before ControlPlane)
           - OpenStackControlPlane CR
           - All operator-managed pods and services
-          - OpenStackBackupConfig CRs
-          - OpenStackVersion CRs
+          - OpenStackBackupConfig and OpenStackVersion CRs (after ControlPlane)
           - PVCs labeled with openstack.org/backup=true (Galera backups, Glance, Cinder, Swift, Manila)
           - Galera database PVCs (app=galera)
           - RabbitMQUser CRs (all)
@@ -127,39 +126,11 @@
         msg: "GaleraBackup CRs deleted"
       when: ctlplane_count.stdout|int > 0
 
-    - name: Step 3 - Delete OpenStackBackupConfig and OpenStackVersion CRs
+    - name: Step 3 - Delete OpenStackControlPlane CR
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 3: Deleting BackupConfig and Version CRs"
-          - "========================================"
-          - "Must be deleted before ControlPlane"
-      when: ctlplane_count.stdout|int > 0
-
-    - name: Delete OpenStackBackupConfig CRs
-      ansible.builtin.shell: |
-        oc delete openstackbackupconfig --all -n {{ openstack_namespace }}
-      changed_when: true
-      failed_when: false
-      when: ctlplane_count.stdout|int > 0
-
-    - name: Delete OpenStackVersion CRs
-      ansible.builtin.shell: |
-        oc delete openstackversion --all -n {{ openstack_namespace }}
-      changed_when: true
-      failed_when: false
-      when: ctlplane_count.stdout|int > 0
-
-    - name: Print Step 3 status
-      ansible.builtin.debug:
-        msg: "OpenStackBackupConfig and OpenStackVersion CRs deleted"
-      when: ctlplane_count.stdout|int > 0
-
-    - name: Step 4 - Delete OpenStackControlPlane CR
-      ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 4: Deleting OpenStackControlPlane CR"
+          - "Step 3: Deleting OpenStackControlPlane CR"
           - "========================================"
       when: ctlplane_count.stdout|int > 0
 
@@ -174,11 +145,11 @@
         seconds: 30
       when: ctlplane_count.stdout|int > 0
 
-    - name: Step 5 - Wait for pods to terminate
+    - name: Step 4 - Wait for pods to terminate
       ansible.builtin.debug:
         msg:
           - "========================================"
-          - "Step 5: Waiting for pods to terminate"
+          - "Step 4: Waiting for pods to terminate"
           - "========================================"
       when: ctlplane_count.stdout|int > 0
 
@@ -226,6 +197,34 @@
     - name: Print pod cleanup status
       ansible.builtin.debug:
         msg: "All pods terminated"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Step 5 - Delete OpenStackBackupConfig and OpenStackVersion CRs
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 5: Deleting BackupConfig and Version CRs"
+          - "========================================"
+          - "Deleted after ControlPlane to avoid restore conflicts"
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Delete OpenStackBackupConfig CRs
+      ansible.builtin.shell: |
+        oc delete openstackbackupconfig --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Delete OpenStackVersion CRs
+      ansible.builtin.shell: |
+        oc delete openstackversion --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: ctlplane_count.stdout|int > 0
+
+    - name: Print Step 5 status
+      ansible.builtin.debug:
+        msg: "OpenStackBackupConfig and OpenStackVersion CRs deleted"
       when: ctlplane_count.stdout|int > 0
 
     - name: Step 6 - Delete PVCs
