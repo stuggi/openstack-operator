@@ -419,7 +419,7 @@
     - name: Execute database restore for each GaleraRestore
       ansible.builtin.shell: |
         RESTORE_NAME="{{ item.stdout_lines[-1] }}"
-        docs/dev/scripts/restore-galera-latest.sh ${RESTORE_NAME} {{ openstack_namespace }}
+        {{ playbook_dir }}/../../scripts/restore-galera-latest.sh ${RESTORE_NAME} {{ openstack_namespace }}
       loop: "{{ galerarestore_names.results }}"
       changed_when: true
       when: galerabackup_names.stdout != ""
