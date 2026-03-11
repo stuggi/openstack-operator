@@ -38,6 +38,7 @@
 #   resources_backup_name: Name of the resources backup (REQUIRED)
 #   restore_timeout: Timeout in seconds for each restore step (default: 900)
 #   infra_ready_timeout: Timeout waiting for infrastructure (default: 20m)
+#   ctlplane_ready_timeout: Timeout waiting for full control plane (default: 5m)
 #   strict_restore: Fail on PartiallyFailed restores (default: true)
 #   restore_dataplane: Whether to restore dataplane (default: true)
 
@@ -50,6 +51,7 @@
     oadp_namespace: openshift-adp
     restore_timeout: 900
     infra_ready_timeout: 20m
+    ctlplane_ready_timeout: 5m
     strict_restore: true
     restore_dataplane: true
 
@@ -451,9 +453,17 @@
           -n {{ openstack_namespace }} core.openstack.org/deployment-stage-
       changed_when: true
 
+    - name: Wait for OpenStackControlPlane to be ready
+      ansible.builtin.shell: |
+        oc wait openstackcontrolplane {{ ctlplane_name.stdout }} \
+          -n {{ openstack_namespace }} \
+          --for=condition=Ready \
+          --timeout={{ ctlplane_ready_timeout }}
+      changed_when: false
+
     - name: Print Step 8 result
       ansible.builtin.debug:
-        msg: "Deployment-stage annotation removed - full deployment resuming"
+        msg: "Full control plane deployment is ready"
 
     # ========================================
     # Step 9: Restore DataPlane (Order 60)
