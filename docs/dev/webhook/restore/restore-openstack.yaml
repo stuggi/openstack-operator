@@ -462,6 +462,10 @@
     - name: Delete temp namespace if it exists from a previous run
       ansible.builtin.shell: |
         if oc get namespace openstack-restore-tmp &>/dev/null; then
+          # Remove finalizers from all secrets to unblock namespace deletion
+          for SECRET in $(oc get secret -n openstack-restore-tmp -o name 2>/dev/null); do
+            oc patch ${SECRET} -n openstack-restore-tmp --type=merge -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
+          done
           oc delete namespace openstack-restore-tmp --wait=true --timeout=60s
         fi
       changed_when: true
@@ -469,6 +473,29 @@
     - name: Create temp namespace for RabbitMQ secret restore
       ansible.builtin.shell: |
         oc create namespace openstack-restore-tmp
+      changed_when: true
+
+    - name: Create resource modifier to strip finalizers for temp restore
+      ansible.builtin.shell: |
+        cat <<'CMEOF' | oc apply -f -
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: openstack-restore-tmp-resource-modifiers
+          namespace: {{ oadp_namespace }}
+        data:
+          resource-modifiers.yaml: |
+            version: v1
+            resourceModifierRules:
+            - conditions:
+                groupResource: "*"
+                namespaces:
+                - openstack-restore-tmp
+              mergePatches:
+              - patchData: |
+                  metadata:
+                    finalizers: null
+        CMEOF
       changed_when: true
 
     - name: Restore secrets from backup to temp namespace
@@ -487,6 +514,9 @@
             {{ openstack_namespace }}: openstack-restore-tmp
           includedResources:
           - secrets
+          resourceModifier:
+            kind: ConfigMap
+            name: openstack-restore-tmp-resource-modifiers
         EOF
       changed_when: true
 
