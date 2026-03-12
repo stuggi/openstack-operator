@@ -11,9 +11,9 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 | `00-resource-modifiers-configmap.yaml` | - | ConfigMap | **Prerequisite:** resource modifier rules for all restores |
 | `01-restore-order-00-pvcs.yaml` | 00 | PVCs (Glance images, GaleraBackup) | Storage foundation, restored from CSI snapshots |
 | `02-restore-order-10-foundation.yaml` | 10 | Secrets, ConfigMaps, NADs | User-provided resources without ownerRefs |
-| `03-restore-order-20-infrastructure.yaml` | 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase | Infrastructure base |
-| `04-restore-order-30-controlplane.yaml` | 30 | OpenStackControlPlane | **Adds `deployment-stage: infrastructure-only` annotation** |
-| `05-restore-order-40-backup-config.yaml` | 40 | GaleraBackup | Backup configuration CRs |
+| `03-restore-order-20-infrastructure.yaml` | 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase, NetConfig, Topology, BGPConfiguration, DNSData | Infrastructure base |
+| `04-restore-order-30-controlplane.yaml` | 30 | OpenStackControlPlane, Reservation | **Adds `deployment-stage: infrastructure-only` annotation** |
+| `05-restore-order-40-backup-config.yaml` | 40 | GaleraBackup, IPSet | Backup configuration CRs and IP sets |
 | `06-manual-database-restore.md` | 50 | **Manual** | Create GaleraRestore CRs, run restore script |
 | `06b-restore-rabbitmq-secrets.yaml` | - | Secrets (to temp ns) | Restore secrets to `openstack-restore-tmp`, copy `*-default-user` as `*-restored-user`, create RabbitMQUser CRs |
 | *(Step 9 in playbook)* | - | **Manual** | Remove deployment-stage annotation, wait for control plane ready |

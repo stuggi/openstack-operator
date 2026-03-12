@@ -1453,7 +1453,7 @@ spec:
     name: openstack-restore-resource-modifiers
 ```
 
-**Resources Restored:** OpenStackVersion, MariaDBDatabase, MariaDBAccount, NetConfig, DNSData
+**Resources Restored:** OpenStackVersion, MariaDBDatabase, MariaDBAccount, NetConfig, Topology, BGPConfiguration, DNSData
 
 #### Order 30: OpenStackControlPlane (Staged)
 
@@ -1481,11 +1481,11 @@ spec:
     name: openstack-restore-resource-modifiers
 ```
 
-**Resources Restored:** OpenStackControlPlane (with staged deployment annotation)
+**Resources Restored:** OpenStackControlPlane (with staged deployment annotation), Reservation
 
 **Important:** The `deployment-stage: infrastructure-only` annotation is added automatically by the resource modifier ConfigMap, preventing full deployment until database is restored.
 
-#### Order 40: Backup Configuration
+#### Order 40: Backup Configuration & IP Sets
 
 File: `oadp/restore-order-40-backup-config.yaml`
 
@@ -1510,7 +1510,7 @@ spec:
     name: openstack-restore-resource-modifiers
 ```
 
-**Resources Restored:** GaleraBackup CRs, user-created RabbitMQUser/RabbitMQVhost
+**Resources Restored:** GaleraBackup CRs, IPSet, user-created RabbitMQUser/RabbitMQVhost
 
 #### Order 50: Manual Database Restore
 
@@ -1552,19 +1552,19 @@ spec:
     name: openstack-restore-resource-modifiers
 ```
 
-**Resources Restored:** OpenStackDataPlaneNodeSet, IPSet, Reservation
+**Resources Restored:** OpenStackDataPlaneNodeSet
 
 ### Restore Order Summary
 
 | Order | Resources | Restore Method | Notes |
 |-------|-----------|----------------|-------|
 | 00 | PVCs | OADP Restore CR | Storage foundation, CSI snapshots restored |
-| 10 | Secrets, ConfigMaps | OADP Restore CR | User resources, database passwords |
-| 20 | MariaDBDatabase, MariaDBAccount, NetConfig | OADP Restore CR | Infrastructure base |
-| 30 | OpenStackControlPlane | OADP Restore CR | With staged annotation |
-| 40 | GaleraBackup, RabbitMQUser | OADP Restore CR | Backup configuration |
+| 10 | Secrets, ConfigMaps, NADs | OADP Restore CR | User resources, database passwords |
+| 20 | MariaDBDatabase, MariaDBAccount, NetConfig, Topology, BGPConfiguration, DNSData | OADP Restore CR | Infrastructure base |
+| 30 | OpenStackControlPlane, Reservation | OADP Restore CR | With staged annotation |
+| 40 | GaleraBackup, IPSet, RabbitMQUser | OADP Restore CR | Backup config, IP sets |
 | 50 | Database data | **Manual script** | Restore from PVC, remove staged annotation |
-| 60 | DataPlaneNodeSet, IPSet, Reservation | OADP Restore CR | DataPlane resources |
+| 60 | DataPlaneNodeSet | OADP Restore CR | DataPlane resources |
 
 **Key Points:**
 - Each order is a separate Restore CR (except order 50 which is manual)
@@ -1646,9 +1646,9 @@ spec:
 **Order 20: Infrastructure Base**
 - [ ] Create Restore CR: `oc apply -f oadp/restore-order-20-infrastructure.yaml`
 - [ ] Wait for restore to complete
-- [ ] Verify MariaDBDatabase, MariaDBAccount, NetConfig restored:
+- [ ] Verify MariaDBDatabase, MariaDBAccount, NetConfig, Topology, etc. restored:
   ```bash
-  oc get mariadbdatabase,mariadbaccount,netconfig
+  oc get mariadbdatabase,mariadbaccount,netconfig,topology,bgpconfiguration,dnsdata
   ```
 
 **Order 30: OpenStackControlPlane (Staged)**
@@ -1688,9 +1688,9 @@ spec:
 **Order 60: DataPlane**
 - [ ] Create Restore CR: `oc apply -f oadp/restore-order-60-dataplane.yaml`
 - [ ] Wait for restore to complete
-- [ ] Verify DataPlaneNodeSet, IPSet, Reservation restored:
+- [ ] Verify DataPlaneNodeSet restored:
   ```bash
-  oc get openstackdataplanenodeset,ipset,reservation
+  oc get openstackdataplanenodeset
   ```
 
 **Post-Restore Verification:**

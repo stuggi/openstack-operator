@@ -785,9 +785,9 @@ The restore sequence is critical for maintaining dependencies between resources.
 |-------|-----------|-------|
 | 00 | **PVCs** | **Storage Foundation**: CSI snapshots for all storage volumes (Galera backups, Glance images, Cinder volumes, Manila shares)<br>Restored first so backup data is available for database restore in order 50 |
 | 10 | NetworkAttachmentDefinitions<br>Secrets (user-provided)<br>ConfigMaps (user-provided) | **Foundation Resources**: Core resources with no dependencies<br>Includes CA certs, DB passwords, SSH keys |
-| 20 | OpenStackVersion<br>TLS Issuers<br>MariaDBDatabase<br>MariaDBAccount<br>Infrastructure CRs<br>NetConfig | **Version & Infrastructure**: OpenStackVersion restored first (required by ControlPlane)<br>TLS Issuers need CA secrets, MariaDBAccount needs password secrets<br>Infrastructure: Topology, BGPConfiguration, DNSData, InstanceHa<br>NetConfig: Network topology (required by Reservation/IPSet) |
-| 30 | OpenStackControlPlane<br>Reservation<br>IPSet | **Control Plane + Networking**: CtlPlane restored with staged deployment annotation (`deployment-stage: infrastructure-only`)<br>ControlPlane controller will use the already-restored OpenStackVersion from order 20<br>Reservation and IPSet need NetConfig from order 20<br>Wait for infrastructure ready before proceeding |
-| 40 | GaleraBackup<br>RabbitMQUser (user-created)<br>RabbitMQVhost<br>DataPlaneService (user-created) | **Backup Config & User Resources** (while in infra-only mode)<br>GaleraBackup: Backup configuration CR (needs CtlPlane)<br>RabbitMQUser/Vhost: User-created resources only (no ownerReferences)<br>DataPlaneService: Custom services before NodeSets |
+| 20 | OpenStackVersion<br>TLS Issuers<br>MariaDBDatabase<br>MariaDBAccount<br>Infrastructure CRs<br>NetConfig | **Version & Infrastructure**: OpenStackVersion restored first (required by ControlPlane)<br>TLS Issuers need CA secrets, MariaDBAccount needs password secrets<br>Infrastructure: Topology, BGPConfiguration, DNSData<br>NetConfig: Network topology (required by Reservation/IPSet)<br>**Note:** InstanceHa is NOT auto-restored (could fence EDPM nodes); recreate manually after verifying connectivity |
+| 30 | OpenStackControlPlane<br>Reservation | **Control Plane + Networking**: CtlPlane restored with staged deployment annotation (`deployment-stage: infrastructure-only`)<br>ControlPlane controller will use the already-restored OpenStackVersion from order 20<br>Reservation needs NetConfig from order 20<br>Wait for infrastructure ready before proceeding |
+| 40 | IPSet<br>GaleraBackup<br>RabbitMQUser (user-created)<br>RabbitMQVhost<br>DataPlaneService (user-created) | **IP Sets, Backup Config & User Resources** (while in infra-only mode)<br>IPSet: Requires Reservation from order 30<br>GaleraBackup: Backup configuration CR (needs CtlPlane)<br>RabbitMQUser/Vhost: User-created resources only (no ownerReferences)<br>DataPlaneService: Custom services before NodeSets |
 | 50 | *Database Restore*<br>*RabbitMQ Credentials*<br>*Resume Deployment* | **Manual/Controller** (while in infra-only mode):<br>1. Create GaleraRestore CRs, execute restore from PVCs (order 00), clean up<br>2. Create RabbitMQUser CRs with old credentials (extract from backed-up secrets, create new `-restored-user` secrets/CRs)<br>3. Remove `deployment-stage` annotation → CtlPlane reconciles and starts all services |
 | 60 | DataPlaneNodeSet | **Data Plane**: Node set definitions (needs IPSets/Reservations from order 30) |
 
@@ -834,8 +834,8 @@ oc get crd -l openstack.org/backup-restore=true
 | BGPConfiguration | true | dataplane | 20 | BGP config |
 | DNSData | true | dataplane | 20 | DNS records |
 | Reservation | true | dataplane | 30 | IP reservations (requires NetConfig) |
-| IPSet | true | dataplane | 30 | IP address sets (requires NetConfig) |
-| InstanceHa | true | controlplane | 20 | Instance HA config |
+| IPSet | true | dataplane | 40 | IP address sets (requires Reservation) |
+| InstanceHa | false | - | - | **Not auto-restored** — could fence EDPM nodes before they reconnect. ConfigMaps are restored in order 10; CRs must be recreated manually after verifying EDPM connectivity. |
 | RabbitMQUser* | true | controlplane | 40 | User-created only (no ownerReferences) |
 | RabbitMQVhost* | true | controlplane | 40 | User-created only (no ownerReferences) |
 
@@ -920,7 +920,7 @@ labelSelector:
 **DataPlane restore order dependencies** (already included in unified restore order table):
 1. NetConfig (order 20) - Network topology
 2. Reservation (order 30) - Requires NetConfig
-3. IPSet (order 30) - Requires NetConfig
+3. IPSet (order 40) - Requires Reservation
 4. DataPlaneService (order 40) - Before NodeSets
 5. DataPlaneNodeSet (order 60) - Requires IPSets/Reservations
 
