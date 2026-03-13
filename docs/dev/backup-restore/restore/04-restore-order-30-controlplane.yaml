@@ -25,8 +25,8 @@ spec:
   # Only restore resources with backup-restore label and order 30
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "30"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "30"
 
   # Remove last-applied-configuration and add deployment-stage annotation
   # via ConfigMap-based resource modifiers

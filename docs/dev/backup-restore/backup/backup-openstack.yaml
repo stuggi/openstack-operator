@@ -6,7 +6,7 @@
 # 2. OADP PVC backup (CSI snapshots of labeled PVCs)
 # 3. OADP resources backup (CRs, Secrets, ConfigMaps, NADs, etc.)
 #
-# PVC backup labels (openstack.org/backup=true) are set automatically
+# PVC backup labels (backup.openstack.org/backup=true) are set automatically
 # by the service operators (glance-operator, mariadb-operator, etc.).
 #
 # Prerequisites:
@@ -108,7 +108,7 @@
 
     - name: List PVCs marked for backup
       ansible.builtin.shell: |
-        oc get pvc -n {{ openstack_namespace }} -l openstack.org/backup=true \
+        oc get pvc -n {{ openstack_namespace }} -l backup.openstack.org/backup=true \
           -o custom-columns=NAME:.metadata.name,SIZE:.spec.resources.requests.storage,SERVICE:.metadata.labels.service --no-headers
       register: labeled_pvcs
       changed_when: false
@@ -121,7 +121,7 @@
 
     - name: Warn if no PVCs labeled
       ansible.builtin.debug:
-        msg: "WARNING: No PVCs found with openstack.org/backup=true label"
+        msg: "WARNING: No PVCs found with backup.openstack.org/backup=true label"
       when: labeled_pvcs.stdout_lines | default([]) | length == 0
 
     - name: Create OADP PVC backup
@@ -137,7 +137,7 @@
           - {{ openstack_namespace }}
           labelSelector:
             matchLabels:
-              openstack.org/backup: "true"
+              backup.openstack.org/backup: "true"
           snapshotVolumes: true
           snapshotMoveData: {{ snapshot_move_data | lower }}
           defaultVolumesToFsBackup: false

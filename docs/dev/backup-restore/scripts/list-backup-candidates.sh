@@ -112,5 +112,5 @@ echo "----------------------------------------"
 total=$((secret_count + cm_count + nad_count))
 echo "Total resources to backup:            $total"
 echo ""
-echo "Note: These resources would get openstack.org/backup=true label"
+echo "Note: These resources would get backup.openstack.org/backup=true label"
 echo "      because they have no ownerReferences (user-provided)"

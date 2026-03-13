@@ -1034,7 +1034,7 @@ Node worker-5:  # Different node!
 
 All your work is used:
 - ✅ CRD labels → Velero uses these to identify resources
-- ✅ PVC labels (`openstack.org/backup: "true"`) → Identifies which PVCs to snapshot
+- ✅ PVC labels (`backup.openstack.org/backup: "true"`) → Identifies which PVCs to snapshot
 - ✅ CR instance labels → Used for restore ordering
 - ✅ Backup/Restore CRs → Just add `snapshotMoveData: true`
 
@@ -1295,7 +1295,7 @@ spec:
 
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
+      backup.openstack.org/backup: "true"
 
   snapshotVolumes: true  # ← Already have this
 
@@ -1314,7 +1314,7 @@ spec:
 
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
+      backup.openstack.org/backup: "true"
 
   snapshotVolumes: true
   snapshotMoveData: true  # ← ADD THIS LINE for DR!
@@ -1573,7 +1573,7 @@ spec:
   # Only backup labeled resources
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
+      backup.openstack.org/restore: "true"
 
   # Backup PVCs to object storage
   defaultVolumesToFsBackup: true
@@ -1619,7 +1619,7 @@ spec:
 
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
+      backup.openstack.org/backup: "true"
 
   # Use Restic instead of CSI snapshots
   defaultVolumesToFsBackup: true
@@ -1882,8 +1882,8 @@ spec:
 
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "10"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "10"
 
   resourceModifier:
     kind: ConfigMap
@@ -2034,8 +2034,8 @@ spec:
 
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "60"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "60"
 
   resourceModifier:
     kind: ConfigMap

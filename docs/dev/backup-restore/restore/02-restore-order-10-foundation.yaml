@@ -20,8 +20,8 @@ spec:
   # Only restore resources with backup-restore label and order 10
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "10"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "10"
 
   # Remove last-applied-configuration via ConfigMap-based resource modifiers
   resourceModifier:

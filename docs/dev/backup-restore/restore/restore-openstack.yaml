@@ -213,8 +213,8 @@
           - {{ openstack_namespace }}
           labelSelector:
             matchLabels:
-              openstack.org/backup-restore: "true"
-              openstack.org/backup-restore-order: "10"
+              backup.openstack.org/restore: "true"
+              backup.openstack.org/restore-order: "10"
           resourceModifier:
             kind: ConfigMap
             name: openstack-restore-resource-modifiers
@@ -253,8 +253,8 @@
           - {{ openstack_namespace }}
           labelSelector:
             matchLabels:
-              openstack.org/backup-restore: "true"
-              openstack.org/backup-restore-order: "20"
+              backup.openstack.org/restore: "true"
+              backup.openstack.org/restore-order: "20"
           resourceModifier:
             kind: ConfigMap
             name: openstack-restore-resource-modifiers
@@ -294,8 +294,8 @@
           - {{ openstack_namespace }}
           labelSelector:
             matchLabels:
-              openstack.org/backup-restore: "true"
-              openstack.org/backup-restore-order: "30"
+              backup.openstack.org/restore: "true"
+              backup.openstack.org/restore-order: "30"
           resourceModifier:
             kind: ConfigMap
             name: openstack-restore-resource-modifiers
@@ -333,8 +333,8 @@
           - {{ openstack_namespace }}
           labelSelector:
             matchLabels:
-              openstack.org/backup-restore: "true"
-              openstack.org/backup-restore-order: "40"
+              backup.openstack.org/restore: "true"
+              backup.openstack.org/restore-order: "40"
           resourceModifier:
             kind: ConfigMap
             name: openstack-restore-resource-modifiers
@@ -648,8 +648,8 @@
           - {{ openstack_namespace }}
           labelSelector:
             matchLabels:
-              openstack.org/backup-restore: "true"
-              openstack.org/backup-restore-order: "60"
+              backup.openstack.org/restore: "true"
+              backup.openstack.org/restore-order: "60"
           resourceModifier:
             kind: ConfigMap
             name: openstack-restore-resource-modifiers

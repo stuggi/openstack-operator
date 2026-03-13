@@ -8,7 +8,7 @@ We use a two-backup strategy:
 
 1. **backup-openstack-pvcs.yaml** - PVCs only (with CSI snapshots, local only)
    - Filters at backup time using `labelSelector`
-   - Only includes PVCs labeled with `openstack.org/backup: "true"`
+   - Only includes PVCs labeled with `backup.openstack.org/backup: "true"`
    - Includes: Glance image storage PVCs, GaleraBackup PVCs
 
 1. **backup-openstack-pvcs-datamover.yaml** - PVCs with Data Mover (uploads to S3/MinIO)
@@ -47,7 +47,7 @@ ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml
 
 The playbook runs three steps:
 1. **Trigger Galera DB dumps** — creates jobs from GaleraBackup cronjobs
-2. **OADP PVC backup** — CSI snapshots of PVCs labeled with `openstack.org/backup=true`
+2. **OADP PVC backup** — CSI snapshots of PVCs labeled with `backup.openstack.org/backup=true`
 3. **OADP resources backup** — all resources in the namespace except PVCs
 
 PVC backup labels are set automatically by service operators (glance-operator, mariadb-operator).
@@ -89,7 +89,7 @@ oc describe backup openstack-backup-pvcs -n openshift-adp
 
 - Glance local PVCs (image storage)
 - GaleraBackup PVCs (database backups)
-- Any other PVCs labeled with `openstack.org/backup: "true"`
+- Any other PVCs labeled with `backup.openstack.org/backup: "true"`
 
 ### backup-openstack-resources
 

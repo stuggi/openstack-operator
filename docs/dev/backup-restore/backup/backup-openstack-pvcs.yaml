@@ -1,6 +1,6 @@
 ---
 # OpenStack PVC Backup
-# Backs up only PVCs (and their bound PVs) labeled with openstack.org/backup=true
+# Backs up only PVCs (and their bound PVs) labeled with backup.openstack.org/backup=true
 # These include: Glance image storage PVCs, GaleraBackup PVCs
 #
 # Note: Velero automatically includes the PV bound to each PVC - no need to label PVs
@@ -17,7 +17,7 @@ spec:
   # For PVCs, Velero automatically includes their bound PVs
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
+      backup.openstack.org/backup: "true"
 
   # Use CSI snapshots for PVCs
   snapshotVolumes: true

@@ -1,6 +1,6 @@
 ---
 # OpenStack PVC Backup with Data Mover
-# Backs up PVCs labeled with openstack.org/backup=true and uploads
+# Backs up PVCs labeled with backup.openstack.org/backup=true and uploads
 # CSI snapshot data to the BackupStorageLocation (S3/MinIO) via Kopia.
 # This allows restore even after total cluster loss.
 #
@@ -23,7 +23,7 @@ spec:
   # For PVCs, Velero automatically includes their bound PVs
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
+      backup.openstack.org/backup: "true"
 
   # Use CSI snapshots for PVCs
   snapshotVolumes: true

@@ -4,7 +4,7 @@
 # Must be restored first before other resources
 #
 # Note: No labelSelector needed - the backup (openstack-backup-pvcs) already
-# filtered to only include PVCs with openstack.org/backup=true label.
+# filtered to only include PVCs with backup.openstack.org/backup=true label.
 #
 # Prerequisite: Create the resource modifier ConfigMap first:
 #   oc apply -f 00-resource-modifiers-configmap.yaml

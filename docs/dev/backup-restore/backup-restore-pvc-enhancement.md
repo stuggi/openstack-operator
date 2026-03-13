@@ -8,7 +8,7 @@ Enhance the backup/restore system to serialize OpenStack CRs, Secrets, and Confi
 
 The POC implementation uses a two-backup approach:
 
-1. **openstack-backup-pvcs**: CSI snapshots of PVCs labeled with `openstack.org/backup: "true"`
+1. **openstack-backup-pvcs**: CSI snapshots of PVCs labeled with `backup.openstack.org/backup: "true"`
    - Glance image storage PVCs
    - MariaDB GaleraBackup PVCs
 
@@ -53,7 +53,7 @@ Replace the Velero object storage backup of resources with a backup controller t
 │         │                          /metadata.json             │
 │         │                                                     │
 │         └──> Labels backup PVC with                          │
-│              openstack.org/backup: "true"                    │
+│              backup.openstack.org/backup: "true"                    │
 │                                                               │
 │  OADP Backup (single)                                        │
 │         └──> CSI snapshots of ALL labeled PVCs               │
@@ -385,7 +385,7 @@ spec:
   # Only backup labeled PVCs
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
+      backup.openstack.org/backup: "true"
 
   # Use CSI snapshots for all PVCs
   snapshotVolumes: true
@@ -439,7 +439,7 @@ spec:
 ### Backup PVC Lifecycle
 
 - PVC should be created by backup controller
-- Labeled with `openstack.org/backup: "true"` to be included in OADP backup
+- Labeled with `backup.openstack.org/backup: "true"` to be included in OADP backup
 - Should persist between backups (accumulate backup history)
 - Cleanup policy: keep last N backups, or retention period
 

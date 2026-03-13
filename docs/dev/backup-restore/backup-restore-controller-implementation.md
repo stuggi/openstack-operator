@@ -17,7 +17,7 @@ All repositories use a `backup_restore` branch for this work.
 1. **CRD labels** declare which types participate in backup/restore
 2. **OpenStackBackupConfig controller** labels CR instances and user-provided resources (Secrets, ConfigMaps, NADs)
 3. **Operators** label managed resources they create (PVCs, database password secrets)
-4. **OADP** backs up all resources, restores selectively using `openstack.org/backup-restore` labels
+4. **OADP** backs up all resources, restores selectively using `backup.openstack.org/restore` labels
 
 **Two Labeling Mechanisms:**
 
@@ -34,9 +34,9 @@ All repositories use a `backup_restore` branch for this work.
   - `backup.GetRestoreLabels()` for resource instance labels
   - `backup.BuildCRDLabelCache()` for CRD label cache
 - **Use label constants**: Always use constants from `backup` package for label keys
-  - `backup.BackupRestoreLabel` = `"openstack.org/backup-restore"`
-  - `backup.BackupCategoryLabel` = `"openstack.org/backup-category"`
-  - `backup.BackupRestoreOrderLabel` = `"openstack.org/backup-restore-order"`
+  - `backup.BackupRestoreLabel` = `"backup.openstack.org/restore"`
+  - `backup.BackupCategoryLabel` = `"backup.openstack.org/category"`
+  - `backup.BackupRestoreOrderLabel` = `"backup.openstack.org/restore-order"`
   - Never hardcode label strings
 - **Return maps, don't modify in-place**: Functions should return label/annotation maps, not modify objects directly
 - **Use CreateOrPatch pattern**: Operators typically use CreateOrPatch or CreateOrUpdate (not direct Create)
@@ -70,9 +70,9 @@ package backup
 
 const (
     // Label keys for CRD metadata (declare backup behavior for the type)
-    BackupRestoreLabel      = "openstack.org/backup-restore"       // CRD label: "true" means instances participate in backup/restore
-    BackupCategoryLabel     = "openstack.org/backup-category"      // CRD & instance label: "controlplane" or "dataplane"
-    BackupRestoreOrderLabel = "openstack.org/backup-restore-order" // CRD & instance label: "00"-"60"
+    BackupRestoreLabel      = "backup.openstack.org/restore"       // CRD label: "true" means instances participate in backup/restore
+    BackupCategoryLabel     = "backup.openstack.org/category"      // CRD & instance label: "controlplane" or "dataplane"
+    BackupRestoreOrderLabel = "backup.openstack.org/restore-order" // CRD & instance label: "00"-"60"
 )
 
 // GetRestoreLabels returns a map with backup/restore labels for CR instances
@@ -132,9 +132,9 @@ func BuildCRDLabelCache(ctx context.Context, c client.Client) (CRDLabelCache, er
 Add labels to CRD metadata using kubebuilder annotations on Go type definitions:
 
 ```go
-// +kubebuilder:metadata:labels=openstack.org/backup-restore=true
-// +kubebuilder:metadata:labels=openstack.org/backup-category=controlplane
-// +kubebuilder:metadata:labels=openstack.org/backup-restore-order=30
+// +kubebuilder:metadata:labels=backup.openstack.org/restore=true
+// +kubebuilder:metadata:labels=backup.openstack.org/category=controlplane
+// +kubebuilder:metadata:labels=backup.openstack.org/restore-order=30
 type OpenStackControlPlane struct {
 ```
 
@@ -204,14 +204,14 @@ After modifying type definitions, run `make generate manifests` to update genera
 
 ```bash
 # List all CRDs with backup-restore labels
-oc get crd -l openstack.org/backup-restore=true
+oc get crd -l backup.openstack.org/restore=true
 
 # Check specific CRD
 oc get crd openstackcontrolplanes.core.openstack.org -o jsonpath='{.metadata.labels}'
 
 # Filter by category
-oc get crd -l openstack.org/backup-restore=true -l openstack.org/backup-category=controlplane
-oc get crd -l openstack.org/backup-restore=true -l openstack.org/backup-category=dataplane
+oc get crd -l backup.openstack.org/restore=true -l backup.openstack.org/category=controlplane
+oc get crd -l backup.openstack.org/restore=true -l backup.openstack.org/category=dataplane
 ```
 
 ## Phase 3: OpenStackBackupConfig Controller
@@ -353,13 +353,13 @@ MariaDB operator labels database password secrets with restore order 10.
 
 We use two separate OADP backups:
 
-1. **backup-openstack-pvcs** - Contains ONLY PVCs with `openstack.org/backup: "true"` label
+1. **backup-openstack-pvcs** - Contains ONLY PVCs with `backup.openstack.org/backup: "true"` label
    - Filtering done at backup time via labelSelector
    - Uses CSI volume snapshots
 
 2. **backup-openstack-resources** - Contains everything EXCEPT PVCs
    - No filtering at backup time (backs up all resources)
-   - Restore uses labelSelector to filter by `openstack.org/backup-restore-order`
+   - Restore uses labelSelector to filter by `backup.openstack.org/restore-order`
 
 ### Restore Order Summary
 
@@ -393,8 +393,8 @@ spec:
   - openstack
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "20"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "20"
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers
@@ -428,7 +428,7 @@ ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
 
 ```bash
 # List all CRDs with backup-restore labels
-oc get crd -l openstack.org/backup-restore=true
+oc get crd -l backup.openstack.org/restore=true
 
 # Verify specific CRD labels
 oc get crd openstackcontrolplanes.core.openstack.org -o jsonpath='{.metadata.labels}'
@@ -452,10 +452,10 @@ EOF
 oc get openstackbackupconfig backup-config -n openstack
 
 # Verify user-provided secrets are labeled
-oc get secret -l openstack.org/backup-restore=true -n openstack
+oc get secret -l backup.openstack.org/restore=true -n openstack
 
 # Verify CR instances are labeled
-oc get openstackcontrolplane -l openstack.org/backup-restore=true -n openstack
+oc get openstackcontrolplane -l backup.openstack.org/restore=true -n openstack
 ```
 
 ### Backup Testing
@@ -500,7 +500,7 @@ oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-
 
 ### CRD Label Cache Issues
 
-- Verify CRD labels: `oc get crd -l openstack.org/backup-restore=true`
+- Verify CRD labels: `oc get crd -l backup.openstack.org/restore=true`
 - Cache is built lazily on first reconciliation; restart operator to rebuild
 - After `make generate manifests`, apply updated CRDs: `oc apply -f config/crd/bases/`
 

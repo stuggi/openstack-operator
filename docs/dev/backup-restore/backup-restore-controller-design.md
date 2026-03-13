@@ -22,7 +22,7 @@ This document describes the design for backup and restore of OpenStack on OpenSh
 
 ### CRD Labels
 
-CRD definitions use **restore labels** to control which instances should be restored (all prefixed with `openstack.org/backup-`):
+CRD definitions use **restore labels** to control which instances should be restored (all prefixed with `backup.openstack.org/backup-`):
 
 ```yaml
 apiVersion: apiextensions.k8s.io/v1
@@ -31,23 +31,23 @@ metadata:
   name: openstackcontrolplanes.core.openstack.org
   labels:
     # Restore labels (explicit opt-in - must be present to restore)
-    openstack.org/backup-restore: "true"
-    openstack.org/backup-category: "controlplane"
-    openstack.org/backup-restore-order: "30"
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/category: "controlplane"
+    backup.openstack.org/restore-order: "30"
 ```
 
 **Labels:**
 
-- `openstack.org/backup-restore`: Whether instances of this CRD should be restored
+- `backup.openstack.org/restore`: Whether instances of this CRD should be restored
   - **Default if missing**: `"false"` (explicit opt-in required - only restore what's needed)
   - `"true"`: Include in restore (controller adds restore labels to instances)
   - `"false"`: Exclude from restore (controller does NOT add restore labels)
 
-- `openstack.org/backup-category`: Category for selective backup/restore
+- `backup.openstack.org/category`: Category for selective backup/restore
   - `"controlplane"`: Control plane resources (OpenStackControlPlane, MariaDB, services, user-provided Secrets/ConfigMaps, PVCs)
   - `"dataplane"`: Data plane resources (NetConfig, Topology, IPSet, Reservation, DataPlaneNodeSet)
 
-- `openstack.org/backup-restore-order`: Numeric order for restore sequence
+- `backup.openstack.org/restore-order`: Numeric order for restore sequence
   - Uses gaps of 10 (e.g., `"00"`, `"10"`, `"20"`, `"30"`) to allow easy insertion of new resources
   - Common orders:
     - 00 (storage foundation - PVCs)
@@ -61,9 +61,9 @@ metadata:
 **Restore Strategy:**
 
 - ✅ **Full backup**: All CRs backed up by OADP (no label selector on Backup CR)
-- ✅ **Selective restore**: Only CRs with `openstack.org/backup-restore: "true"` label on CRD are restored
+- ✅ **Selective restore**: Only CRs with `backup.openstack.org/restore: "true"` label on CRD are restored
 - ✅ **Clear intent**: CRD labels declare what needs restoration
-- ✅ **Dynamic discovery**: Query CRDs with `oc get crd -l openstack.org/backup-restore=true`
+- ✅ **Dynamic discovery**: Query CRDs with `oc get crd -l backup.openstack.org/restore=true`
 - ✅ **Controller-friendly**: Controllers can watch/list CRDs by label selector
 
 **Examples:**
@@ -84,9 +84,9 @@ kind: CustomResourceDefinition
 metadata:
   name: openstackcontrolplanes.core.openstack.org
   labels:
-    openstack.org/backup-restore: "true"              # Include in restore
-    openstack.org/backup-category: "controlplane"
-    openstack.org/backup-restore-order: "30"
+    backup.openstack.org/restore: "true"              # Include in restore
+    backup.openstack.org/category: "controlplane"
+    backup.openstack.org/restore-order: "30"
 ```
 
 ### Controller-Based Labeling (OpenStackBackupConfig)
@@ -162,9 +162,9 @@ func (r *OpenStackControlPlaneReconciler) createIssuer(
             Namespace: instance.Namespace,
             Labels: map[string]string{
                 // Add restore labels
-                "openstack.org/backup-restore":       "true",
-                "openstack.org/backup-category":      "all",
-                "openstack.org/backup-restore-order": "20",
+                "backup.openstack.org/restore":       "true",
+                "backup.openstack.org/category":      "all",
+                "backup.openstack.org/restore-order": "20",
             },
             OwnerReferences: []metav1.OwnerReference{
                 // Set OpenStackControlPlane as owner
@@ -226,20 +226,20 @@ func getBackupLabels(annotations map[string]string) map[string]string {
     labels := make(map[string]string)
 
     // Always add backup labels for PVCs
-    labels["openstack.org/backup"] = "true"
-    labels["openstack.org/backup-restore"] = "true"
+    labels["backup.openstack.org/backup"] = "true"
+    labels["backup.openstack.org/restore"] = "true"
 
     // Check for user override via annotation
-    if order, ok := annotations["openstack.org/backup-restore-order"]; ok {
-        labels["openstack.org/backup-restore-order"] = order
+    if order, ok := annotations["backup.openstack.org/restore-order"]; ok {
+        labels["backup.openstack.org/restore-order"] = order
     } else {
-        labels["openstack.org/backup-restore-order"] = "00"  // Default for PVCs (storage foundation)
+        labels["backup.openstack.org/restore-order"] = "00"  // Default for PVCs (storage foundation)
     }
 
-    if category, ok := annotations["openstack.org/backup-category"]; ok {
-        labels["openstack.org/backup-category"] = category
+    if category, ok := annotations["backup.openstack.org/category"]; ok {
+        labels["backup.openstack.org/category"] = category
     } else {
-        labels["openstack.org/backup-category"] = "controlplane"
+        labels["backup.openstack.org/category"] = "controlplane"
     }
 
     return labels
@@ -285,7 +285,7 @@ spec:
 - ✅ **All ConfigMaps** in namespace (user-provided AND operator-managed)
 - ✅ **All CRs** (OpenStackControlPlane, MariaDBDatabase, DataPlaneNodeSet, DataPlaneDeployment, etc.)
 - ✅ **All NetworkAttachmentDefinitions, Issuers, etc.**
-- ✅ **PVCs with label** `openstack.org/backup: "true"` (CSI snapshots)
+- ✅ **PVCs with label** `backup.openstack.org/backup: "true"` (CSI snapshots)
 - ❌ **Excluded**: Pods, ReplicaSets, Jobs, Events, StatefulSets (operator-managed, will be recreated)
 
 **Why backup ALL CRs/Secrets/ConfigMaps?**
@@ -295,7 +295,7 @@ spec:
 - Examples of backed up but not restored: DataPlaneDeployment, operator-managed Secrets/ConfigMaps
 
 **Note on PVC Backup:**
-- **PVCs are selectively backed up** using the `openstack.org/backup: "true"` label
+- **PVCs are selectively backed up** using the `backup.openstack.org/backup: "true"` label
 - OADP's CSI snapshot logic respects the backup label when creating volume snapshots
 - Individual PVCs can be excluded using annotation: `backup.velero.io/backup-volumes: "false"`
 
@@ -333,7 +333,7 @@ spec:
   - persistentvolumeclaims
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"
+      backup.openstack.org/backup: "true"
   snapshotVolumes: true
   defaultVolumesToFsBackup: false
   storageLocation: velero-1
@@ -345,7 +345,7 @@ spec:
 Multiple Restore CRs, one per restore order, using labels added by the controller.
 
 **Restore Strategy:**
-- ✅ **Only resources with** `openstack.org/backup-restore: "true"` **label**
+- ✅ **Only resources with** `backup.openstack.org/restore: "true"` **label**
 - ✅ **Controller labels user-provided resources** (no ownerReferences) and CR instances
 - ❌ **Operator-managed resources excluded** (no labels, will be recreated by operators)
 
@@ -445,8 +445,8 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "10"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "10"
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers
@@ -461,8 +461,8 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "20"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "20"
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers
@@ -474,7 +474,7 @@ spec:
 
 **Key Points:**
 - **Backup**: All user resources in namespace (all Secrets, ConfigMaps, CRs) - complete snapshot
-- **Restore**: Only resources with `openstack.org/backup-restore: "true"` label - selective filtering
+- **Restore**: Only resources with `backup.openstack.org/restore: "true"` label - selective filtering
 - **Metadata Cleanup**: All restore orders use `resourceModifiers` to remove:
   - `ownerReferences` - Prevents orphaned resources (operators adopt during reconciliation)
   - `kubectl.kubernetes.io/last-applied-configuration` - Can be too large and cause restore failures
@@ -492,22 +492,22 @@ Users can pre-label Secrets, ConfigMaps, PVCs, and cert-manager resources to cus
 ```bash
 # CA certificate secret (restored early)
 oc label secret openstack-ca-cert \
-  openstack.org/backup-restore=true \
-  openstack.org/backup-category=all \
-  openstack.org/backup-restore-order=10 \
+  backup.openstack.org/restore=true \
+  backup.openstack.org/category=all \
+  backup.openstack.org/restore-order=10 \
   -n openstack
 
 # Service-specific secret (restored after infrastructure)
 oc label secret nova-cell1-config \
-  openstack.org/backup-restore=true \
-  openstack.org/backup-category=controlplane \
-  openstack.org/backup-restore-order=50 \
+  backup.openstack.org/restore=true \
+  backup.openstack.org/category=controlplane \
+  backup.openstack.org/restore-order=50 \
   -n openstack
 ```
 
 **How it works:**
 1. User creates and labels resource with desired restore order
-2. Controller checks if resource already has `openstack.org/backup-restore: "true"`
+2. Controller checks if resource already has `backup.openstack.org/restore: "true"`
 3. If yes, controller skips labeling (preserves user's custom order)
 4. If no, controller applies default labels
 
@@ -532,8 +532,8 @@ metadata:
   name: custom-ca-cert
   namespace: openstack
   annotations:
-    openstack.org/backup-restore-order: "10"  # User customization via annotation
-    openstack.org/backup-category: "all"      # Optional category override
+    backup.openstack.org/restore-order: "10"  # User customization via annotation
+    backup.openstack.org/category: "all"      # Optional category override
 stringData:
   ca.crt: |
     -----BEGIN CERTIFICATE-----
@@ -543,9 +543,9 @@ EOF
 # Controller/operator reads annotation and applies label
 # Result:
 # labels:
-#   openstack.org/backup-restore: "true"
-#   openstack.org/backup-restore-order: "10"    # From annotation
-#   openstack.org/backup-category: "all"        # From annotation
+#   backup.openstack.org/restore: "true"
+#   backup.openstack.org/restore-order: "10"    # From annotation
+#   backup.openstack.org/category: "all"        # From annotation
 ```
 
 **How operators implement annotation overrides:**
@@ -555,22 +555,22 @@ func getBackupLabels(obj client.Object) map[string]string {
     labels := make(map[string]string)
 
     // Check if user provided override annotation
-    if order, ok := obj.GetAnnotations()["openstack.org/backup-restore-order"]; ok {
+    if order, ok := obj.GetAnnotations()["backup.openstack.org/restore-order"]; ok {
         // User customized - use annotation value
-        labels["openstack.org/backup-restore-order"] = order
+        labels["backup.openstack.org/restore-order"] = order
     } else {
         // Default - use CRD-defined order
-        labels["openstack.org/backup-restore-order"] = getDefaultOrder(obj)
+        labels["backup.openstack.org/restore-order"] = getDefaultOrder(obj)
     }
 
-    if category, ok := obj.GetAnnotations()["openstack.org/backup-category"]; ok {
-        labels["openstack.org/backup-category"] = category
+    if category, ok := obj.GetAnnotations()["backup.openstack.org/category"]; ok {
+        labels["backup.openstack.org/category"] = category
     } else {
-        labels["openstack.org/backup-category"] = getDefaultCategory(obj)
+        labels["backup.openstack.org/category"] = getDefaultCategory(obj)
     }
 
     // Always add restore label
-    labels["openstack.org/backup-restore"] = "true"
+    labels["backup.openstack.org/restore"] = "true"
 
     return labels
 }
@@ -581,8 +581,8 @@ func getBackupLabels(obj client.Object) map[string]string {
 ```bash
 # List resources with custom restore order (annotation present)
 oc get secrets -n openstack -o json | \
-  jq '.items[] | select(.metadata.annotations["openstack.org/backup-restore-order"]) |
-      {name: .metadata.name, order: .metadata.annotations["openstack.org/backup-restore-order"]}'
+  jq '.items[] | select(.metadata.annotations["backup.openstack.org/restore-order"]) |
+      {name: .metadata.name, order: .metadata.annotations["backup.openstack.org/restore-order"]}'
 ```
 
 ### Configuration via CRD (Future - Phase 4)
@@ -670,15 +670,15 @@ The restore sequence is critical for maintaining dependencies between resources.
 This section shows the labels that should be added to each CRD definition.
 
 **Column definitions:**
-- **Restore**: `openstack.org/backup-restore` label value (true = controller labels instances for restore, defaults to false if missing)
-- **Category**: `openstack.org/backup-category` label value
-- **Order**: `openstack.org/backup-restore-order` label value
+- **Restore**: `backup.openstack.org/restore` label value (true = controller labels instances for restore, defaults to false if missing)
+- **Category**: `backup.openstack.org/category` label value
+- **Order**: `backup.openstack.org/restore-order` label value
 
 **Note:** All CRs are backed up via full namespace backup (OADP Backup CR has no label selector). Only CRs with `backup-restore: true` label on their CRD are restored.
 
 **Dynamic Discovery:** Controllers can discover all CRDs that participate in backup/restore:
 ```bash
-oc get crd -l openstack.org/backup-restore=true
+oc get crd -l backup.openstack.org/restore=true
 ```
 
 ### Core Operator CRDs
@@ -721,9 +721,9 @@ secret := &corev1.Secret{
         Namespace: namespace,
         Labels: map[string]string{
             // CRITICAL: Add restore labels so secret is restored before MariaDBAccount
-            "openstack.org/backup-restore":       "true",
-            "openstack.org/backup-category":      "all",
-            "openstack.org/backup-restore-order": "10",  // Order 10 (before MariaDBAccount)
+            "backup.openstack.org/restore":       "true",
+            "backup.openstack.org/category":      "all",
+            "backup.openstack.org/restore-order": "10",  // Order 10 (before MariaDBAccount)
         },
         OwnerReferences: []metav1.OwnerReference{
             // MariaDBAccount owner
@@ -759,19 +759,19 @@ DataPlane resources are **integrated into the unified backup/restore** approach:
 # Full restore (ControlPlane + DataPlane)
 labelSelector:
   matchLabels:
-    openstack.org/backup-restore: "true"
+    backup.openstack.org/restore: "true"
 
 # ControlPlane only restore
 labelSelector:
   matchLabels:
-    openstack.org/backup-restore: "true"
-    openstack.org/backup-category: "controlplane"
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/category: "controlplane"
 
 # DataPlane only restore
 labelSelector:
   matchLabels:
-    openstack.org/backup-restore: "true"
-    openstack.org/backup-category: "dataplane"
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/category: "dataplane"
 ```
 
 **Benefits:**
@@ -807,8 +807,8 @@ labelSelector:
 PVCs use a **dual-label approach** to separate backup inclusion from restore inclusion:
 
 **Label Purposes:**
-- **`openstack.org/backup: "true"`** - Include PVC in backup snapshot (required for CSI snapshot)
-- **`openstack.org/backup-restore: "true"`** - Include PVC in restore operation (optional)
+- **`backup.openstack.org/backup: "true"`** - Include PVC in backup snapshot (required for CSI snapshot)
+- **`backup.openstack.org/restore: "true"`** - Include PVC in restore operation (optional)
 
 **Common Scenarios:**
 
@@ -816,9 +816,9 @@ PVCs use a **dual-label approach** to separate backup inclusion from restore inc
    ```yaml
    metadata:
      labels:
-       openstack.org/backup: "true"              # Snapshot during backup
-       openstack.org/backup-restore: "true"      # Restore during restore
-       openstack.org/backup-restore-order: "00"
+       backup.openstack.org/backup: "true"              # Snapshot during backup
+       backup.openstack.org/restore: "true"      # Restore during restore
+       backup.openstack.org/restore-order: "00"
      annotations:
        service: glance
    ```
@@ -828,7 +828,7 @@ PVCs use a **dual-label approach** to separate backup inclusion from restore inc
    ```yaml
    metadata:
      labels:
-       openstack.org/backup: "true"              # Snapshot during backup
+       backup.openstack.org/backup: "true"              # Snapshot during backup
        # NO backup-restore label → excluded from restore
      annotations:
        service: logging
@@ -850,7 +850,7 @@ PVCs use a **dual-label approach** to separate backup inclusion from restore inc
 
 **How Labels Are Used:**
 
-**Backup CR** - Uses `openstack.org/backup` label selector:
+**Backup CR** - Uses `backup.openstack.org/backup` label selector:
 ```yaml
 apiVersion: velero.io/v1
 kind: Backup
@@ -859,37 +859,37 @@ spec:
   - openstack
   labelSelector:
     matchLabels:
-      openstack.org/backup: "true"  # Only PVCs with backup label
+      backup.openstack.org/backup: "true"  # Only PVCs with backup label
   snapshotVolumes: true
 ```
 
-**Restore CR** - Uses `openstack.org/backup-restore` label selector:
+**Restore CR** - Uses `backup.openstack.org/restore` label selector:
 ```yaml
 apiVersion: velero.io/v1
 kind: Restore
 spec:
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "00"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "00"
   restorePVs: true
 ```
 
 **Excluding Individual PVCs:**
 
-If a PVC has `openstack.org/backup: "true"` but should be skipped, add Velero's annotation:
+If a PVC has `backup.openstack.org/backup: "true"` but should be skipped, add Velero's annotation:
 ```yaml
 metadata:
   labels:
-    openstack.org/backup: "true"
+    backup.openstack.org/backup: "true"
   annotations:
     backup.velero.io/backup-volumes: "false"  # Override: skip this PVC
 ```
 
 **Who Sets These Labels:**
 
-- Service operators add `openstack.org/backup: "true"` when creating PVCs that need backup
-- Controller (or operator) adds `openstack.org/backup-restore: "true"` + order to PVCs that should restore
+- Service operators add `backup.openstack.org/backup: "true"` when creating PVCs that need backup
+- Controller (or operator) adds `backup.openstack.org/restore: "true"` + order to PVCs that should restore
 - Manual override via `backup.velero.io/backup-volumes: "false"` annotation when needed
 
 ## Backup Categories
@@ -923,7 +923,7 @@ Categories enable selective backup/restore scenarios. The design uses **two cate
 ```yaml
 labelSelector:
   matchLabels:
-    openstack.org/backup-restore: "true"
+    backup.openstack.org/restore: "true"
 ```
 Use case: Complete disaster recovery
 
@@ -931,8 +931,8 @@ Use case: Complete disaster recovery
 ```yaml
 labelSelector:
   matchLabels:
-    openstack.org/backup-restore: "true"
-    openstack.org/backup-category: "controlplane"
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/category: "controlplane"
 ```
 Use cases:
 - Control plane disaster recovery
@@ -943,8 +943,8 @@ Use cases:
 ```yaml
 labelSelector:
   matchLabels:
-    openstack.org/backup-restore: "true"
-    openstack.org/backup-category: "dataplane"
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/category: "dataplane"
 ```
 Use cases:
 - Data plane node replacement
@@ -978,7 +978,7 @@ oc create secret generic test-secret --from-literal=foo=bar -n openstack
 
 # Verify labels were added after controller reconciliation
 oc get secret test-secret -n openstack -o jsonpath='{.metadata.labels}'
-# Should show: openstack.org/backup-restore: "true", openstack.org/backup-restore-order: "10"
+# Should show: backup.openstack.org/restore: "true", backup.openstack.org/restore-order: "10"
 
 # Test 2: Manual override (pre-label before controller runs)
 oc create secret generic custom-secret \
@@ -986,15 +986,15 @@ oc create secret generic custom-secret \
   -n openstack \
   --dry-run=client -o yaml | \
   oc label -f - --local \
-    openstack.org/backup-restore=true \
-    openstack.org/backup-category=controlplane \
-    openstack.org/backup-restore-order=50 \
+    backup.openstack.org/restore=true \
+    backup.openstack.org/category=controlplane \
+    backup.openstack.org/restore-order=50 \
     --dry-run=client -o yaml | \
   oc apply -f -
 
 # Verify custom labels were preserved
 oc get secret custom-secret -n openstack -o jsonpath='{.metadata.labels}'
-# Should show: openstack.org/backup-restore: "true", openstack.org/backup-restore-order: "50"
+# Should show: backup.openstack.org/restore: "true", backup.openstack.org/restore-order: "50"
 ```
 
 ### Phase 2: OADP Backup (No Controller)
@@ -1059,8 +1059,8 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "00"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "00"
   restorePVs: true  # CSI snapshots
   resourceModifier:
     kind: ConfigMap
@@ -1082,8 +1082,8 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "10"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "10"
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers
@@ -1104,8 +1104,8 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "20"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "20"
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers
@@ -1126,8 +1126,8 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "30"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "30"
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers
@@ -1152,8 +1152,8 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "40"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "40"
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers
@@ -1201,8 +1201,8 @@ spec:
   backupName: openstack-backup-20260303-120000
   labelSelector:
     matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "60"
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "60"
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers
