@@ -20,10 +20,11 @@ spec:
   includedNamespaces:
   - openstack
 
-  # Remove last-applied-configuration via ConfigMap-based resource modifiers
+  # Resource modifiers: strip last-applied-configuration and optionally
+  # change StorageClass to Immediate binding for Data Mover restores
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers
 
-  # Restore PVCs from volume snapshots
+  # Restore PVCs from volume snapshots (or Data Mover downloads)
   restorePVs: true

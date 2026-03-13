@@ -32,6 +32,13 @@
 #     -e resources_backup_name=openstack-backup-resources-20260311-081234 \
 #     -e restore_dataplane=false
 #
+#   # Data Mover restore with WaitForFirstConsumer storage (LVM):
+#   # Create the Immediate StorageClass first, then:
+#   ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
+#     -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
+#     -e resources_backup_name=openstack-backup-resources-20260311-081234 \
+#     -e immediate_binding_class=lvms-local-storage-immediate
+#
 # Variables:
 #   openstack_namespace: Target namespace (default: openstack)
 #   oadp_namespace: OADP namespace (default: openshift-adp)
@@ -43,6 +50,9 @@
 #   strict_restore: Fail on PartiallyFailed restores (default: true)
 #   restore_dataplane: Whether to restore dataplane (default: true)
 #   rabbitmq_clusters: List of RabbitMQ cluster names (default: [rabbitmq, rabbitmq-cell1])
+#   immediate_binding_class: StorageClass with Immediate binding for Data Mover
+#     restores with WaitForFirstConsumer storage (e.g., LVM). Set to "" to disable.
+#     (default: "" - disabled, no StorageClass swap)
 
 - name: OpenStack Full Restore
   hosts: localhost
@@ -59,6 +69,7 @@
     rabbitmq_clusters:
     - rabbitmq
     - rabbitmq-cell1
+    immediate_binding_class: ""
 
   tasks:
     - name: Validate required parameters
@@ -153,6 +164,16 @@
               - patchData: |
                   spec:
                     disabled: "True"
+        {% if immediate_binding_class | default('') | length > 0 %}
+            - conditions:
+                groupResource: persistentvolumeclaims
+                namespaces:
+                - {{ openstack_namespace }}
+              jsonPatches:
+              - path: "/spec/storageClassName"
+                operation: replace
+                value: "{{ immediate_binding_class }}"
+        {% endif %}
         CMEOF
       changed_when: true
 
@@ -178,6 +199,9 @@
           backupName: {{ pvc_backup_name }}
           includedNamespaces:
           - {{ openstack_namespace }}
+          resourceModifier:
+            kind: ConfigMap
+            name: openstack-restore-resource-modifiers
           restorePVs: true
         EOF
       changed_when: true

@@ -88,6 +88,13 @@ ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
   -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
   -e resources_backup_name=openstack-backup-resources-20260311-081234 \
   -e '{"rabbitmq_clusters": ["rabbitmq", "rabbitmq-cell1", "rabbitmq-cell2"]}'
+
+# Data Mover restore with WaitForFirstConsumer storage (LVM):
+# Create the Immediate StorageClass first (see Troubleshooting section), then:
+ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
+  -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
+  -e resources_backup_name=openstack-backup-resources-20260311-081234 \
+  -e immediate_binding_class=lvms-local-storage-immediate
 ```
 
 ### Manual
@@ -184,69 +191,53 @@ pods exist, this creates a deadlock.
 - [velero#8044](https://github.com/vmware-tanzu/velero/issues/8044) — Enhancement proposal
 - [velero#9343](https://github.com/vmware-tanzu/velero/issues/9343) — Topology-aware storage
 
-**Workaround:** Create temporary pods that reference the pending PVCs to trigger
-binding. The data mover will then proceed with the download.
+**Workaround:** Create a temporary StorageClass with `volumeBindingMode: Immediate`
+and use a Velero resource modifier to swap the StorageClass on restored PVCs.
+This allows PVCs to bind immediately without waiting for a consumer pod.
 
 ```bash
-# 1. List pending PVCs
-oc get pvc -n openstack --no-headers | awk '{print $1}'
+# 1. Get the parameters from your existing StorageClass
+oc get storageclass lvms-local-storage -o yaml
 
-# 2. List available nodes
-oc get nodes -l node-role.kubernetes.io/worker --no-headers -o custom-columns=NAME:.metadata.name
+# 2. Check which topology key your nodes use
+oc get nodes -o json | jq '.items[].metadata.labels | with_entries(select(.key | contains("topolvm")))'
 
-# 3. Create a dummy pod for each PVC, targeting a specific node.
-#    Distribute PVCs across nodes for balanced storage usage.
-#    With LVM, the PVC will be provisioned on the node the pod targets.
-create_dummy_pod() {
-  local pvc_name=$1
-  local node_name=$2
-  local ns=${3:-openstack}
-  local pod_name="pvc-consumer-${pvc_name}"
-  # Truncate pod name to 63 chars (k8s limit)
-  pod_name="${pod_name:0:63}"
-  cat <<EOF | oc apply -f -
-apiVersion: v1
-kind: Pod
+# 3. Create a temporary StorageClass with Immediate binding
+#    (adjust provisioner, parameters, and reclaimPolicy to match your environment)
+#    Use allowedTopologies to control which nodes get the volumes.
+cat <<EOF | oc apply -f -
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
 metadata:
-  name: ${pod_name}
-  namespace: ${ns}
-spec:
-  nodeName: ${node_name}
-  containers:
-  - name: pause
-    image: registry.k8s.io/pause:3.9
-    volumeMounts:
-    - name: data
-      mountPath: /mnt/data
-  volumes:
-  - name: data
-    persistentVolumeClaim:
-      claimName: ${pvc_name}
+  name: lvms-local-storage-immediate
+provisioner: topolvm.io
+reclaimPolicy: Delete
+volumeBindingMode: Immediate
+allowVolumeExpansion: true
+allowedTopologies:
+- matchLabelExpressions:
+  - key: topology.topolvm.io/node
+    values:
+    - master-0
+    - master-1
+    - master-2
 EOF
-  echo "Created pod ${pod_name} on ${node_name} for PVC ${pvc_name}"
-}
 
-# Example: distribute PVCs across 3 nodes
-NODES=($(oc get nodes -l node-role.kubernetes.io/worker --no-headers -o custom-columns=NAME:.metadata.name))
-PVCS=($(oc get pvc -n openstack --no-headers | awk '$2 == "Pending" {print $1}'))
-for i in "${!PVCS[@]}"; do
-  node_idx=$((i % ${#NODES[@]}))
-  create_dummy_pod "${PVCS[$i]}" "${NODES[$node_idx]}"
-done
+# 3. Uncomment the PVC StorageClass modifier rule in
+#    00-resource-modifiers-configmap.yaml (rule 4) and apply it,
+#    or add it to the playbook's inline ConfigMap.
+#    The rule changes storageClassName on restored PVCs to the Immediate class.
 
-# 4. Wait for PVCs to bind
-oc get pvc -n openstack -w
+# 4. Run the PVC restore — PVCs will bind immediately and DataDownloads proceed
 
-# 5. Wait for DataDownloads to complete
-oc get datadownloads -n openshift-adp -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,BYTES:.status.progress.totalBytes
-
-# 6. Delete dummy pods after all DataDownloads are Completed
-for pvc in "${PVCS[@]}"; do
-  pod_name="pvc-consumer-${pvc}"
-  pod_name="${pod_name:0:63}"
-  oc delete pod "${pod_name}" -n openstack --ignore-not-found
-done
+# 5. After restore is complete, delete the temporary StorageClass
+oc delete storageclass lvms-local-storage-immediate
 ```
+
+The restored PVCs will use the Immediate StorageClass. With topolvm, this means
+volumes are provisioned on a node chosen by the provisioner (capacity-based).
+Workload pods (StatefulSets) will then be scheduled to the nodes where their
+PVCs were provisioned.
 
 **Note:** This workaround is not needed when restoring from local CSI snapshots
 (without data mover). It only affects cross-cluster or disaster recovery restores
