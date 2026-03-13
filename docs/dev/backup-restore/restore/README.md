@@ -164,6 +164,94 @@ oc get volumesnapshotcontent
 oc describe pvc <pvc-name> -n openstack
 ```
 
+### Data Mover restore stuck with WaitForFirstConsumer storage (LVM)
+
+**Known issue:** When using the OADP Data Mover (`snapshotMoveData: true`) with a
+StorageClass that has `volumeBindingMode: WaitForFirstConsumer` (e.g., LVM/topolvm),
+the PVC restore at order 00 will deadlock. The data mover waits for the PVC to be
+consumed by a pod before downloading data, but with WaitForFirstConsumer the PVC
+won't bind until a pod references it. Since PVCs are restored before any workload
+pods exist, this creates a deadlock.
+
+**Symptoms:**
+- Restore stuck in `WaitingForPluginOperations` phase
+- DataDownload CRs in `Accepted` or `<none>` phase, never progressing
+- PVCs in `Pending` state with event: "waiting for first consumer to be created"
+- Node-agent logs: `error to wait target PVC consumed ... context deadline exceeded`
+
+**Upstream issues:**
+- [velero#7561](https://github.com/vmware-tanzu/velero/issues/7561) — WaitForFirstConsumer incompatibility
+- [velero#8044](https://github.com/vmware-tanzu/velero/issues/8044) — Enhancement proposal
+- [velero#9343](https://github.com/vmware-tanzu/velero/issues/9343) — Topology-aware storage
+
+**Workaround:** Create temporary pods that reference the pending PVCs to trigger
+binding. The data mover will then proceed with the download.
+
+```bash
+# 1. List pending PVCs
+oc get pvc -n openstack --no-headers | awk '{print $1}'
+
+# 2. List available nodes
+oc get nodes -l node-role.kubernetes.io/worker --no-headers -o custom-columns=NAME:.metadata.name
+
+# 3. Create a dummy pod for each PVC, targeting a specific node.
+#    Distribute PVCs across nodes for balanced storage usage.
+#    With LVM, the PVC will be provisioned on the node the pod targets.
+create_dummy_pod() {
+  local pvc_name=$1
+  local node_name=$2
+  local ns=${3:-openstack}
+  local pod_name="pvc-consumer-${pvc_name}"
+  # Truncate pod name to 63 chars (k8s limit)
+  pod_name="${pod_name:0:63}"
+  cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${pod_name}
+  namespace: ${ns}
+spec:
+  nodeName: ${node_name}
+  containers:
+  - name: pause
+    image: registry.k8s.io/pause:3.9
+    volumeMounts:
+    - name: data
+      mountPath: /mnt/data
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: ${pvc_name}
+EOF
+  echo "Created pod ${pod_name} on ${node_name} for PVC ${pvc_name}"
+}
+
+# Example: distribute PVCs across 3 nodes
+NODES=($(oc get nodes -l node-role.kubernetes.io/worker --no-headers -o custom-columns=NAME:.metadata.name))
+PVCS=($(oc get pvc -n openstack --no-headers | awk '$2 == "Pending" {print $1}'))
+for i in "${!PVCS[@]}"; do
+  node_idx=$((i % ${#NODES[@]}))
+  create_dummy_pod "${PVCS[$i]}" "${NODES[$node_idx]}"
+done
+
+# 4. Wait for PVCs to bind
+oc get pvc -n openstack -w
+
+# 5. Wait for DataDownloads to complete
+oc get datadownloads -n openshift-adp -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,BYTES:.status.progress.totalBytes
+
+# 6. Delete dummy pods after all DataDownloads are Completed
+for pvc in "${PVCS[@]}"; do
+  pod_name="pvc-consumer-${pvc}"
+  pod_name="${pod_name:0:63}"
+  oc delete pod "${pod_name}" -n openstack --ignore-not-found
+done
+```
+
+**Note:** This workaround is not needed when restoring from local CSI snapshots
+(without data mover). It only affects cross-cluster or disaster recovery restores
+where PVC data is downloaded from the BackupStorageLocation (S3/MinIO).
+
 ### Database restore issues
 
 ```bash
