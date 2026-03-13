@@ -227,31 +227,44 @@
         msg: "{{ pvc_node_mapping.stdout_lines }}"
       when: pin_pvcs | bool and pvc_node_mapping.stdout != ""
 
-    - name: Create dummy pods to pin PVCs to nodes
+    - name: Create dummy Deployments to pin PVCs to nodes
       ansible.builtin.shell: |
         PVC_NAME="{{ item.split(':')[0] }}"
         NODE_NAME="{{ item.split(':')[1] }}"
         cat <<EOF | oc apply -f -
-        apiVersion: v1
-        kind: Pod
+        apiVersion: apps/v1
+        kind: Deployment
         metadata:
           name: pvc-pin-${PVC_NAME}
           namespace: {{ openstack_namespace }}
           labels:
             app: pvc-pin
         spec:
-          nodeSelector:
-            kubernetes.io/hostname: ${NODE_NAME}
-          containers:
-          - name: pause
-            image: registry.k8s.io/pause:3.9
-            volumeMounts:
-            - name: data
-              mountPath: /data
-          volumes:
-          - name: data
-            persistentVolumeClaim:
-              claimName: ${PVC_NAME}
+          replicas: 1
+          strategy:
+            type: Recreate
+          selector:
+            matchLabels:
+              app: pvc-pin
+              pvc: ${PVC_NAME}
+          template:
+            metadata:
+              labels:
+                app: pvc-pin
+                pvc: ${PVC_NAME}
+            spec:
+              nodeSelector:
+                kubernetes.io/hostname: ${NODE_NAME}
+              containers:
+              - name: pause
+                image: registry.k8s.io/pause:3.9
+                volumeMounts:
+                - name: data
+                  mountPath: /data
+              volumes:
+              - name: data
+                persistentVolumeClaim:
+                  claimName: ${PVC_NAME}
         EOF
         echo "Created pvc-pin-${PVC_NAME} on ${NODE_NAME}"
       loop: "{{ pvc_node_mapping.stdout_lines }}"
@@ -300,9 +313,9 @@
         restore_name: "openstack-restore-00-pvcs-{{ restore_suffix }}"
         step_name: "Step 1 (PVC restore)"
 
-    - name: Delete dummy pods after PVC restore
+    - name: Delete dummy Deployments after PVC restore
       ansible.builtin.shell: |
-        oc delete pods -n {{ openstack_namespace }} -l app=pvc-pin --ignore-not-found=true
+        oc delete deployment -n {{ openstack_namespace }} -l app=pvc-pin --ignore-not-found=true
       changed_when: true
       when: pin_pvcs | bool
 

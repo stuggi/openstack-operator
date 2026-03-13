@@ -223,10 +223,12 @@ done
 #   mysql-db-openstack-galera-1:master-1
 #   mysql-db-openstack-galera-2:master-2
 
-# 3. Create dummy pods BEFORE the PVC restore.
+# 3. Create dummy Deployments BEFORE the PVC restore.
 #    Pods referencing non-existent PVCs stay Pending until the restore creates
 #    the PVCs. The scheduler then annotates the PVC with the selected node,
 #    triggering WaitForFirstConsumer binding on the target node.
+#    Using Deployments (not bare Pods) ensures automatic restart if a pod
+#    gets evicted during longer manual procedures.
 #    IMPORTANT: Use nodeSelector (not nodeName) so the pod goes through the
 #    scheduler — nodeName bypasses it and the PVC annotation never gets set.
 for pvc_node in \
@@ -241,26 +243,39 @@ for pvc_node in \
   node="${pvc_node##*:}"
 
   cat <<EOF | oc apply -f -
-apiVersion: v1
-kind: Pod
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: pvc-pin-${pvc}
   namespace: openstack
   labels:
     app: pvc-pin
 spec:
-  nodeSelector:
-    kubernetes.io/hostname: ${node}
-  containers:
-  - name: pause
-    image: registry.k8s.io/pause:3.9
-    volumeMounts:
-    - name: data
-      mountPath: /data
-  volumes:
-  - name: data
-    persistentVolumeClaim:
-      claimName: ${pvc}
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: pvc-pin
+      pvc: ${pvc}
+  template:
+    metadata:
+      labels:
+        app: pvc-pin
+        pvc: ${pvc}
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: ${node}
+      containers:
+      - name: pause
+        image: registry.k8s.io/pause:3.9
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: ${pvc}
 EOF
 done
 
@@ -275,8 +290,8 @@ oc apply -f 01-restore-order-00-pvcs.yaml
 # 6. Monitor progress
 oc get datadownload -n openshift-adp -w
 
-# 7. After all DataDownloads complete, delete dummy pods
-oc delete pods -n openstack -l app=pvc-pin
+# 7. After all DataDownloads complete, delete dummy Deployments
+oc delete deployment -n openstack -l app=pvc-pin
 ```
 
 **Alternative: Immediate StorageClass.** If you don't need to control which node
