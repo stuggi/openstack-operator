@@ -194,8 +194,11 @@ pods exist, this creates a deadlock.
 
 **Workaround (recommended): Pre-create dummy pods to pin PVCs to nodes.**
 This approach solves the WaitForFirstConsumer deadlock AND preserves the original
-node-to-PVC mapping from the backup. Dummy pods with `nodeName` act as the "first
-consumer" and trigger PVC binding on the correct node when the restore creates the PVCs.
+node-to-PVC mapping from the backup. Dummy pods with `nodeSelector` act as the
+"first consumer" — the scheduler annotates the PVC with the selected node, which
+triggers WaitForFirstConsumer binding when the restore creates the PVCs.
+Use `nodeSelector` (not `nodeName`) because `nodeName` bypasses the scheduler
+and the PVC binding annotation never gets set.
 
 ```bash
 # 1. Download the backup metadata (small — only resource manifests, no PV data)
@@ -222,7 +225,10 @@ done
 
 # 3. Create dummy pods BEFORE the PVC restore.
 #    Pods referencing non-existent PVCs stay Pending until the restore creates
-#    the PVCs, then immediately trigger binding on the target node.
+#    the PVCs. The scheduler then annotates the PVC with the selected node,
+#    triggering WaitForFirstConsumer binding on the target node.
+#    IMPORTANT: Use nodeSelector (not nodeName) so the pod goes through the
+#    scheduler — nodeName bypasses it and the PVC annotation never gets set.
 for pvc_node in \
   "glance-glance-default-single-0:master-0" \
   "glance-glance-default-single-1:master-1" \
@@ -243,7 +249,8 @@ metadata:
   labels:
     app: pvc-pin
 spec:
-  nodeName: ${node}
+  nodeSelector:
+    kubernetes.io/hostname: ${node}
   containers:
   - name: pause
     image: registry.k8s.io/pause:3.9

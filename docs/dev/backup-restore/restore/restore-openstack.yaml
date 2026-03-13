@@ -185,8 +185,15 @@
 
     - name: Download backup metadata
       ansible.builtin.shell: |
+        set -e
         TMPDIR=$(mktemp -d)
-        velero backup download {{ pvc_backup_name }} -o ${TMPDIR}/backup.tar.gz
+        REMOTE_FILE="/tmp/backup-$$.tar.gz"
+        VELERO_POD=$(oc get pods -n {{ oadp_namespace }} -l deploy=velero --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+        oc exec -n {{ oadp_namespace }} ${VELERO_POD} -- rm -f ${REMOTE_FILE} >&2 || true
+        oc exec -n {{ oadp_namespace }} ${VELERO_POD} -- \
+          /velero backup download {{ pvc_backup_name }} --insecure-skip-tls-verify -o ${REMOTE_FILE} >&2
+        oc exec -n {{ oadp_namespace }} ${VELERO_POD} -- cat ${REMOTE_FILE} > ${TMPDIR}/backup.tar.gz
+        oc exec -n {{ oadp_namespace }} ${VELERO_POD} -- rm -f ${REMOTE_FILE} >&2
         mkdir -p ${TMPDIR}/backup
         tar xzf ${TMPDIR}/backup.tar.gz -C ${TMPDIR}/backup
         echo ${TMPDIR}
@@ -233,7 +240,8 @@
           labels:
             app: pvc-pin
         spec:
-          nodeName: ${NODE_NAME}
+          nodeSelector:
+            kubernetes.io/hostname: ${NODE_NAME}
           containers:
           - name: pause
             image: registry.k8s.io/pause:3.9
