@@ -1,45 +1,43 @@
-# Backup/Restore Webhook Implementation Guide
+# Backup/Restore Controller Implementation Guide
 
-This document provides step-by-step implementation details for the webhook-based backup/restore design. Use this as a reference when implementing backup/restore support in OpenStack operators.
+This document provides implementation details for the controller-based backup/restore design. Use this as a reference when implementing backup/restore support in OpenStack operators.
 
 ## Overview
 
-The POC implementation spans multiple repositories:
+The implementation spans multiple repositories:
 - **lib-common**: Shared backup/restore helper functions, constants, and CRD label cache
-- **openstack-operator**: CRD labels for OpenStackControlPlane, DataPlaneNodeSet, OpenStackVersion
-- **glance-operator**: Webhook implementation example (CR + user resource labeling) + PVC labeling
-- **mariadb-operator**: CRD labels + database password secret labeling + PVC labeling
+- **openstack-operator**: OpenStackBackupConfig controller, CRD labels for OpenStackControlPlane, DataPlaneNodeSet, OpenStackVersion
+- **mariadb-operator**: CRD labels for MariaDBAccount, MariaDBDatabase, GaleraBackup + PVC labeling
+- **glance-operator**: CRD labels + PVC labeling
+- **infra-operator**: CRD labels for NetConfig, Reservation, IPSet, Topology, BGPConfiguration, DNSData
 
-All repositories have a `backup_restore` branch checked out for this work.
+All repositories use a `backup_restore` branch for this work.
 
 **Implementation Flow:**
 1. **CRD labels** declare which types participate in backup/restore
-2. **CRD label cache** built once at operator startup for fast lookup
-3. **Webhooks** label CR instances and user-provided resources based on cache
-4. **Operators** label managed resources (PVCs, database password secrets)
-5. **OADP** backs up/restores resources with `openstack.org/backup=true` label
+2. **OpenStackBackupConfig controller** labels CR instances and user-provided resources (Secrets, ConfigMaps, NADs)
+3. **Operators** label managed resources they create (PVCs, database password secrets)
+4. **OADP** backs up all resources, restores selectively using `openstack.org/backup-restore` labels
+
+**Two Labeling Mechanisms:**
+
+| Mechanism | What it labels | How |
+|-----------|---------------|-----|
+| **CRD labels** (kubebuilder annotations) | CRD metadata | Declared in Go type definitions, applied at CRD install |
+| **OpenStackBackupConfig controller** | CR instances + user-provided resources | Reconciliation loop labels Secrets, ConfigMaps, NADs (without ownerReferences) and CR instances (based on CRD label cache) |
 
 ## General Implementation Rules
 
 ### Code Patterns
 - **Use lib-common helpers**: Always check lib-common for existing helpers before creating new functions
   - `util.MergeStringMaps()` for merging labels and annotations
-  - `controllerutil.CreateOrPatch()` for creating/updating resources
-  - `secret.CreateOrPatchSecret()` for secrets
-  - `pvc.CreateOrPatch()` for PVCs
-  - `backup.GetBackupLabels()` for resource instance labels
-  - `backup.BuildCRDLabelCache()` for CRD label cache at startup
+  - `backup.GetRestoreLabels()` for resource instance labels
+  - `backup.BuildCRDLabelCache()` for CRD label cache
 - **Use label constants**: Always use constants from `backup` package for label keys
-  - `backup.BackupLabel` = `"openstack.org/backup"`
   - `backup.BackupRestoreLabel` = `"openstack.org/backup-restore"`
   - `backup.BackupCategoryLabel` = `"openstack.org/backup-category"`
   - `backup.BackupRestoreOrderLabel` = `"openstack.org/backup-restore-order"`
   - Never hardcode label strings
-- **Cache CRD labels**: Build CRD label cache once at operator startup
-  - Call `backup.BuildCRDLabelCache(ctx, mgr.GetClient())` in `main.go`
-  - Pass cache to webhook via `SetupWebhookWithManager(mgr, cache)`
-  - No API calls during webhook execution (use cache lookup)
-  - Cache refreshes automatically on operator restart
 - **Return maps, don't modify in-place**: Functions should return label/annotation maps, not modify objects directly
 - **Use CreateOrPatch pattern**: Operators typically use CreateOrPatch or CreateOrUpdate (not direct Create)
 - **Merge labels**: Use `util.MergeStringMaps()` to merge backup labels with existing service labels
@@ -52,7 +50,7 @@ All repositories have a `backup_restore` branch checked out for this work.
 
 ### Helper Usage
 Check these lib-common modules before implementing new helpers:
-- `modules/common/backup` - **NEW**: Backup/restore labels, constants, and CRD cache
+- `modules/common/backup` - Backup/restore labels, constants, and CRD cache
 - `modules/common/util` - General utilities, map merging
 - `modules/common/labels` - Label generation and selectors
 - `modules/common/object` - Object metadata operations
@@ -61,13 +59,11 @@ Check these lib-common modules before implementing new helpers:
 
 ## Phase 1: lib-common Implementation
 
-### Create common/backup Package
+### Backup Package
 
-Create a new package `common/backup` in lib-common to provide shared functionality.
+The `common/backup` package in lib-common provides shared functionality.
 
-#### File: common/backup/labels.go
-
-Defines backup/restore label constants and helper functions.
+#### Labels and Constants (`common/backup/labels.go`)
 
 ```go
 package backup
@@ -77,197 +73,13 @@ const (
     BackupRestoreLabel      = "openstack.org/backup-restore"       // CRD label: "true" means instances participate in backup/restore
     BackupCategoryLabel     = "openstack.org/backup-category"      // CRD & instance label: "controlplane" or "dataplane"
     BackupRestoreOrderLabel = "openstack.org/backup-restore-order" // CRD & instance label: "00"-"60"
-
-    // Label key for resource instance metadata (mark individual resources for backup)
-    BackupLabel = "openstack.org/backup" // Resource instance label: "true" marks for OADP backup
 )
 
-// GetBackupLabels returns a map with backup/restore labels for CR instances
-// Use with util.MergeStringMaps() to merge with existing labels
-func GetBackupLabels(restoreOrder string) map[string]string
-
-// GetBackupLabelsWithCategory returns backup labels including category
-func GetBackupLabelsWithCategory(restoreOrder, category string) map[string]string
-
-// GetBackupLabelsWithOverrides returns backup labels with annotation-based overrides
-// Annotations on the instance can override the default restoreOrder and category
-func GetBackupLabelsWithOverrides(defaultRestoreOrder string, annotations map[string]string) map[string]string
-
-// ShouldBackup returns true if the resource should be backed up
-func ShouldBackup(labels map[string]string) bool
+// GetRestoreLabels returns a map with backup/restore labels for CR instances
+func GetRestoreLabels(restoreOrder string, category string) map[string]string
 ```
 
-**Key Points:**
-- Label key constants ensure consistency across all operators
-- **Two-level labeling approach**:
-  - **CRD level**: `BackupRestoreLabel` declares that instances of this CRD type participate in backup/restore
-  - **Instance level**: `BackupLabel` marks individual resources (PVCs, Secrets, ConfigMaps, CRs) for OADP backup
-- `BackupCategoryLabel` and `BackupRestoreOrderLabel` used on both CRDs and instances
-- BackupRestoreOrderLabel uses values: 00, 10, 20, 30, 40, 50, 60 (gaps of 10)
-- GetBackupLabels returns a label map (follows lib-common pattern of not modifying in-place)
-- Use with `util.MergeStringMaps()` to merge with existing labels
-- ShouldBackup is nil-safe for validation/testing
-
-#### File: common/backup/labels_test.go
-
-Functional tests for label helper functions.
-
-```go
-package backup
-
-import (
-    "testing"
-)
-
-func TestGetBackupLabels(t *testing.T) {
-    tests := []struct {
-        name         string
-        restoreOrder string
-        want         map[string]string
-    }{
-        {
-            name:         "PVC labels",
-            restoreOrder: RestoreOrder00,
-            want: map[string]string{
-                BackupLabel:             "true",
-                BackupRestoreOrderLabel: "00",
-            },
-        },
-        {
-            name:         "Secret labels",
-            restoreOrder: RestoreOrder10,
-            want: map[string]string{
-                BackupLabel:             "true",
-                BackupRestoreOrderLabel: "10",
-            },
-        },
-    }
-
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            got := GetBackupLabels(tt.restoreOrder)
-            if len(got) != len(tt.want) {
-                t.Errorf("GetBackupLabels() returned %d labels, want %d", len(got), len(tt.want))
-            }
-            for k, v := range tt.want {
-                if got[k] != v {
-                    t.Errorf("GetBackupLabels()[%q] = %q, want %q", k, got[k], v)
-                }
-            }
-        })
-    }
-}
-
-func TestGetBackupLabelsWithCategory(t *testing.T) {
-    tests := []struct {
-        name         string
-        restoreOrder string
-        category     string
-        want         map[string]string
-    }{
-        {
-            name:         "with category",
-            restoreOrder: RestoreOrder30,
-            category:     CategoryControlPlane,
-            want: map[string]string{
-                BackupLabel:             "true",
-                BackupRestoreOrderLabel: "30",
-                BackupCategoryLabel:     "controlplane",
-            },
-        },
-        {
-            name:         "without category (empty string)",
-            restoreOrder: RestoreOrder10,
-            category:     "",
-            want: map[string]string{
-                BackupLabel:             "true",
-                BackupRestoreOrderLabel: "10",
-            },
-        },
-        {
-            name:         "dataplane category",
-            restoreOrder: RestoreOrder60,
-            category:     CategoryDataPlane,
-            want: map[string]string{
-                BackupLabel:             "true",
-                BackupRestoreOrderLabel: "60",
-                BackupCategoryLabel:     "dataplane",
-            },
-        },
-    }
-
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            got := GetBackupLabelsWithCategory(tt.restoreOrder, tt.category)
-            if len(got) != len(tt.want) {
-                t.Errorf("GetBackupLabelsWithCategory() returned %d labels, want %d", len(got), len(tt.want))
-            }
-            for k, v := range tt.want {
-                if got[k] != v {
-                    t.Errorf("GetBackupLabelsWithCategory()[%q] = %q, want %q", k, got[k], v)
-                }
-            }
-        })
-    }
-}
-
-func TestShouldBackup(t *testing.T) {
-    tests := []struct {
-        name   string
-        labels map[string]string
-        want   bool
-    }{
-        {
-            name:   "nil labels",
-            labels: nil,
-            want:   false,
-        },
-        {
-            name:   "empty labels",
-            labels: map[string]string{},
-            want:   false,
-        },
-        {
-            name: "backup label true",
-            labels: map[string]string{
-                BackupLabel: "true",
-            },
-            want: true,
-        },
-        {
-            name: "backup label false",
-            labels: map[string]string{
-                BackupLabel: "false",
-            },
-            want: false,
-        },
-        {
-            name: "no backup label",
-            labels: map[string]string{
-                "other": "label",
-            },
-            want: false,
-        },
-    }
-
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            if got := ShouldBackup(tt.labels); got != tt.want {
-                t.Errorf("ShouldBackup() = %v, want %v", got, tt.want)
-            }
-        })
-    }
-}
-```
-
-**Key Points:**
-- Functional tests are required for all new functions
-- Tests cover normal cases and edge cases (nil, empty, with/without category)
-- Tests use table-driven test pattern (lib-common standard)
-
-#### File: common/backup/restore.go
-
-Defines restore order constants for consistency across operators.
+#### Restore Order Constants (`common/backup/restore.go`)
 
 ```go
 package backup
@@ -276,40 +88,23 @@ const (
     // Restore order constants (gaps of 10 allow insertion)
     RestoreOrder00 = "00" // Storage foundation - PVCs
     RestoreOrder10 = "10" // Foundation - NADs, Secrets, ConfigMaps
-    RestoreOrder20 = "20" // TLS & infrastructure - Issuers, MariaDB, NetConfig
-    RestoreOrder30 = "30" // CtlPlane + networking
-    RestoreOrder40 = "40" // Backup config & user resources
+    RestoreOrder20 = "20" // Infrastructure - Issuers, MariaDB, NetConfig, Topology, BGPConfiguration, DNSData, OpenStackVersion, OpenStackBackupConfig
+    RestoreOrder30 = "30" // CtlPlane + networking - OpenStackControlPlane, Reservation
+    RestoreOrder40 = "40" // Backup config & IP sets - GaleraBackup, IPSet
     RestoreOrder50 = "50" // Manual steps - database/RabbitMQ restore, resume deployment
-    RestoreOrder60 = "60" // DataPlane
+    RestoreOrder60 = "60" // DataPlane - DataPlaneNodeSet
 )
 
 const (
-    // Category constants
     CategoryControlPlane = "controlplane"
     CategoryDataPlane    = "dataplane"
-    CategoryAll          = "all"
 )
 ```
 
-**Key Points:**
-- Named constants ensure consistency across all operators
-- Comments explain the purpose of each order
-- Order 00 is critical for database restore (PVCs must exist first)
-- Category constants for controlplane/dataplane separation
-
-#### File: common/backup/cache.go
-
-CRD label cache for fast lookup of backup configuration.
+#### CRD Label Cache (`common/backup/cache.go`)
 
 ```go
 package backup
-
-import (
-    "context"
-
-    apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-    "sigs.k8s.io/controller-runtime/pkg/client"
-)
 
 // BackupConfig holds backup/restore configuration for a CRD
 type BackupConfig struct {
@@ -323,1502 +118,401 @@ type CRDLabelCache map[string]BackupConfig
 
 // BuildCRDLabelCache reads all CRDs and caches their backup labels
 func BuildCRDLabelCache(ctx context.Context, c client.Client) (CRDLabelCache, error)
-
-// GetBackupConfig looks up backup configuration for a resource
-// Returns BackupConfig with Enabled=false if not found
-func (c CRDLabelCache) GetBackupConfig(gvk string) BackupConfig
 ```
 
 **Key Points:**
-- Cache built once at operator startup (not on every webhook call)
-- Uses label constants for consistency
-- No API calls during webhook execution (fast)
-- Automatically refreshed on operator restart
-- Works with operator upgrade cycle (CRD changes = operator restart)
-
-#### File: common/backup/cache_test.go
-
-Functional tests for CRD label cache.
-
-```go
-package backup
-
-import (
-    "context"
-    "testing"
-
-    apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-    metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-    "k8s.io/apimachinery/pkg/runtime"
-    "sigs.k8s.io/controller-runtime/pkg/client/fake"
-)
-
-func TestBuildCRDLabelCache(t *testing.T)
-
-func TestGetBackupConfig(t *testing.T)
-```
-
-**Key Points:**
-- Comprehensive tests cover BuildCRDLabelCache() and GetBackupConfig()
-- Tests use fake client with CRD objects
-- Tests multiple scenarios: labeled CRDs, unlabeled CRDs, missing CRDs, etc.
-
-### Update lib-common Dependencies
-
-After creating the backup package:
-1. Run `go mod tidy` in lib-common
-2. Tag a new version (e.g., v0.X.Y)
-3. Update go.mod in consuming operators to use the new lib-common version
+- Cache built lazily on first reconciliation of OpenStackBackupConfig controller
+- Uses CRD label constants for consistency
+- Works with operator upgrade cycle (CRD changes = operator restart = cache rebuild)
 
 ## Phase 2: CRD Labels
 
 ### Label Format
 
-Add labels to CRD metadata for dynamic discovery. Label keys are defined as constants in lib-common `backup` package.
+Add labels to CRD metadata using kubebuilder annotations on Go type definitions:
 
 ```go
-// +kubebuilder:object:root=true
-// +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=oscplane;oscplanerestore
-// +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.conditions[0].status",description="Status"
-// +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.conditions[0].message",description="Message"
-// +operator-sdk:csv:customresourcedefinitions:displayName="OpenStack ControlPlane"
-// +kubebuilder:metadata:labels:openstack.org/backup-restore=true
-// +kubebuilder:metadata:labels:openstack.org/backup-category=controlplane
-// +kubebuilder:metadata:labels:openstack.org/backup-restore-order=30
+// +kubebuilder:metadata:labels=openstack.org/backup-restore=true
+// +kubebuilder:metadata:labels=openstack.org/backup-category=controlplane
+// +kubebuilder:metadata:labels=openstack.org/backup-restore-order=30
 type OpenStackControlPlane struct {
 ```
 
-**Key Points:**
-- **CRD Labels** (for dynamic discovery):
-  - `openstack.org/backup-restore=true` - marks CRD as participating in backup/restore (use `backup.BackupRestoreLabel` constant)
-  - `openstack.org/backup-category=controlplane` - categorizes the CRD (use `backup.BackupCategoryLabel` and `backup.CategoryControlPlane` constants)
-  - `openstack.org/backup-restore-order=30` - defines restore sequence (use `backup.BackupRestoreOrderLabel` and `backup.RestoreOrder30` constants)
-  - Enables dynamic discovery: `oc get crd -l openstack.org/backup-restore=true`
-  - Controller-friendly: list/watch CRDs by label selector
-  - Labels are read once at operator startup and cached for fast webhook lookups
-- **Volume handling**: Use CSI snapshots for PVCs (configured in OADP Backup CR with `snapshotVolumes: true`)
-
-**Label Constants Reference:**
-
-From lib-common `backup` package:
-- `BackupRestoreLabel` = `"openstack.org/backup-restore"`
-- `BackupCategoryLabel` = `"openstack.org/backup-category"`
-- `BackupRestoreOrderLabel` = `"openstack.org/backup-restore-order"`
-- `CategoryControlPlane` = `"controlplane"`
-- `CategoryDataPlane` = `"dataplane"`
-- `RestoreOrder00` through `RestoreOrder60` = `"00"` through `"60"`
+After modifying type definitions, run `make generate manifests` to update generated CRD YAML files.
 
 ### OpenStack Operator CRDs
 
-Add labels to CRDs using kubebuilder metadata annotations. Add the annotations with the other kubebuilder annotations before the type definition.
-
 1. **OpenStackControlPlane** (`api/core/v1beta1/openstackcontrolplane_types.go`)
-   ```go
-   // +kubebuilder:object:root=true
-   // +kubebuilder:subresource:status
-   // +operator-sdk:csv:customresourcedefinitions:displayName="OpenStack ControlPlane"
-   // +kubebuilder:resource:shortName=osctlplane;osctlplanes;oscp;oscps
-   // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.conditions[0].status",description="Status"
-   // +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.conditions[0].message",description="Message"
-   // +kubebuilder:metadata:labels=openstack.org/backup-restore=true
-   // +kubebuilder:metadata:labels=openstack.org/backup-category=controlplane
-   // +kubebuilder:metadata:labels=openstack.org/backup-restore-order=30
-
-   // OpenStackControlPlane is the Schema for the openstackcontrolplanes API
-   type OpenStackControlPlane struct {
-   ```
+   - `backup-restore=true`, `category=controlplane`, `order=30`
 
 2. **OpenStackDataPlaneNodeSet** (`api/dataplane/v1beta1/openstackdataplanenodeset_types.go`)
-   ```go
-   // +kubebuilder:object:root=true
-   // +kubebuilder:subresource:status
-   // ... other kubebuilder annotations ...
-   // +kubebuilder:metadata:labels=openstack.org/backup-restore=true
-   // +kubebuilder:metadata:labels=openstack.org/backup-category=dataplane
-   // +kubebuilder:metadata:labels=openstack.org/backup-restore-order=60
-
-   // OpenStackDataPlaneNodeSet is the Schema for the openstackdataplanenodesets API
-   type OpenStackDataPlaneNodeSet struct {
-   ```
+   - `backup-restore=true`, `category=dataplane`, `order=60`
 
 3. **OpenStackVersion** (`api/core/v1beta1/openstackversion_types.go`)
-   ```go
-   // +kubebuilder:object:root=true
-   // +kubebuilder:subresource:status
-   // ... other kubebuilder annotations ...
-   // +kubebuilder:metadata:labels=openstack.org/backup-restore=true
-   // +kubebuilder:metadata:labels=openstack.org/backup-category=controlplane
-   // +kubebuilder:metadata:labels=openstack.org/backup-restore-order=20
+   - `backup-restore=true`, `category=controlplane`, `order=20`
 
-   // OpenStackVersion is the Schema for the openstackversions API
-   type OpenStackVersion struct {
-   ```
-
-**Key Points:**
-- Use `// +kubebuilder:metadata:labels=key=value` annotation, one per label (multi-line is easier to read)
-- Place the metadata:labels annotations with the other kubebuilder annotations (after printcolumn, before the type comment)
-- OpenStackVersion has order "20" (restored before ControlPlane)
-- OpenStackControlPlane has order "30" (restored after Version)
-- OpenStackDataPlaneNodeSet has order "60" (restored last)
-
-**After modifying type definitions:**
-```bash
-make generate manifests
-```
-
-This will update the generated CRD YAML files in `config/crd/bases/` with the labels.
-
-**Verify labels were added to generated CRDs:**
-```bash
-grep -A 5 "metadata:" config/crd/bases/core.openstack.org_openstackcontrolplanes.yaml
-oc get crd openstackcontrolplanes.core.openstack.org -o yaml | grep -A 5 labels
-oc get crd -l openstack.org/backup-restore=true
-```
+4. **OpenStackBackupConfig** (`api/backup/v1beta1/openstackbackupconfig_types.go`)
+   - `backup-restore=true`, `category=controlplane`, `order=20`
 
 ### MariaDB Operator CRDs
 
-Update the following CRDs in mariadb-operator:
-
 1. **MariaDBAccount** (`api/v1beta1/mariadbaccount_types.go`)
-   ```go
-   // +kubebuilder:metadata:labels:openstack.org/backup-restore=true
-   // +kubebuilder:metadata:labels:openstack.org/backup-category=controlplane
-   // +kubebuilder:metadata:labels:openstack.org/restore-order=20
-   type MariaDBAccount struct {
-   ```
+   - `backup-restore=true`, `category=controlplane`, `order=20`
 
 2. **MariaDBDatabase** (`api/v1beta1/mariadbdatabase_types.go`)
-   ```go
-   // +kubebuilder:metadata:labels:openstack.org/backup-restore=true
-   // +kubebuilder:metadata:labels:openstack.org/backup-category=controlplane
-   // +kubebuilder:metadata:labels:openstack.org/restore-order=20
-   type MariaDBDatabase struct {
-   ```
+   - `backup-restore=true`, `category=controlplane`, `order=20`
 
-**After modifying CRDs:**
-```bash
-make generate manifests
-```
+3. **GaleraBackup** (`api/v1beta1/galerabackup_types.go`)
+   - `backup-restore=true`, `category=controlplane`, `order=40`
 
-**Verify labels were added to CRDs:**
+### Infra Operator CRDs
+
+1. **NetConfig** (`apis/network/v1beta1/netconfig_types.go`)
+   - `backup-restore=true`, `category=dataplane`, `order=20`
+
+2. **Topology** (`apis/topology/v1beta1/topology_types.go`)
+   - `backup-restore=true`, `category=dataplane`, `order=20`
+
+3. **BGPConfiguration** (`apis/network/v1beta1/bgpconfiguration_types.go`)
+   - `backup-restore=true`, `category=dataplane`, `order=20`
+
+4. **DNSData** (`apis/network/v1beta1/dnsdata_types.go`)
+   - `backup-restore=true`, `category=dataplane`, `order=20`
+
+5. **Reservation** (`apis/network/v1beta1/reservation_types.go`)
+   - `backup-restore=true`, `category=dataplane`, `order=30`
+   - Requires NetConfig (order 20) to exist first
+
+6. **IPSet** (`apis/network/v1beta1/ipset_types.go`)
+   - `backup-restore=true`, `category=dataplane`, `order=40`
+   - Requires Reservation (order 30) to exist first
+
+### CRDs NOT Included
+
+**InstanceHa** (`apis/instanceha/v1beta1/instanceha_types.go`) is deliberately excluded from automatic backup/restore. Restoring InstanceHa CRs could trigger EDPM node fencing if nodes haven't reconnected to the control plane yet. InstanceHa ConfigMaps are restored in order 10; CRs must be manually recreated after verifying EDPM connectivity.
+
+**Service operator CRDs** (GlanceAPI, NovaAPI, KeystoneAPI, CinderAPI, NeutronAPI, etc.) do NOT have backup-restore labels. These CRs are operator-managed - after restoring OpenStackControlPlane (order 30), the openstack-operator reconciles and recreates all service CRs. This avoids version mismatches and configuration drift.
+
+### Verify CRD Labels
+
 ```bash
-oc get crd mariadbaccounts.mariadb.openstack.org -o yaml | grep -A 5 labels
+# List all CRDs with backup-restore labels
+oc get crd -l openstack.org/backup-restore=true
+
+# Check specific CRD
+oc get crd openstackcontrolplanes.core.openstack.org -o jsonpath='{.metadata.labels}'
+
+# Filter by category
 oc get crd -l openstack.org/backup-restore=true -l openstack.org/backup-category=controlplane
+oc get crd -l openstack.org/backup-restore=true -l openstack.org/backup-category=dataplane
 ```
 
-### Service Operator CRDs (NOT Included)
+## Phase 3: OpenStackBackupConfig Controller
 
-**Important:** Service operator CRDs (GlanceAPI, NovaAPI, KeystoneAPI, etc.) should **NOT** have `backup-restore` labels.
+The OpenStackBackupConfig controller is the central component that labels resources for backup/restore. It replaces the webhook-based approach with a simpler, centralized controller.
 
-**Why?**
-- These CRs are operator-managed (created by OpenStackControlPlane reconciliation)
-- They are backed up (full namespace backup) but **NOT** restored
-- After restoring OpenStackControlPlane (order 30), the openstack-operator will reconcile and recreate all service CRs
-- This ensures service CRs match the current OpenStack version and configuration
-- Avoids version mismatches and configuration drift
-
-**Examples of CRDs that should NOT have backup-restore labels:**
-- GlanceAPI, GlanceCacheCleanup
-- NovaAPI, NovaScheduler, NovaCell, NovaConductor, NovaCompute, etc.
-- KeystoneAPI
-- CinderAPI, CinderScheduler, CinderVolume, CinderBackup, etc.
-- NeutronAPI
-- PlacementAPI
-- HeatAPI, HeatEngine
-- IronicAPI, IronicConductor, IronicInspector
-- ManilaAPI, ManilaScheduler, ManilaShare
-- OctaviaAPI, OctaviaAmphoraController, etc.
-- All other service operator CRDs
-
-**Note:** The service operator webhook implementations (e.g., glance-operator in Phase 3) are for labeling **user-provided resources** (Secrets, ConfigMaps, PVCs), not for labeling service CR instances (e.g., GlanceAPI instances).
-
-**Backup Flow:**
-1. All service CRs are backed up (full namespace backup)
-2. Service CRs are **not** restored (no `backup-restore` label on CRD)
-3. OpenStackControlPlane is restored (order 30)
-4. Openstack-operator reconciles and recreates all service CRs
-5. Service operators reconcile and recreate deployments/pods
-6. User-provided resources (Secrets, ConfigMaps, PVCs) are already restored and available
-
-## Phase 3: Webhook Implementation
-
-**Webhook Architecture Overview:**
-
-OpenStack operators use different webhook patterns:
-1. **OpenStack-operator**: Runs webhook for OpenStackControlPlane, calls service operator functions
-2. **Service operators** (glance, nova, etc.): NO webhooks, export functions called by openstack-operator
-3. **Infra-operator**: Independent webhook for infrastructure CRs
-4. **MariaDB-operator**: Independent webhook for GaleraBackup CRs
-
-### Setup: Build CRD Label Cache at Startup
-
-All operators with webhooks need the CRD label cache. Build once at operator startup.
-
-#### OpenStack-Operator: main.go
+### OpenStackBackupConfig API
 
 ```go
-import (
-    "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
-)
+// OpenStackBackupConfigSpec defines the desired state of OpenStackBackupConfig.
+type OpenStackBackupConfigSpec struct {
+    // TargetNamespace is the namespace to watch for resources to label
+    // +kubebuilder:default=openstack
+    TargetNamespace string `json:"targetNamespace,omitempty"`
 
-func main() {
-    // ... manager setup ...
+    // DefaultRestoreOrder is the restore order assigned to user-provided resources
+    // +kubebuilder:default="10"
+    DefaultRestoreOrder string `json:"defaultRestoreOrder,omitempty"`
 
-    // Build CRD label cache at startup
-    ctx := context.Background()
-    crdLabelCache, err := backup.BuildCRDLabelCache(ctx, mgr.GetClient())
-    if err != nil {
-        setupLog.Error(err, "unable to build CRD label cache")
-        os.Exit(1)
-    }
-    setupLog.Info("CRD label cache built", "entries", len(crdLabelCache))
+    // Secrets configuration for backup labeling
+    // Defaults: Excludes service-cert and osdp-service labeled secrets
+    // +kubebuilder:default={enabled:true,excludeLabelKeys:{"service-cert","osdp-service"}}
+    Secrets ResourceBackupConfig `json:"secrets,omitempty"`
 
-    // Pass cache to webhook setup
-    if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-        if err = (&corev1beta1.OpenStackControlPlane{}).SetupWebhookWithManager(mgr, crdLabelCache); err != nil {
-            setupLog.Error(err, "unable to create webhook", "webhook", "OpenStackControlPlane")
-            os.Exit(1)
-        }
-    }
+    // ConfigMaps configuration for backup labeling
+    // Defaults: Excludes kube-root-ca.crt and openshift-service-ca.crt
+    // +kubebuilder:default={enabled:true,excludeNames:{"kube-root-ca.crt","openshift-service-ca.crt"}}
+    ConfigMaps ResourceBackupConfig `json:"configMaps,omitempty"`
 
-    // ... rest of main ...
+    // NetworkAttachmentDefinitions configuration for backup labeling
+    // +kubebuilder:default={enabled:true}
+    NetworkAttachmentDefinitions ResourceBackupConfig `json:"networkAttachmentDefinitions,omitempty"`
+}
+
+// ResourceBackupConfig defines backup labeling rules for a resource type
+type ResourceBackupConfig struct {
+    Enabled              bool              `json:"enabled,omitempty"`
+    ExcludeLabelKeys     []string          `json:"excludeLabelKeys,omitempty"`
+    ExcludeNames         []string          `json:"excludeNames,omitempty"`
+    IncludeLabelSelector map[string]string `json:"includeLabelSelector,omitempty"`
 }
 ```
 
-### OpenStack-Operator Webhook
+### Controller Logic
 
-The openstack-operator webhook handles OpenStackControlPlane CR and calls service operator functions for user resource labeling.
+The controller (`internal/controller/backup/openstackbackupconfig_controller.go`) does four things on each reconciliation:
 
-#### File: api/core/v1beta1/openstackcontrolplane_webhook.go
+1. **Label Secrets** - Lists all Secrets in the target namespace, labels user-provided ones (no ownerReferences) with restore order 10
+2. **Label ConfigMaps** - Same for ConfigMaps
+3. **Label NADs** - Same for NetworkAttachmentDefinitions
+4. **Label CR Instances** - Builds a CRD label cache, iterates all CRDs with `backup-restore=true`, lists instances, labels them with the order/category from the CRD
 
-```go
-import (
-    "context"
+**Resource filtering:**
+- Only resources without ownerReferences are labeled (user-provided)
+- Resources matching `excludeLabelKeys` are skipped (e.g., `service-cert` secrets)
+- Resources matching `excludeNames` are skipped (e.g., `kube-root-ca.crt`)
+- Resources already labeled with correct values are skipped (idempotent)
 
-    "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
-    "github.com/openstack-k8s-operators/lib-common/modules/common/util"
+**Watch triggers:**
+- The controller watches Secrets, ConfigMaps, and NADs - when any are created/updated, it reconciles
+- This ensures newly created user resources are labeled promptly
 
-    // Import service operator packages for their labeling functions
-    glance "github.com/openstack-k8s-operators/glance-operator/api/v1beta1"
-    keystone "github.com/openstack-k8s-operators/keystone-operator/api/v1beta1"
-    // ... other service operators
+### Example OpenStackBackupConfig CR
 
-    "k8s.io/apimachinery/pkg/runtime"
-    "k8s.io/apimachinery/pkg/runtime/schema"
-    ctrl "sigs.k8s.io/controller-runtime"
-    "sigs.k8s.io/controller-runtime/pkg/client"
-    "sigs.k8s.io/controller-runtime/pkg/webhook"
-)
-
-type OpenStackControlPlaneWebhook struct {
-    client.Client
-    CRDLabelCache backup.CRDLabelCache
-}
-
-func (r *OpenStackControlPlane) SetupWebhookWithManager(mgr ctrl.Manager, cache backup.CRDLabelCache) error {
-    webhook := &OpenStackControlPlaneWebhook{
-        Client:        mgr.GetClient(),
-        CRDLabelCache: cache,
-    }
-
-    return ctrl.NewWebhookManagedBy(mgr).
-        For(r).
-        WithDefaulter(webhook).
-        Complete()
-}
-
-var _ webhook.CustomDefaulter = &OpenStackControlPlaneWebhook{}
-
-func (w *OpenStackControlPlaneWebhook) Default(ctx context.Context, obj runtime.Object) error {
-    instance := obj.(*OpenStackControlPlane)
-
-    // 1. Label the OpenStackControlPlane instance itself
-    if err := w.labelControlPlaneInstance(ctx, instance); err != nil {
-        return err
-    }
-
-    // 2. Call service operator functions to label user-provided resources
-    if err := w.labelServiceUserResources(ctx, instance); err != nil {
-        return err
-    }
-
-    return nil
-}
+```yaml
+apiVersion: backup.openstack.org/v1beta1
+kind: OpenStackBackupConfig
+metadata:
+  name: backup-config
+  namespace: openstack
+spec:
+  targetNamespace: openstack
+  defaultRestoreOrder: "10"
+  secrets:
+    enabled: true
+    excludeLabelKeys:
+    - service-cert
+    - osdp-service
+  configMaps:
+    enabled: true
+    excludeNames:
+    - kube-root-ca.crt
+    - openshift-service-ca.crt
+  networkAttachmentDefinitions:
+    enabled: true
 ```
 
-#### Webhook Logic: Label ControlPlane Instance
+### RBAC
 
-```go
-func (w *OpenStackControlPlaneWebhook) labelControlPlaneInstance(ctx context.Context, instance *OpenStackControlPlane) error {
-    // Fast cache lookup (no API call)
-    gvk := schema.GroupVersionKind{
-        Group:   "core.openstack.org",
-        Version: "v1beta1",
-        Kind:    "OpenStackControlPlane",
-    }
+The controller requires permissions to:
+- Get/list/watch/update/patch Secrets, ConfigMaps, NADs
+- Get/list/watch CRDs (for building the label cache)
+- Get/list/watch/update/patch resources across all `*.openstack.org` API groups (for labeling CR instances)
 
-    config, ok := w.CRDLabelCache.GetBackupConfig(gvk)
-    if !ok || !config.ShouldBackup {
-        // CRD not configured for backup, skip labeling
-        return nil
-    }
-
-    // Add backup labels to ControlPlane instance
-    if instance.Labels == nil {
-        instance.Labels = make(map[string]string)
-    }
-
-    instance.Labels = util.MergeStringMaps(
-        instance.Labels,
-        backup.GetBackupLabelsWithCategory(config.RestoreOrder, config.Category),
-    )
-
-    return nil
-}
-```
-
-#### Webhook Logic: Call Service Operator Functions
-
-```go
-func (w *OpenStackControlPlaneWebhook) labelServiceUserResources(ctx context.Context, instance *OpenStackControlPlane) error {
-    // Call glance-operator function to label user resources
-    if instance.Spec.Glance.Enabled {
-        if err := glance.LabelUserResources(ctx, w.Client, instance.Namespace, &instance.Spec.Glance.Template); err != nil {
-            return fmt.Errorf("failed to label glance resources: %w", err)
-        }
-    }
-
-    // Call keystone-operator function
-    if instance.Spec.Keystone.Enabled {
-        if err := keystone.LabelUserResources(ctx, w.Client, instance.Namespace, &instance.Spec.Keystone.Template); err != nil {
-            return fmt.Errorf("failed to label keystone resources: %w", err)
-        }
-    }
-
-    // ... call other service operators ...
-
-    return nil
-}
-```
-
-**Key Points:**
-- OpenStack-operator webhook runs for OpenStackControlPlane
-- Labels the ControlPlane instance based on CRD cache
-- Calls exported functions from service operators (no separate webhooks in service operators)
-- Each service operator exports a `LabelUserResources()` function
-- Error handling can be lenient (if service not enabled, skip)
-
-### Service Operator Exported Functions
-
-Service operators (glance, nova, keystone, etc.) do NOT run webhooks. They export labeling functions called by openstack-operator.
-
-#### Glance-Operator Example
-
-File: `api/v1beta1/backup.go` (new file in glance-operator)
-
-```go
-package v1beta1
-
-import (
-    "context"
-
-    "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
-    "github.com/openstack-k8s-operators/lib-common/modules/common/util"
-    corev1 "k8s.io/api/core/v1"
-    "k8s.io/apimachinery/pkg/types"
-    "sigs.k8s.io/controller-runtime/pkg/client"
-)
-
-// LabelUserResources labels user-provided Secrets and ConfigMaps referenced by GlanceAPI spec
-// This function is called by openstack-operator webhook, NOT by a webhook in glance-operator
-func LabelUserResources(ctx context.Context, c client.Client, namespace string, spec *GlanceAPISpec) error {
-    // Label user-provided secret
-    if spec.Secret != "" {
-        if err := labelSecret(ctx, c, namespace, spec.Secret); err != nil {
-            // Log but don't fail - resource might not exist yet
-            return nil
-        }
-    }
-
-    // Label user-provided ConfigMaps
-    for _, configMapName := range spec.CustomServiceConfig {
-        if err := labelConfigMap(ctx, c, namespace, configMapName); err != nil {
-            // Log but don't fail
-            return nil
-        }
-    }
-
-    return nil
-}
-
-func labelSecret(ctx context.Context, c client.Client, namespace, name string) error {
-    secret := &corev1.Secret{}
-    err := c.Get(ctx, types.NamespacedName{
-        Name:      name,
-        Namespace: namespace,
-    }, secret)
-    if err != nil {
-        return err
-    }
-
-    // Only label if user-provided (no ownerReferences)
-    if len(secret.GetOwnerReferences()) > 0 {
-        return nil
-    }
-
-    patch := client.MergeFrom(secret.DeepCopy())
-    secret.Labels = util.MergeStringMaps(
-        secret.Labels,
-        backup.GetBackupLabels(backup.RestoreOrder10),
-    )
-
-    return c.Patch(ctx, secret, patch)
-}
-
-func labelConfigMap(ctx context.Context, c client.Client, namespace, name string) error {
-    configMap := &corev1.ConfigMap{}
-    err := c.Get(ctx, types.NamespacedName{
-        Name:      name,
-        Namespace: namespace,
-    }, configMap)
-    if err != nil {
-        return err
-    }
-
-    // Only label if user-provided (no ownerReferences)
-    if len(configMap.GetOwnerReferences()) > 0 {
-        return nil
-    }
-
-    patch := client.MergeFrom(configMap.DeepCopy())
-    configMap.Labels = util.MergeStringMaps(
-        configMap.Labels,
-        backup.GetBackupLabels(backup.RestoreOrder10),
-    )
-
-    return c.Patch(ctx, configMap, patch)
-}
-```
-
-**Key Points:**
-- Service operators export `LabelUserResources()` function (NOT a webhook handler)
-- Function is called by openstack-operator webhook
-- Labels only user-provided resources (check ownerReferences)
-- Use `client.Patch()` with MergeFrom for safe updates
-- Error handling is lenient (resources might not exist yet)
-
-### Infra-Operator Webhook
-
-Infra-operator runs its own independent webhook for infrastructure CRs (NetConfig, IPSet, Reservation, etc.).
-
-#### Infra-Operator: main.go
-
-```go
-import (
-    "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
-)
-
-func main() {
-    // ... manager setup ...
-
-    // Build CRD label cache at startup
-    ctx := context.Background()
-    crdLabelCache, err := backup.BuildCRDLabelCache(ctx, mgr.GetClient())
-    if err != nil {
-        setupLog.Error(err, "unable to build CRD label cache")
-        os.Exit(1)
-    }
-
-    // Setup webhooks for infrastructure CRs
-    if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-        if err = (&infranetworkv1.NetConfig{}).SetupWebhookWithManager(mgr, crdLabelCache); err != nil {
-            setupLog.Error(err, "unable to create webhook", "webhook", "NetConfig")
-            os.Exit(1)
-        }
-        if err = (&infranetworkv1.IPSet{}).SetupWebhookWithManager(mgr, crdLabelCache); err != nil {
-            setupLog.Error(err, "unable to create webhook", "webhook", "IPSet")
-            os.Exit(1)
-        }
-        // ... other infra CRs ...
-    }
-
-    // ... rest of main ...
-}
-```
-
-#### Infra-Operator Webhook Example: NetConfig
-
-File: `apis/network/v1beta1/netconfig_webhook.go`
-
-```go
-package v1beta1
-
-import (
-    "context"
-
-    "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
-    "github.com/openstack-k8s-operators/lib-common/modules/common/util"
-    "k8s.io/apimachinery/pkg/runtime"
-    "k8s.io/apimachinery/pkg/runtime/schema"
-    ctrl "sigs.k8s.io/controller-runtime"
-    "sigs.k8s.io/controller-runtime/pkg/webhook"
-)
-
-type NetConfigWebhook struct {
-    CRDLabelCache backup.CRDLabelCache
-}
-
-func (r *NetConfig) SetupWebhookWithManager(mgr ctrl.Manager, cache backup.CRDLabelCache) error {
-    webhook := &NetConfigWebhook{
-        CRDLabelCache: cache,
-    }
-
-    return ctrl.NewWebhookManagedBy(mgr).
-        For(r).
-        WithDefaulter(webhook).
-        Complete()
-}
-
-var _ webhook.CustomDefaulter = &NetConfigWebhook{}
-
-func (w *NetConfigWebhook) Default(ctx context.Context, obj runtime.Object) error {
-    instance := obj.(*NetConfig)
-
-    // Label the NetConfig instance based on CRD labels
-    gvk := schema.GroupVersionKind{
-        Group:   "network.openstack.org",
-        Version: "v1beta1",
-        Kind:    "NetConfig",
-    }
-
-    config, ok := w.CRDLabelCache.GetBackupConfig(gvk)
-    if !ok || !config.ShouldBackup {
-        return nil
-    }
-
-    if instance.Labels == nil {
-        instance.Labels = make(map[string]string)
-    }
-
-    instance.Labels = util.MergeStringMaps(
-        instance.Labels,
-        backup.GetBackupLabelsWithCategory(config.RestoreOrder, config.Category),
-    )
-
-    return nil
-}
-```
-
-**Key Points:**
-- Infra-operator runs independent webhooks
-- Each infrastructure CR type has its own webhook
-- Labels CR instances based on CRD cache
-- Infrastructure CRs don't typically reference user resources (no secondary labeling needed)
-
-### MariaDB-Operator Webhook
-
-MariaDB-operator runs independent webhook for GaleraBackup CRs.
-
-#### MariaDB-Operator: main.go
-
-```go
-import (
-    "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
-)
-
-func main() {
-    // ... manager setup ...
-
-    // Build CRD label cache at startup
-    ctx := context.Background()
-    crdLabelCache, err := backup.BuildCRDLabelCache(ctx, mgr.GetClient())
-    if err != nil {
-        setupLog.Error(err, "unable to build CRD label cache")
-        os.Exit(1)
-    }
-
-    // Setup webhook for GaleraBackup
-    if os.Getenv("ENABLE_WEBHOOKS") != "false" {
-        if err = (&mariadbv1.GaleraBackup{}).SetupWebhookWithManager(mgr, crdLabelCache); err != nil {
-            setupLog.Error(err, "unable to create webhook", "webhook", "GaleraBackup")
-            os.Exit(1)
-        }
-    }
-
-    // ... rest of main ...
-}
-```
-
-#### MariaDB-Operator Webhook: GaleraBackup
-
-File: `api/v1beta1/galerabackup_webhook.go`
-
-```go
-package v1beta1
-
-import (
-    "context"
-
-    "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
-    "github.com/openstack-k8s-operators/lib-common/modules/common/util"
-    "k8s.io/apimachinery/pkg/runtime"
-    "k8s.io/apimachinery/pkg/runtime/schema"
-    ctrl "sigs.k8s.io/controller-runtime"
-    "sigs.k8s.io/controller-runtime/pkg/webhook"
-)
-
-type GaleraBackupWebhook struct {
-    CRDLabelCache backup.CRDLabelCache
-}
-
-func (r *GaleraBackup) SetupWebhookWithManager(mgr ctrl.Manager, cache backup.CRDLabelCache) error {
-    webhook := &GaleraBackupWebhook{
-        CRDLabelCache: cache,
-    }
-
-    return ctrl.NewWebhookManagedBy(mgr).
-        For(r).
-        WithDefaulter(webhook).
-        Complete()
-}
-
-var _ webhook.CustomDefaulter = &GaleraBackupWebhook{}
-
-func (w *GaleraBackupWebhook) Default(ctx context.Context, obj runtime.Object) error {
-    instance := obj.(*GaleraBackup)
-
-    // Label the GaleraBackup instance based on CRD labels
-    gvk := schema.GroupVersionKind{
-        Group:   "mariadb.openstack.org",
-        Version: "v1beta1",
-        Kind:    "GaleraBackup",
-    }
-
-    config, ok := w.CRDLabelCache.GetBackupConfig(gvk)
-    if !ok || !config.ShouldBackup {
-        return nil
-    }
-
-    if instance.Labels == nil {
-        instance.Labels = make(map[string]string)
-    }
-
-    instance.Labels = util.MergeStringMaps(
-        instance.Labels,
-        backup.GetBackupLabelsWithCategory(config.RestoreOrder, config.Category),
-    )
-
-    return nil
-}
-```
-
-**Key Points:**
-- MariaDB-operator runs webhook for GaleraBackup CRs
-- GaleraBackup is a user-created CR (backup configuration)
-- Labels CR instance based on CRD cache
-- No secondary resource labeling needed (backup config only)
-
-### Webhook Implementation Summary
-
-| Operator | Webhook? | What it does |
-|----------|----------|--------------|
-| **openstack-operator** | YES | Labels OpenStackControlPlane instance + calls service operator functions |
-| **service operators** (glance, nova, etc.) | NO | Export `LabelUserResources()` functions called by openstack-operator |
-| **infra-operator** | YES | Labels infrastructure CR instances (NetConfig, IPSet, Reservation, etc.) |
-| **mariadb-operator** | YES | Labels GaleraBackup CR instances |
-
-**Labeling Flow:**
-1. User creates/updates OpenStackControlPlane
-2. OpenStack-operator webhook runs:
-   - Labels ControlPlane instance (based on CRD cache)
-   - Calls `glance.LabelUserResources()` → labels glance Secrets/ConfigMaps
-   - Calls `keystone.LabelUserResources()` → labels keystone Secrets/ConfigMaps
-   - Calls other service operator functions
-3. User creates NetConfig → infra-operator webhook labels it
-4. User creates GaleraBackup → mariadb-operator webhook labels it
-5. Operators create PVCs/secrets → labeled in controllers (Phase 4)
+Each `*.openstack.org` group is listed explicitly in RBAC annotations since Kubernetes does not support wildcard group patterns.
 
 ## Phase 4: Operator-Managed Resource Labeling
 
-This phase covers labeling resources created by operator controllers (not webhooks). These resources are created during reconciliation and need backup labels even though they have ownerReferences.
-
-**When to label in controllers:**
-- **PVCs** created by operators - must be backed up with CSI snapshots (storage foundation)
-- **Database password secrets** - user credentials that must be restored before MariaDBAccount CRs
-- **Operator-managed sub-CRs** that need backup (if any future requirements)
-
-**Key Difference from Phase 3:**
-- **Phase 3 (Webhooks)**: Labels user-provided resources (no ownerReferences)
-  - Example: User creates Secret, OpenStackControlPlane references it, webhook labels it
-- **Phase 4 (Controllers)**: Labels operator-managed resources (HAS ownerReferences, but explicitly backed up)
-  - Example: Operator creates PVC with ownerReference to GlanceAPI, controller labels it at creation
-
-**Why Label Resources with ownerReferences?**
-- PVCs: Must be backed up (contain data) and restored before pods start
-- Database password secrets: Must be restored before MariaDBAccount reconciliation
-- OADP will backup these resources even with ownerReferences (full backup)
-- Labels ensure they're restored in correct order
-
-**Where This Happens:**
-- In controller reconciliation loops
-- When creating PVCs, secrets, or other resources
-- Labels are set during resource creation (before CreateOrPatch)
-- Labels merged with service-specific labels
+This phase covers labeling resources created by operator controllers. These resources have ownerReferences but still need backup labels because they contain data that must be preserved.
 
 ### PVC Labeling
 
-Operators must label PVCs they create for backup. PVCs use restore order 00 (storage foundation - restored first).
-
-#### Glance Operator PVC Labeling
-
-In the reconciliation code where PVCs are created using CreateOrPatch pattern:
+Operators label PVCs they create with restore order 00 (storage foundation - restored first).
 
 ```go
 import (
     "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
-    "github.com/openstack-k8s-operators/lib-common/modules/common/pvc"
     "github.com/openstack-k8s-operators/lib-common/modules/common/util"
 )
 
-func (r *GlanceAPIReconciler) ensurePVC(
-    ctx context.Context,
-    h *helper.Helper,
-    instance *glancev1.GlanceAPI,
-) error {
-    // Build PVC spec with backup labels
-    pvcDef := &corev1.PersistentVolumeClaim{
-        ObjectMeta: metav1.ObjectMeta{
-            Name:      fmt.Sprintf("%s-pvc", instance.Name),
-            Namespace: instance.Namespace,
-            // Merge service labels with backup labels
-            Labels: util.MergeStringMaps(
-                map[string]string{
-                    "app": "glance",
-                },
-                backup.GetBackupLabels(backup.RestoreOrder00),
-            ),
-        },
-        Spec: corev1.PersistentVolumeClaimSpec{
-            AccessModes: []corev1.PersistentVolumeAccessMode{
-                corev1.ReadWriteOnce,
-            },
-            Resources: corev1.VolumeResourceRequirements{
-                Requests: corev1.ResourceList{
-                    corev1.ResourceStorage: resource.MustParse("10Gi"),
-                },
-            },
-        },
-    }
-
-    // Use lib-common PVC helper which handles CreateOrPatch
-    pvcHelper := pvc.NewPvc(pvcDef, 5*time.Second)
-    ctrlResult, err := pvcHelper.CreateOrPatch(ctx, h)
-    if err != nil {
-        return err
-    }
-    if !ctrlResult.IsZero() {
-        return fmt.Errorf("PVC not ready, requeuing")
-    }
-
-    return nil
-}
-```
-
-**Key Points:**
-- PVCs use restore order 00 (must be restored before databases in order 50)
-- Use `util.MergeStringMaps()` to merge service labels with backup labels
-- Use lib-common `pvc.CreateOrPatch()` helper (handles creation and updates)
-- The CreateOrPatch pattern merges labels automatically (see lib-common pvc.go:60)
-- Labels are added at creation and preserved on updates
-
-#### MariaDB Operator PVC Labeling
-
-Similar pattern in mariadb-operator for database PVCs:
-
-```go
-import (
-    "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
-    "github.com/openstack-k8s-operators/lib-common/modules/common/pvc"
-    "github.com/openstack-k8s-operators/lib-common/modules/common/util"
-)
-
-func (r *GaleraReconciler) ensurePVC(
-    ctx context.Context,
-    h *helper.Helper,
-    instance *mariadbv1.Galera,
-) error {
-    pvcDef := &corev1.PersistentVolumeClaim{
-        ObjectMeta: metav1.ObjectMeta{
-            Name:      fmt.Sprintf("%s-db-pvc", instance.Name),
-            Namespace: instance.Namespace,
-            // Merge service labels with backup labels
-            Labels: util.MergeStringMaps(
-                map[string]string{
-                    "app": "galera",
-                },
-                backup.GetBackupLabels(backup.RestoreOrder00),
-            ),
-        },
-        Spec: corev1.PersistentVolumeClaimSpec{
-            // ... PVC spec
-        },
-    }
-
-    // Use lib-common PVC helper
-    pvcHelper := pvc.NewPvc(pvcDef, 5*time.Second)
-    ctrlResult, err := pvcHelper.CreateOrPatch(ctx, h)
-    if err != nil {
-        return err
-    }
-    if !ctrlResult.IsZero() {
-        return fmt.Errorf("PVC not ready, requeuing")
-    }
-
-    return nil
+pvcDef := &corev1.PersistentVolumeClaim{
+    ObjectMeta: metav1.ObjectMeta{
+        Name:      fmt.Sprintf("%s-pvc", instance.Name),
+        Namespace: instance.Namespace,
+        Labels: util.MergeStringMaps(
+            map[string]string{"app": "glance"},
+            backup.GetRestoreLabels(backup.RestoreOrder00, ""),
+        ),
+    },
+    // ... PVC spec
 }
 ```
 
 ### Database Password Secret Labeling
 
-MariaDB operator must label database password secrets that need to be restored.
+MariaDB operator labels database password secrets with restore order 10.
 
-#### MariaDB Operator Secret Labeling
+### Operator-Managed Resource Summary
 
-```go
-import (
-    "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
-    "github.com/openstack-k8s-operators/lib-common/modules/common/secret"
-    "github.com/openstack-k8s-operators/lib-common/modules/common/util"
-)
+| Operator | Resource Type | Restore Order | Notes |
+|----------|--------------|---------------|-------|
+| **glance-operator** | PVC | 00 | Storage for Glance images |
+| **mariadb-operator** | PVC | 00 | Database storage |
+| **mariadb-operator** | Secret (password) | 10 | Database user credentials |
 
-func (r *MariaDBAccountReconciler) ensurePasswordSecret(
-    ctx context.Context,
-    h *helper.Helper,
-    account *mariadbv1.MariaDBAccount,
-    password string,
-) error {
-    secretDef := &corev1.Secret{
-        ObjectMeta: metav1.ObjectMeta{
-            Name:      fmt.Sprintf("%s-db-password", account.Spec.UserName),
-            Namespace: account.Namespace,
-            // Merge service labels with backup labels
-            Labels: util.MergeStringMaps(
-                map[string]string{
-                    "dbName": account.Spec.UserName,
-                },
-                backup.GetBackupLabels(backup.RestoreOrder10),
-            ),
-        },
-        Data: map[string][]byte{
-            "password": []byte(password),
-        },
-    }
+## Phase 5: OADP Integration
 
-    // Use lib-common secret helper which handles CreateOrPatch
-    _, op, err := secret.CreateOrPatchSecret(ctx, h, account, secretDef)
-    if err != nil {
-        return err
-    }
-    if op != controllerutil.OperationResultNone {
-        h.GetLogger().Info(fmt.Sprintf("Secret %s - %s", secretDef.Name, op))
-    }
+### Two-Backup Approach
 
-    return nil
-}
-```
-
-**Key Points:**
-- Only label database password secrets (user credentials)
-- Don't label internal secrets (like RabbitMQ credentials - auto-generated, will be recreated)
-- Use `util.MergeStringMaps()` to merge service labels with backup labels
-- Use lib-common `secret.CreateOrPatchSecret()` helper (handles creation and updates)
-- The CreateOrPatchSecret pattern merges labels automatically (see lib-common secret.go:135)
-- Use restore order 10 (Secrets - restored before MariaDBAccount in order 20)
-- Sets controller reference automatically (ownerReferences will be added)
-
-### Operator-Managed Resource Labeling Summary
-
-| Operator | Resource Type | Restore Order | Where Labeled | Notes |
-|----------|--------------|---------------|---------------|-------|
-| **glance-operator** | PVC | 00 | Controller (ensurePVC) | Storage for Glance images |
-| **mariadb-operator** | PVC | 00 | Controller (ensurePVC) | Database storage |
-| **mariadb-operator** | Secret (password) | 10 | Controller (ensurePasswordSecret) | Database user credentials |
-
-**Pattern Consistency:**
-- All resources labeled in controllers during creation
-- Labels merged using `util.MergeStringMaps()`
-- Use lib-common helpers (pvc.CreateOrPatch, secret.CreateOrPatchSecret)
-- Labels set in ObjectMeta before calling CreateOrPatch
-- These resources HAVE ownerReferences (unlike webhook-labeled resources)
-
-**Important Notes:**
-- Resources are labeled even though they have ownerReferences
-- OADP backs them up (full namespace backup)
-- Labels ensure correct restore order
-- PVCs restored first (order 00) - required for database restore
-- Database password secrets restored second (order 10) - required for MariaDBAccount reconciliation
-
-## Phase 5: OADP Integration and Testing
-
-### OADP Resource Directory
-
-Create `oadp/` directory in this repository for test resources:
-
-```
-docs/dev/oadp/
-├── backup-openstack-controlplane.yaml
-├── restore-openstack-controlplane.yaml
-└── README.md
-```
-
-### Backup CR Example
-
-File: `oadp/backup-openstack-controlplane.yaml`
-
-```yaml
-apiVersion: velero.io/v1
-kind: Backup
-metadata:
-  name: openstack-controlplane-backup
-  namespace: openstack-oadp-operator
-spec:
-  includedNamespaces:
-  - openstack
-
-  # NO labelSelector - backup ALL resources in namespace
-  # Full backup approach: all CRs, Secrets, ConfigMaps, etc.
-  # Selective restore is done via labelSelector in Restore CRs
-
-  # Exclude pod volumes (we use CSI snapshots for PVCs)
-  defaultVolumesToFsBackup: false
-
-  # Include CSI volume snapshots for PVCs
-  snapshotVolumes: true
-
-  # Storage location
-  storageLocation: default
-
-  # Volume snapshot location (CSI)
-  volumeSnapshotLocations:
-  - default
-
-  # TTL for backup
-  ttl: 720h  # 30 days
-```
-
-**Key Points:**
-- **NO labelSelector** on Backup CR - backup everything in namespace
-- **Full backup approach**: All CRs, Secrets, ConfigMaps backed up
-- **Selective restore**: Use labelSelector in Restore CRs (not Backup)
-- `defaultVolumesToFsBackup: false` - don't use file system backup
-- `snapshotVolumes: true` - use CSI snapshots for PVCs with labels
-- Only PVCs with `openstack.org/backup: "true"` label get CSI snapshots
-
-### Restore CR Example
-
-File: `oadp/restore-openstack-controlplane.yaml`
-
-Velero requires resource modifier rules to be defined in a ConfigMap, referenced by the Restore CR
-via `spec.resourceModifier.ref`. See `docs/dev/webhook/restore/00-resource-modifiers-configmap.yaml`
-for the shared ConfigMap that strips `last-applied-configuration` and adds the `deployment-stage`
-annotation for OpenStackControlPlane.
-
-```yaml
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: openstack-controlplane-restore
-  namespace: openshift-adp
-spec:
-  backupName: openstack-controlplane-backup
-
-  # Restore to same namespace
-  includedNamespaces:
-  - openstack
-
-  # Remove last-applied-configuration and add deployment-stage annotation
-  # via ConfigMap-based resource modifiers
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-
-  # Restore PVCs from volume snapshots
-  restorePVs: true
-```
-
-**Key Points:**
-- Resource modifiers are defined in a ConfigMap (`openstack-restore-resource-modifiers`)
-- Removes last-applied-configuration to prevent size limit failures
-- Adds `deployment-stage: infrastructure-only` to OpenStackControlPlane during restore
-- restorePVs: true restores PVCs from CSI snapshots
-
-### Multi-Phase Restore Example
-
-For staged restore (different restore orders), create multiple Restore CRs. Each restore order is applied sequentially.
-
-**Two-Backup Approach:**
-
-We use two separate backups for flexibility:
+We use two separate OADP backups:
 
 1. **backup-openstack-pvcs** - Contains ONLY PVCs with `openstack.org/backup: "true"` label
-   - Filtering is done at backup time via labelSelector
-   - Restore does NOT need labelSelector (all content should be restored)
+   - Filtering done at backup time via labelSelector
+   - Uses CSI volume snapshots
 
 2. **backup-openstack-resources** - Contains everything EXCEPT PVCs
    - No filtering at backup time (backs up all resources)
    - Restore uses labelSelector to filter by `openstack.org/backup-restore-order`
 
-This approach allows restoring all resources while still using restore-order labels to control sequencing.
-
-#### Order 00: PVCs (Storage Foundation)
-
-File: `oadp/restore-order-00-pvcs.yaml`
-
-```yaml
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: restore-00-pvcs
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-pvcs
-  includedNamespaces:
-  - openstack
-
-  # No labelSelector needed - the backup already filtered to only include
-  # PVCs with openstack.org/backup=true label. Restore everything from this backup.
-
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-
-  restorePVs: true
-```
-
-**Resources Restored:** PVCs (Galera database storage, Glance images, etc.)
-
-**Note:** No labelSelector is used because the backup (openstack-backup-pvcs) already filtered to only include PVCs with `openstack.org/backup: "true"` label.
-
-#### Order 10: Secrets and ConfigMaps
-
-File: `oadp/restore-order-10-foundation.yaml`
-
-```yaml
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: restore-10-foundation
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-resources
-  includedNamespaces:
-  - openstack
-
-  # Filter by restore-order label to restore only order 10 resources
-  labelSelector:
-    matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "10"
-
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-```
-
-**Resources Restored:** User-provided Secrets, ConfigMaps, database password secrets
-
-#### Order 20: Infrastructure Base
-
-File: `oadp/restore-order-20-infrastructure.yaml`
-
-```yaml
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: restore-20-infrastructure
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-resources
-  includedNamespaces:
-  - openstack
-
-  labelSelector:
-    matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "20"
-
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-```
-
-**Resources Restored:** OpenStackVersion, MariaDBDatabase, MariaDBAccount, NetConfig, Topology, BGPConfiguration, DNSData
-
-#### Order 30: OpenStackControlPlane (Staged)
-
-File: `oadp/restore-order-30-controlplane.yaml`
-
-```yaml
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: restore-30-controlplane
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-resources
-  includedNamespaces:
-  - openstack
-
-  labelSelector:
-    matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "30"
-
-  # The ConfigMap adds deployment-stage=infrastructure-only to OpenStackControlPlane
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-```
-
-**Resources Restored:** OpenStackControlPlane (with staged deployment annotation), Reservation
-
-**Important:** The `deployment-stage: infrastructure-only` annotation is added automatically by the resource modifier ConfigMap, preventing full deployment until database is restored.
-
-#### Order 40: Backup Configuration & IP Sets
-
-File: `oadp/restore-order-40-backup-config.yaml`
-
-```yaml
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: restore-40-backup-config
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-resources
-  includedNamespaces:
-  - openstack
-
-  labelSelector:
-    matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "40"
-
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-```
-
-**Resources Restored:** GaleraBackup CRs, IPSet, user-created RabbitMQUser/RabbitMQVhost
-
-#### Order 50: Manual Database Restore
-
-**Note:** Order 50 is NOT an OADP Restore CR. This is manual database restore using scripts.
-
-```bash
-# Execute database restore from PVC backup
-./docs/dev/scripts/restore-galera-latest.sh openstackrestore openstack
-```
-
-After database restore, remove staged deployment annotation:
-
-```bash
-oc annotate openstackcontrolplane openstack core.openstack.org/deployment-stage- -n openstack
-```
-
-#### Order 60: DataPlane
-
-File: `oadp/restore-order-60-dataplane.yaml`
-
-```yaml
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: restore-60-dataplane
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-resources
-  includedNamespaces:
-  - openstack
-
-  labelSelector:
-    matchLabels:
-      openstack.org/backup-restore: "true"
-      openstack.org/backup-restore-order: "60"
-
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-```
-
-**Resources Restored:** OpenStackDataPlaneNodeSet
-
 ### Restore Order Summary
 
 | Order | Resources | Restore Method | Notes |
 |-------|-----------|----------------|-------|
-| 00 | PVCs | OADP Restore CR | Storage foundation, CSI snapshots restored |
-| 10 | Secrets, ConfigMaps, NADs | OADP Restore CR | User resources, database passwords |
-| 20 | MariaDBDatabase, MariaDBAccount, NetConfig, Topology, BGPConfiguration, DNSData | OADP Restore CR | Infrastructure base |
-| 30 | OpenStackControlPlane, Reservation | OADP Restore CR | With staged annotation |
-| 40 | GaleraBackup, IPSet, RabbitMQUser | OADP Restore CR | Backup config, IP sets |
-| 50 | Database data | **Manual script** | Restore from PVC, remove staged annotation |
-| 60 | DataPlaneNodeSet | OADP Restore CR | DataPlane resources |
+| 00 | PVCs | OADP Restore CR | Storage foundation, CSI snapshots |
+| 10 | Secrets, ConfigMaps, NADs | OADP Restore CR | User-provided resources |
+| 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase, NetConfig, Topology, BGPConfiguration, DNSData | OADP Restore CR | Infrastructure base |
+| 30 | OpenStackControlPlane, Reservation | OADP Restore CR | With `deployment-stage: infrastructure-only` annotation |
+| 40 | GaleraBackup, IPSet | OADP Restore CR | Backup config, IP sets |
+| 50 | Database + RabbitMQ restore | **Manual/Playbook** | GaleraRestore CRs, RabbitMQ credential restore, remove staged annotation |
+| 60 | DataPlaneNodeSet | OADP Restore CR | DataPlane resources (optional) |
 
-**Key Points:**
-- Each order is a separate Restore CR (except order 50 which is manual)
-- All restores use same resourceModifiers for metadata cleanup
-- Order 30 adds `deployment-stage: infrastructure-only` annotation
-- Order 50 is manual database restore + annotation removal
-- Execute restores sequentially, wait for each to complete before next
+### Restore CRs
+
+Restore CRs are in `docs/dev/webhook/restore/`. Each uses a shared resource modifier ConfigMap (`00-resource-modifiers-configmap.yaml`) that:
+- Strips `kubectl.kubernetes.io/last-applied-configuration` annotations
+- Adds `deployment-stage: infrastructure-only` annotation to OpenStackControlPlane
+
+Example restore CR for order 20:
+
+```yaml
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-20-infrastructure
+  namespace: openshift-adp
+spec:
+  backupName: openstack-backup-resources
+  includedNamespaces:
+  - openstack
+  labelSelector:
+    matchLabels:
+      openstack.org/backup-restore: "true"
+      openstack.org/backup-restore-order: "20"
+  resourceModifier:
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
+```
+
+### RabbitMQ Credential Restore (Order 50)
+
+RabbitMQ clusters generate new random credentials on creation, but EDPM nodes still use the original ones. The restore process:
+
+1. Restore all secrets from backup to a temporary namespace (`openstack-restore-tmp`) using Velero `namespaceMapping`
+2. Strip finalizers from restored secrets (via resource modifier ConfigMap)
+3. Copy `*-default-user` secrets as `*-restored-user` to the target namespace
+4. Create RabbitMQUser CRs to import the old credentials
+5. Clean up the temporary namespace
+
+See `docs/dev/webhook/restore/06b-restore-rabbitmq-secrets.yaml` for the manual procedure or the restore playbook (`docs/dev/webhook/restore/restore-openstack.yaml`) for automation.
+
+### Automated Restore Playbook
+
+The Ansible playbook at `docs/dev/webhook/restore/restore-openstack.yaml` orchestrates the full restore flow:
+
+```bash
+ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml \
+  -e pvc_backup_name=openstack-backup-pvcs \
+  -e resources_backup_name=openstack-backup-resources
+```
 
 ## Testing Checklist
 
 ### CRD Label Verification
 
-- [ ] Verify CRD labels exist:
-  ```bash
-  oc get crd -l openstack.org/backup-restore=true
-  oc get crd openstackcontrolplanes.core.openstack.org -o jsonpath='{.metadata.labels}'
-  ```
-- [ ] Verify CRD label cache builds at operator startup (check logs)
-- [ ] Verify cache contains expected GVKs (check operator startup logs)
+```bash
+# List all CRDs with backup-restore labels
+oc get crd -l openstack.org/backup-restore=true
+
+# Verify specific CRD labels
+oc get crd openstackcontrolplanes.core.openstack.org -o jsonpath='{.metadata.labels}'
+```
+
+### Controller Verification
+
+```bash
+# Create OpenStackBackupConfig
+oc apply -f - <<EOF
+apiVersion: backup.openstack.org/v1beta1
+kind: OpenStackBackupConfig
+metadata:
+  name: backup-config
+  namespace: openstack
+spec:
+  targetNamespace: openstack
+EOF
+
+# Check controller status
+oc get openstackbackupconfig backup-config -n openstack
+
+# Verify user-provided secrets are labeled
+oc get secret -l openstack.org/backup-restore=true -n openstack
+
+# Verify CR instances are labeled
+oc get openstackcontrolplane -l openstack.org/backup-restore=true -n openstack
+```
 
 ### Backup Testing
 
-- [ ] Create OpenStackControlPlane with user-provided Secrets/ConfigMaps
-- [ ] Verify OpenStackControlPlane instance has backup labels:
-  ```bash
-  oc get openstackcontrolplane openstack -o jsonpath='{.metadata.labels}' | grep backup
-  ```
-- [ ] Verify openstack-operator webhook labels user resources:
-  - User-provided Secrets labeled with `openstack.org/backup: "true"`
-  - User-provided ConfigMaps labeled
-  - Check openstack-operator webhook logs for labeling activity
-- [ ] Verify PVCs created by operators are labeled with restore order 00:
-  ```bash
-  oc get pvc -l openstack.org/restore-order=00
-  ```
-- [ ] Verify database password secrets are labeled with restore order 10:
-  ```bash
-  oc get secret -l openstack.org/restore-order=10
-  ```
-- [ ] Create NetConfig and verify infra-operator webhook labels it
-- [ ] Create GaleraBackup and verify mariadb-operator webhook labels it
-- [ ] Create OADP Backup CR (without labelSelector - full backup)
-- [ ] Verify backup completes successfully:
-  ```bash
-  oc get backup openstack-controlplane-backup -n openstack-oadp-operator -o jsonpath='{.status.phase}'
-  ```
-- [ ] Verify CSI volume snapshots are created for labeled PVCs:
-  ```bash
-  oc get volumesnapshot -n openstack
-  ```
-- [ ] Verify backup includes ALL resources in namespace (not just labeled ones)
+```bash
+# Verify backup completes
+oc get backup -n openshift-adp
+oc describe backup openstack-backup-resources -n openshift-adp
+
+# Verify CSI volume snapshots
+oc get volumesnapshot -n openstack
+```
 
 ### Restore Testing
 
-**Preparation:**
-- [ ] Delete OpenStackControlPlane and all resources from namespace
-- [ ] Verify namespace is clean (or create new namespace)
+```bash
+# Apply restore CRs in order and wait for each
+oc apply -f docs/dev/webhook/restore/01-restore-order-00-pvcs.yaml
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-pvcs -n openshift-adp --timeout=15m
 
-**Order 00: PVCs**
-- [ ] Create Restore CR: `oc apply -f oadp/restore-order-00-pvcs.yaml`
-- [ ] Wait for restore to complete:
-  ```bash
-  oc get restore restore-00-pvcs -n openstack-oadp-operator -o jsonpath='{.status.phase}'
-  ```
-- [ ] Verify PVCs are restored from volume snapshots:
-  ```bash
-  oc get pvc -n openstack
-  oc get volumesnapshotcontent
-  ```
-
-**Order 10: Secrets and ConfigMaps**
-- [ ] Create Restore CR: `oc apply -f oadp/restore-order-10-secrets.yaml`
-- [ ] Wait for restore to complete
-- [ ] Verify secrets/configmaps are restored:
-  ```bash
-  oc get secret,configmap -l openstack.org/restore-order=10
-  ```
-
-**Order 20: Infrastructure Base**
-- [ ] Create Restore CR: `oc apply -f oadp/restore-order-20-infrastructure.yaml`
-- [ ] Wait for restore to complete
-- [ ] Verify MariaDBDatabase, MariaDBAccount, NetConfig, Topology, etc. restored:
-  ```bash
-  oc get mariadbdatabase,mariadbaccount,netconfig,topology,bgpconfiguration,dnsdata
-  ```
-
-**Order 30: OpenStackControlPlane (Staged)**
-- [ ] Create Restore CR: `oc apply -f oadp/restore-order-30-controlplane.yaml`
-- [ ] Wait for restore to complete
-- [ ] Verify OpenStackControlPlane is restored:
-  ```bash
-  oc get openstackcontrolplane
-  ```
-- [ ] Verify deployment-stage annotation is added:
-  ```bash
-  oc get openstackcontrolplane openstack -o jsonpath='{.metadata.annotations}' | grep deployment-stage
-  ```
-- [ ] Verify operators reconcile but in infrastructure-only mode
-- [ ] Verify no service CRs are fully deployed (staged mode)
-
-**Order 40: Backup Configuration**
-- [ ] Create Restore CR: `oc apply -f oadp/restore-order-40-backup-config.yaml`
-- [ ] Wait for restore to complete
-- [ ] Verify GaleraBackup CRs restored:
-  ```bash
-  oc get galerabackup
-  ```
-
-**Order 50: Manual Database Restore**
-- [ ] Perform manual database restore from PVC backup:
-  ```bash
-  ./docs/dev/scripts/restore-galera-latest.sh openstackrestore openstack
-  ```
-- [ ] Verify database restore completed successfully
-- [ ] Remove deployment-stage annotation:
-  ```bash
-  oc annotate openstackcontrolplane openstack core.openstack.org/deployment-stage- -n openstack
-  ```
-- [ ] Verify full deployment starts (service CRs created)
-
-**Order 60: DataPlane**
-- [ ] Create Restore CR: `oc apply -f oadp/restore-order-60-dataplane.yaml`
-- [ ] Wait for restore to complete
-- [ ] Verify DataPlaneNodeSet restored:
-  ```bash
-  oc get openstackdataplanenodeset
-  ```
-
-**Post-Restore Verification:**
-- [ ] Verify operators reconcile and recreate child resources (service CRs)
-- [ ] Verify no orphaned resources (ownerReferences were removed)
-- [ ] Verify service deployments are created and running
-- [ ] Verify database connectivity from services
-- [ ] Verify OpenStack API endpoints are accessible
-
-### Validation
-
-- [ ] Check for ownerReferences in restored resources (should be removed)
-- [ ] Check for last-applied-configuration annotation (should be removed)
-- [ ] Verify restored resources have correct restore-order labels
-- [ ] Verify CSI volume snapshots are properly restored
-- [ ] Verify database integrity after restore
+# Continue with each order...
+# See docs/dev/webhook/restore/README.md for full procedure
+```
 
 ## Troubleshooting
 
+### Resources Not Being Labeled
+
+1. Verify OpenStackBackupConfig exists:
+   ```bash
+   oc get openstackbackupconfig -n openstack
+   ```
+2. Check controller logs:
+   ```bash
+   oc logs -n openstack-operators deployment/openstack-operator-controller-manager | grep -i backup
+   ```
+3. Check if resource has ownerReferences (controller only labels user-provided resources):
+   ```bash
+   oc get secret <name> -o jsonpath='{.metadata.ownerReferences}'
+   ```
+4. Check if resource is excluded by label or name filters
+
 ### CRD Label Cache Issues
 
-**Symptom:** Resources not being labeled by webhooks
-
-**Check:**
-- Verify CRD labels exist:
-  ```bash
-  oc get crd -l openstack.org/backup-restore=true
-  ```
-- Check operator startup logs for cache build errors:
-  ```bash
-  oc logs -n openstack-operators deployment/openstack-operator-controller-manager | grep "CRD label cache"
-  ```
-- Verify cache built successfully (should see "CRD label cache built, entries: N")
-- If cache is empty or has errors, check CRD generation:
-  ```bash
-  cd openstack-operator
-  make generate manifests
-  oc apply -f config/crd/bases/
-  ```
-
-### OpenStack-Operator Webhook Not Labeling Resources
-
-**Symptom:** OpenStackControlPlane or user resources (Secrets/ConfigMaps) not labeled
-
-**Check:**
-- Verify webhook is enabled:
-  ```bash
-  oc get mutatingwebhookconfiguration | grep openstack
-  ```
-- Check webhook pod logs:
-  ```bash
-  oc logs -n openstack-operators deployment/openstack-operator-controller-manager
-  ```
-- Verify RBAC permissions for webhook to patch Secrets/ConfigMaps
-- Verify lib-common version includes backup package
-- Check if service operator exported functions exist (e.g., `glance.LabelUserResources`)
-
-### Infra-Operator Webhook Not Labeling Resources
-
-**Symptom:** NetConfig, IPSet, Reservation not labeled
-
-**Check:**
-- Verify infra-operator webhook is running
-- Check CRD labels on infrastructure CRDs:
-  ```bash
-  oc get crd netconfigs.network.openstack.org -o jsonpath='{.metadata.labels}'
-  ```
-- Check infra-operator webhook logs
-- Verify CRD label cache built in infra-operator
-
-### MariaDB-Operator Webhook Not Labeling Resources
-
-**Symptom:** GaleraBackup CRs not labeled
-
-**Check:**
-- Verify mariadb-operator webhook is running
-- Check CRD labels on GaleraBackup CRD:
-  ```bash
-  oc get crd galerabackups.mariadb.openstack.org -o jsonpath='{.metadata.labels}'
-  ```
-- Check mariadb-operator webhook logs
-- Verify CRD label cache built in mariadb-operator
-
-### Resources Not Backed Up
-
-**Symptom:** Some resources missing from backup
-
-**Check:**
-- Verify Backup CR does NOT have labelSelector (full backup):
-  ```bash
-  oc get backup openstack-controlplane-backup -n openstack-oadp-operator -o yaml | grep labelSelector
-  ```
-  Should be empty - we backup ALL resources in namespace
-- Check OADP operator logs for errors:
-  ```bash
-  oc logs -n openstack-oadp-operator deployment/oadp-operator
-  ```
-- Verify resources are in included namespace:
-  ```bash
-  oc get all,secret,configmap,pvc,openstackcontrolplane -n openstack
-  ```
-- Check backup status for errors:
-  ```bash
-  oc describe backup openstack-controlplane-backup -n openstack-oadp-operator
-  ```
-- For PVCs specifically: Verify they have backup labels for CSI snapshots:
-  ```bash
-  oc get pvc -l openstack.org/backup=true
-  ```
-  Only labeled PVCs get CSI snapshots (selective PVC backup)
+- Verify CRD labels: `oc get crd -l openstack.org/backup-restore=true`
+- Cache is built lazily on first reconciliation; restart operator to rebuild
+- After `make generate manifests`, apply updated CRDs: `oc apply -f config/crd/bases/`
 
 ### PVC Restore Failures
 
 - Verify CSI driver supports snapshots
 - Check VolumeSnapshotClass exists
-- Check volume snapshot location configuration
-- Verify restorePVs: true in Restore CR
-
-### OwnerReferences Issues
-
-- Verify resourceModifiers are configured correctly
-- Check path uses JSON Pointer format with escaped slashes (~1)
-- Verify conditions: {} matches all resources
-- Check Restore CR logs for patch failures
+- Verify `restorePVs: true` in Restore CR
 
 ### Database Restore Issues
 
 - Verify PVCs were restored first (order 00)
-- Check PVC is mounted and contains backup data
-- Verify manual restore script executed successfully
-- Check database pod logs
+- Check GaleraRestore CR status: `oc get galerarestore -n openstack`
+- Check restore pod logs: `oc logs <backup-source>-restore-<restore-name> -n openstack`
+
+## See Also
+
+- Design document: `docs/dev/webhook/backup-restore-controller-design.md`
+- Backup CRs: `docs/dev/webhook/backup/`
+- Restore CRs: `docs/dev/webhook/restore/`
+- Restore playbook: `docs/dev/webhook/restore/restore-openstack.yaml`
+- Restore scripts: `docs/dev/scripts/restore-galera-latest.sh`
