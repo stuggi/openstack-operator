@@ -9,15 +9,14 @@ We use a two-backup strategy:
 1. **backup-openstack-pvcs.yaml** - PVCs only (with CSI snapshots, local only)
    - Filters at backup time using `labelSelector`
    - Only includes PVCs labeled with `backup.openstack.org/backup: "true"`
-   - Includes: Glance image storage PVCs, GaleraBackup PVCs
 
-1. **backup-openstack-pvcs-datamover.yaml** - PVCs with Data Mover (uploads to S3/MinIO)
+2. **backup-openstack-pvcs-datamover.yaml** - PVCs with Data Mover (uploads to S3/MinIO)
    - Same as above but with `snapshotMoveData: true`
    - Uploads CSI snapshot data to BackupStorageLocation via Kopia
    - Enables restore even after total cluster loss
    - Requires OADP DPA with `nodeAgent` enabled
 
-2. **backup-openstack-resources.yaml** - Everything except PVCs
+3. **backup-openstack-resources.yaml** - Everything except PVCs
    - Backs up all resources in the namespace
    - Excludes PVCs (backed up separately)
    - Includes: CRs, Secrets, ConfigMaps, NADs, etc.
@@ -34,6 +33,10 @@ We use a two-backup strategy:
 - Velero storage location configured (named `velero-1`)
 - CSI snapshot capability for PVC backups
 - OpenStack deployed in `openstack` namespace with backup labels applied
+- GaleraBackup CRs configured for each Galera database instance (main cell and
+  any additional cells). The CRs define cronjobs that dump databases to PVCs.
+  **Note:** When using LVM storage, specify PVC sizes with binary suffixes (e.g.,
+  `5Gi` not `5G`) to avoid size rounding issues.
 
 ## Quick Start
 
@@ -87,35 +90,16 @@ oc describe backup openstack-backup-pvcs -n openshift-adp
 
 ### backup-openstack-pvcs
 
-- Glance local PVCs (image storage)
-- GaleraBackup PVCs (database backups)
-- Any other PVCs labeled with `backup.openstack.org/backup: "true"`
+All PVCs labeled with `backup.openstack.org/backup: "true"` are backed up via
+CSI volume snapshots. Service operators set this label automatically on PVCs
+they manage (e.g., Glance image storage, GaleraBackup database dumps).
 
 ### backup-openstack-resources
 
-**Order 10 - Foundation:**
-- Secrets without ownerRefs (user-provided)
-- ConfigMaps without ownerRefs (user-provided)
-- NetworkAttachmentDefinitions without ownerRefs
-
-**Order 20 - Infrastructure:**
-- OpenStackVersion
-- OpenStackBackupConfig
-- MariaDBAccount
-- MariaDBDatabase
-- NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa
-
-**Order 30 - ControlPlane:**
-- OpenStackControlPlane
-- Reservation
-
-**Order 40 - Backup Config, IP Sets & DataPlane Services:**
-- GaleraBackup
-- IPSet
-- DataPlaneService (custom user-created services)
-
-**Order 60 - DataPlane:**
-- OpenStackDataPlaneNodeSet
+All resources in the namespace except PVCs. This includes CRs, Secrets,
+ConfigMaps, NetworkAttachmentDefinitions, and any other namespace-scoped
+resources. Restore ordering is controlled by `backup.openstack.org/restore-order`
+labels on the backed-up resources (see `docs/dev/backup-restore/restore/README.md`).
 
 ## Customization
 
@@ -153,17 +137,31 @@ spec:
 # List all backups
 oc get backup -n openshift-adp
 
-# Check backup details
+# Check backup details and status
 oc get backup openstack-backup-resources -n openshift-adp -o yaml
 oc get backup openstack-backup-pvcs -n openshift-adp -o yaml
 
-# Check what was backed up
-oc get backup openstack-backup-resources -n openshift-adp \
-  -o jsonpath='{.status.progress}' | jq
+# Verify backup phase is "Completed"
+oc get backup -n openshift-adp -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,ERRORS:.status.errors,WARNINGS:.status.warnings
 
-# List volume snapshots
+# List volume snapshots created by backup
 oc get volumesnapshot -n openstack
 oc get volumesnapshotcontent
+```
+
+### Data Mover Verification
+
+When using `snapshotMoveData: true`, verify that all PVC data was uploaded
+to the BackupStorageLocation:
+
+```bash
+# Check that DataUpload CRs completed for each PVC
+oc get datauploads -n openshift-adp -l velero.io/backup-name=openstack-backup-pvcs
+oc get datauploads -n openshift-adp -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,BYTES:.status.progress.totalBytes
+
+# All DataUploads should show Phase=Completed
+# If any show Phase=Failed, check node-agent logs:
+oc logs -n openshift-adp -l name=node-agent --tail=50
 ```
 
 ## Scheduling Backups
