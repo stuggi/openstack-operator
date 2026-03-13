@@ -145,6 +145,14 @@
                     annotations:
                       kubectl.kubernetes.io/last-applied-configuration: null
                       core.openstack.org/deployment-stage: "infrastructure-only"
+            - conditions:
+                groupResource: instancehas.instanceha.openstack.org
+                namespaces:
+                - {{ openstack_namespace }}
+              mergePatches:
+              - patchData: |
+                  spec:
+                    disabled: "True"
         CMEOF
       changed_when: true
 
@@ -674,6 +682,11 @@
           - ""
           - "ControlPlane: {{ ctlplane_name.stdout }}"
           - "Restore suffix: {{ restore_suffix }}"
+          - ""
+          - "IMPORTANT: InstanceHa was restored with spec.disabled=True."
+          - "After verifying the restored cloud is fully operational,"
+          - "re-enable InstanceHa manually:"
+          - "  oc patch instanceha <name> -n {{ openstack_namespace }} --type merge -p '{\"spec\":{\"disabled\":\"False\"}}'"
           - ""
           - "To verify:"
           - "  oc get openstackcontrolplane -n {{ openstack_namespace }}"

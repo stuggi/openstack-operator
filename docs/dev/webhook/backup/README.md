@@ -103,7 +103,7 @@ oc describe backup openstack-backup-pvcs -n openshift-adp
 - OpenStackBackupConfig
 - MariaDBAccount
 - MariaDBDatabase
-- NetConfig, Topology, BGPConfiguration, DNSData
+- NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa
 
 **Order 30 - ControlPlane:**
 - OpenStackControlPlane

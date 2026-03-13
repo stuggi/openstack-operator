@@ -175,7 +175,12 @@ oc get pods -n openstack
 oc get openstackcontrolplane -n openstack
 ```
 
-## Next Step
+## Next Steps
 
 After database restore, RabbitMQ credential restore, and annotation removal, proceed to:
-- **Order 60**: Restore DataPlane resources (if applicable)
+1. **Order 60**: Restore DataPlane resources (if applicable)
+2. **Re-enable InstanceHa**: After verifying the restored cloud is fully operational,
+   re-enable InstanceHa (it was restored with `spec.disabled: True` to prevent fencing):
+   ```bash
+   oc patch instanceha <name> -n openstack --type merge -p '{"spec":{"disabled":"False"}}'
+   ```

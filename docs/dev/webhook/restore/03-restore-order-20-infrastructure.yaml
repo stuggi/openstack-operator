@@ -1,7 +1,12 @@
 ---
 # Restore Order 20: Infrastructure CRs
-# Restores OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase
+# Restores OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase,
+# NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa
 # Must be restored before OpenStackControlPlane
+#
+# Note: InstanceHa is restored with spec.disabled=True (via resource modifier)
+# to prevent fencing EDPM nodes before they reconnect. Re-enable manually after
+# verifying EDPM connectivity.
 #
 # Prerequisite: Create the resource modifier ConfigMap first:
 #   oc apply -f 00-resource-modifiers-configmap.yaml

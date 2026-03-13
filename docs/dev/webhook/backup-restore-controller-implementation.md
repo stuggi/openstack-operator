@@ -187,9 +187,12 @@ After modifying type definitions, run `make generate manifests` to update genera
    - `backup-restore=true`, `category=dataplane`, `order=40`
    - Requires Reservation (order 30) to exist first
 
-### CRDs NOT Included
+7. **InstanceHa** (`apis/instanceha/v1beta1/instanceha_types.go`)
+   - `backup-restore=true`, `category=controlplane`, `order=20`
+   - **Restored with `spec.disabled: "True"`** via resource modifier to prevent fencing of EDPM nodes before they reconnect to the restored control plane
+   - Operator must manually re-enable (`spec.disabled: "False"`) after verifying EDPM connectivity
 
-**InstanceHa** (`apis/instanceha/v1beta1/instanceha_types.go`) is deliberately excluded from automatic backup/restore. Restoring InstanceHa CRs could trigger EDPM node fencing if nodes haven't reconnected to the control plane yet. InstanceHa ConfigMaps are restored in order 10; CRs must be manually recreated after verifying EDPM connectivity.
+### CRDs NOT Included
 
 **Service operator CRDs** (GlanceAPI, NovaAPI, KeystoneAPI, CinderAPI, NeutronAPI, etc.) do NOT have backup-restore labels. These CRs are operator-managed - after restoring OpenStackControlPlane (order 30), the openstack-operator reconciles and recreates all service CRs. This avoids version mismatches and configuration drift.
 
@@ -360,7 +363,7 @@ We use two separate OADP backups:
 |-------|-----------|----------------|-------|
 | 00 | PVCs | OADP Restore CR | Storage foundation, CSI snapshots |
 | 10 | Secrets, ConfigMaps, NADs | OADP Restore CR | User-provided resources |
-| 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase, NetConfig, Topology, BGPConfiguration, DNSData | OADP Restore CR | Infrastructure base |
+| 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase, NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa | OADP Restore CR | Infrastructure base (InstanceHa restored with `spec.disabled: True`) |
 | 30 | OpenStackControlPlane, Reservation | OADP Restore CR | With `deployment-stage: infrastructure-only` annotation |
 | 40 | GaleraBackup, IPSet | OADP Restore CR | Backup config, IP sets |
 | 50 | Database + RabbitMQ restore | **Manual/Playbook** | GaleraRestore CRs, RabbitMQ credential restore, remove staged annotation |
