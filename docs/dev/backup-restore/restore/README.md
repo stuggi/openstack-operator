@@ -90,11 +90,12 @@ ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
   -e '{"rabbitmq_clusters": ["rabbitmq", "rabbitmq-cell1", "rabbitmq-cell2"]}'
 
 # Data Mover restore with WaitForFirstConsumer storage (LVM):
-# Create the Immediate StorageClass first (see Troubleshooting section), then:
+# Pre-create dummy pods to pin PVCs to nodes (see Troubleshooting section),
+# then run the playbook with pin_pvcs=true:
 ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
   -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
   -e resources_backup_name=openstack-backup-resources-20260311-081234 \
-  -e immediate_binding_class=lvms-local-storage-immediate
+  -e pin_pvcs=true
 ```
 
 ### Manual
@@ -191,57 +192,96 @@ pods exist, this creates a deadlock.
 - [velero#8044](https://github.com/vmware-tanzu/velero/issues/8044) — Enhancement proposal
 - [velero#9343](https://github.com/vmware-tanzu/velero/issues/9343) — Topology-aware storage
 
-**Workaround:** Create a temporary StorageClass with `volumeBindingMode: Immediate`
-and use a Velero resource modifier to swap the StorageClass on restored PVCs.
-This allows PVCs to bind immediately without waiting for a consumer pod.
+**Workaround (recommended): Pre-create dummy pods to pin PVCs to nodes.**
+This approach solves the WaitForFirstConsumer deadlock AND preserves the original
+node-to-PVC mapping from the backup. Dummy pods with `nodeName` act as the "first
+consumer" and trigger PVC binding on the correct node when the restore creates the PVCs.
 
 ```bash
-# 1. Get the parameters from your existing StorageClass
-oc get storageclass lvms-local-storage -o yaml
+# 1. Download the backup metadata (small — only resource manifests, no PV data)
+velero backup download <pvc-backup-name> -o /tmp/backup.tar.gz
+mkdir -p /tmp/backup && tar xzf /tmp/backup.tar.gz -C /tmp/backup
 
-# 2. Check which topology key your nodes use
-oc get nodes -o json | jq '.items[].metadata.labels | with_entries(select(.key | contains("topolvm")))'
+# 2. Extract PVC-to-node mapping from PVs (topolvm stores node in nodeAffinity)
+for f in /tmp/backup/resources/persistentvolumes/cluster/*.json; do
+  pvc=$(jq -r '.spec.claimRef.name // empty' "$f")
+  ns=$(jq -r '.spec.claimRef.namespace // empty' "$f")
+  node=$(jq -r '
+    .spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[]
+    | select(.key | contains("topolvm")) | .values[0]
+  ' "$f" 2>/dev/null)
+  [ -n "$pvc" ] && [ -n "$node" ] && echo "${pvc}:${node}"
+done
+# Example output:
+#   glance-glance-default-single-0:master-0
+#   glance-glance-default-single-1:master-1
+#   glance-glance-default-single-2:master-2
+#   mysql-db-openstack-galera-0:master-0
+#   mysql-db-openstack-galera-1:master-1
+#   mysql-db-openstack-galera-2:master-2
 
-# 3. Create a temporary StorageClass with Immediate binding
-#    (adjust provisioner, parameters, and reclaimPolicy to match your environment)
-#    Use allowedTopologies to control which nodes get the volumes.
-cat <<EOF | oc apply -f -
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
+# 3. Create dummy pods BEFORE the PVC restore.
+#    Pods referencing non-existent PVCs stay Pending until the restore creates
+#    the PVCs, then immediately trigger binding on the target node.
+for pvc_node in \
+  "glance-glance-default-single-0:master-0" \
+  "glance-glance-default-single-1:master-1" \
+  "glance-glance-default-single-2:master-2" \
+  "mysql-db-openstack-galera-0:master-0" \
+  "mysql-db-openstack-galera-1:master-1" \
+  "mysql-db-openstack-galera-2:master-2"; do
+
+  pvc="${pvc_node%%:*}"
+  node="${pvc_node##*:}"
+
+  cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: Pod
 metadata:
-  name: lvms-local-storage-immediate
-provisioner: topolvm.io
-reclaimPolicy: Delete
-volumeBindingMode: Immediate
-allowVolumeExpansion: true
-allowedTopologies:
-- matchLabelExpressions:
-  - key: topology.topolvm.io/node
-    values:
-    - master-0
-    - master-1
-    - master-2
+  name: pvc-pin-${pvc}
+  namespace: openstack
+  labels:
+    app: pvc-pin
+spec:
+  nodeName: ${node}
+  containers:
+  - name: pause
+    image: registry.k8s.io/pause:3.9
+    volumeMounts:
+    - name: data
+      mountPath: /data
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: ${pvc}
 EOF
+done
 
-# 3. Uncomment the PVC StorageClass modifier rule in
-#    00-resource-modifiers-configmap.yaml (rule 4) and apply it,
-#    or add it to the playbook's inline ConfigMap.
-#    The rule changes storageClassName on restored PVCs to the Immediate class.
+# 4. Apply the resource modifier ConfigMap (no StorageClass swap needed)
+oc apply -f 00-resource-modifiers-configmap.yaml
 
-# 4. Run the PVC restore — PVCs will bind immediately and DataDownloads proceed
+# 5. Run the PVC restore
+#    Velero creates PVCs → dummy pods trigger WaitForFirstConsumer binding
+#    on target nodes → DataDownloads proceed
+oc apply -f 01-restore-order-00-pvcs.yaml
 
-# 5. After restore is complete, delete the temporary StorageClass
-oc delete storageclass lvms-local-storage-immediate
+# 6. Monitor progress
+oc get datadownload -n openshift-adp -w
+
+# 7. After all DataDownloads complete, delete dummy pods
+oc delete pods -n openstack -l app=pvc-pin
 ```
 
-The restored PVCs will use the Immediate StorageClass. With topolvm, this means
-volumes are provisioned on a node chosen by the provisioner (capacity-based).
-Workload pods (StatefulSets) will then be scheduled to the nodes where their
-PVCs were provisioned.
+**Alternative: Immediate StorageClass.** If you don't need to control which node
+each PVC lands on, you can create a StorageClass with `volumeBindingMode: Immediate`
+and use a Velero resource modifier to swap the StorageClass during restore.
+This is simpler but topolvm picks nodes by capacity, which may place multiple
+PVCs for the same StatefulSet on one node (breaking pod anti-affinity scheduling).
+See `00-resource-modifiers-configmap.yaml` rule 4 for the StorageClass swap rule.
 
-**Note:** This workaround is not needed when restoring from local CSI snapshots
-(without data mover). It only affects cross-cluster or disaster recovery restores
-where PVC data is downloaded from the BackupStorageLocation (S3/MinIO).
+**Note:** These workarounds are only needed when restoring from the
+BackupStorageLocation (S3/MinIO) using the Data Mover (`snapshotMoveData: true`).
+They are not needed when restoring from local CSI snapshots (without data mover).
 
 ### Database restore issues
 

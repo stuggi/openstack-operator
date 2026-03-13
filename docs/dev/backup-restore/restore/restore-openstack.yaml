@@ -33,11 +33,13 @@
 #     -e restore_dataplane=false
 #
 #   # Data Mover restore with WaitForFirstConsumer storage (LVM):
-#   # Create the Immediate StorageClass first, then:
+#   # Pre-create dummy pods to pin PVCs to nodes before restoring.
+#   # The playbook downloads backup metadata, extracts PVC-to-node mapping
+#   # from PV nodeAffinity, and creates dummy pods with nodeName.
 #   ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
 #     -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
 #     -e resources_backup_name=openstack-backup-resources-20260311-081234 \
-#     -e immediate_binding_class=lvms-local-storage-immediate
+#     -e pin_pvcs=true
 #
 # Variables:
 #   openstack_namespace: Target namespace (default: openstack)
@@ -50,9 +52,10 @@
 #   strict_restore: Fail on PartiallyFailed restores (default: true)
 #   restore_dataplane: Whether to restore dataplane (default: true)
 #   rabbitmq_clusters: List of RabbitMQ cluster names (default: [rabbitmq, rabbitmq-cell1])
-#   immediate_binding_class: StorageClass with Immediate binding for Data Mover
-#     restores with WaitForFirstConsumer storage (e.g., LVM). Set to "" to disable.
-#     (default: "" - disabled, no StorageClass swap)
+#   pin_pvcs: Create dummy pods to pin PVCs to their original nodes during
+#     Data Mover restores with WaitForFirstConsumer storage (e.g., LVM).
+#     Extracts PVC-to-node mapping from PV nodeAffinity in the backup.
+#     (default: false)
 
 - name: OpenStack Full Restore
   hosts: localhost
@@ -69,7 +72,7 @@
     rabbitmq_clusters:
     - rabbitmq
     - rabbitmq-cell1
-    immediate_binding_class: ""
+    pin_pvcs: false
 
   tasks:
     - name: Validate required parameters
@@ -164,18 +167,94 @@
               - patchData: |
                   spec:
                     disabled: "True"
-        {% if immediate_binding_class | default('') | length > 0 %}
-            - conditions:
-                groupResource: persistentvolumeclaims
-                namespaces:
-                - {{ openstack_namespace }}
-              jsonPatches:
-              - path: "/spec/storageClassName"
-                operation: replace
-                value: "{{ immediate_binding_class }}"
-        {% endif %}
         CMEOF
       changed_when: true
+
+    # ========================================
+    # Step 0.5: Pin PVCs to nodes (Data Mover + WaitForFirstConsumer only)
+    # ========================================
+    - name: "Step 0.5: Pin PVCs to original nodes"
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - "Step 0.5: Pin PVCs to Original Nodes"
+          - "========================================"
+          - "Downloading backup metadata to extract PVC-to-node mapping"
+          - "from PV nodeAffinity, then creating dummy pods with nodeName"
+      when: pin_pvcs | bool
+
+    - name: Download backup metadata
+      ansible.builtin.shell: |
+        TMPDIR=$(mktemp -d)
+        velero backup download {{ pvc_backup_name }} -o ${TMPDIR}/backup.tar.gz
+        mkdir -p ${TMPDIR}/backup
+        tar xzf ${TMPDIR}/backup.tar.gz -C ${TMPDIR}/backup
+        echo ${TMPDIR}
+      register: backup_download
+      changed_when: false
+      when: pin_pvcs | bool
+
+    - name: Extract PVC-to-node mapping from PV nodeAffinity
+      ansible.builtin.shell: |
+        BACKUP_DIR="{{ backup_download.stdout }}/backup"
+        PV_DIR="${BACKUP_DIR}/resources/persistentvolumes/cluster"
+        if [ ! -d "${PV_DIR}" ]; then
+          echo "WARNING: No PV resources found in backup" >&2
+          exit 0
+        fi
+        for f in ${PV_DIR}/*.json; do
+          pvc=$(jq -r '.spec.claimRef.name // empty' "$f")
+          ns=$(jq -r '.spec.claimRef.namespace // empty' "$f")
+          node=$(jq -r '
+            .spec.nodeAffinity.required.nodeSelectorTerms[0].matchExpressions[]
+            | select(.key | contains("topolvm")) | .values[0]
+          ' "$f" 2>/dev/null)
+          [ -n "$pvc" ] && [ -n "$node" ] && [ "$ns" = "{{ openstack_namespace }}" ] && echo "${pvc}:${node}"
+        done
+      register: pvc_node_mapping
+      changed_when: false
+      when: pin_pvcs | bool
+
+    - name: Print PVC-to-node mapping
+      ansible.builtin.debug:
+        msg: "{{ pvc_node_mapping.stdout_lines }}"
+      when: pin_pvcs | bool and pvc_node_mapping.stdout != ""
+
+    - name: Create dummy pods to pin PVCs to nodes
+      ansible.builtin.shell: |
+        PVC_NAME="{{ item.split(':')[0] }}"
+        NODE_NAME="{{ item.split(':')[1] }}"
+        cat <<EOF | oc apply -f -
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: pvc-pin-${PVC_NAME}
+          namespace: {{ openstack_namespace }}
+          labels:
+            app: pvc-pin
+        spec:
+          nodeName: ${NODE_NAME}
+          containers:
+          - name: pause
+            image: registry.k8s.io/pause:3.9
+            volumeMounts:
+            - name: data
+              mountPath: /data
+          volumes:
+          - name: data
+            persistentVolumeClaim:
+              claimName: ${PVC_NAME}
+        EOF
+        echo "Created pvc-pin-${PVC_NAME} on ${NODE_NAME}"
+      loop: "{{ pvc_node_mapping.stdout_lines }}"
+      changed_when: true
+      when: pin_pvcs | bool and pvc_node_mapping.stdout != ""
+
+    - name: Clean up downloaded backup metadata
+      ansible.builtin.file:
+        path: "{{ backup_download.stdout }}"
+        state: absent
+      when: pin_pvcs | bool
 
     # ========================================
     # Step 1: Restore PVCs (Order 00)
@@ -212,6 +291,12 @@
       vars:
         restore_name: "openstack-restore-00-pvcs-{{ restore_suffix }}"
         step_name: "Step 1 (PVC restore)"
+
+    - name: Delete dummy pods after PVC restore
+      ansible.builtin.shell: |
+        oc delete pods -n {{ openstack_namespace }} -l app=pvc-pin --ignore-not-found=true
+      changed_when: true
+      when: pin_pvcs | bool
 
     # ========================================
     # Step 2: Restore Foundation (Order 10)
