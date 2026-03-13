@@ -114,11 +114,7 @@ type ResourceCounts struct {
 // +kubebuilder:metadata:labels=openstack.org/backup-restore-order=20
 
 // OpenStackBackupConfig is the Schema for the openstackbackupconfigs API.
-// It configures automatic backup labeling for user-provided resources (without ownerReferences)
-//
-// TODO(backup-restore): This is iteration 1 - a controller-based approach for labeling resources.
-// Review whether this approach is sufficient or if webhook-based labeling is needed.
-// See docs/dev/webhook/backup-restore-webhook-design.md for alternative webhook design.
+// It configures automatic backup labeling for user-provided resources (without ownerReferences).
 type OpenStackBackupConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

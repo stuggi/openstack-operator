@@ -574,6 +574,6 @@ Instead of full serialization each time, track resource changes:
 
 ## References
 
-- [POC Implementation Guide](backup-restore-webhook-implementation.md)
+- [POC Implementation Guide](backup-restore-controller-implementation.md)
 - [OADP Integration Documentation](../oadp-integration.md)
 - [OpenStackBackupConfig Documentation](../api/backup-config.md)

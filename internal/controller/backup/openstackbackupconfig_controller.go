@@ -326,11 +326,7 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 // +kubebuilder:rbac:groups=topology.openstack.org,resources=*,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=watcher.openstack.org,resources=*,verbs=get;list;watch;update;patch
 
-// Reconcile labels user-provided resources (without ownerReferences) for backup/restore
-//
-// TODO(backup-restore): This is iteration 1 - controller-based labeling approach.
-// Review whether this is sufficient or if webhook-based labeling is needed.
-// See docs/dev/webhook/backup-restore-webhook-design.md for alternative design.
+// Reconcile labels user-provided resources (without ownerReferences) for backup/restore.
 func (r *OpenStackBackupConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, _err error) {
 	log := ctrl.LoggerFrom(ctx)
 

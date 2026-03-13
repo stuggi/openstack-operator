@@ -187,5 +187,5 @@ spec:
 ## See Also
 
 - Restore CRs: `docs/dev/webhook/restore/`
-- Implementation guide: `docs/dev/webhook/backup-restore-webhook-implementation.md`
-- Design document: `docs/dev/webhook/backup-restore-webhook-design.md`
+- Implementation guide: `docs/dev/webhook/backup-restore-controller-implementation.md`
+- Design document: `docs/dev/webhook/backup-restore-controller-design.md`

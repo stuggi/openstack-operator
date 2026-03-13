@@ -147,5 +147,5 @@ oc logs <backup-source>-restore-<restore-name> -n openstack
 ## See Also
 
 - Backup CRs: `docs/dev/webhook/backup/`
-- Implementation guide: `docs/dev/webhook/backup-restore-webhook-implementation.md`
+- Implementation guide: `docs/dev/webhook/backup-restore-controller-implementation.md`
 - Restore scripts: `docs/dev/scripts/restore-galera-latest.sh`

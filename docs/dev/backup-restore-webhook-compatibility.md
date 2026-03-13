@@ -1,13 +1,13 @@
 # Webhook Design Compatibility Analysis
 
-This document analyzes the [webhook-based backup/restore design](backup-restore-webhook-design.md) against the existing backup/restore procedures to identify compatibility issues and discussion topics.
+This document analyzes the [webhook-based backup/restore design](backup-restore-controller-design.md) against the existing backup/restore procedures to identify compatibility issues and discussion topics.
 
 ## Document References
 
 - [backup-restore-ctlplane.md](backup-restore-ctlplane.md) - Current control plane backup/restore
 - [backup-restore-dataplane.md](backup-restore-dataplane.md) - Current data plane backup/restore
 - [backup-restore-storage-volumes.md](backup-restore-storage-volumes.md) - Current OADP storage backup/restore
-- [backup-restore-webhook-design.md](backup-restore-webhook-design.md) - Proposed webhook approach
+- [backup-restore-controller-design.md](backup-restore-controller-design.md) - Proposed webhook approach
 
 ---
 
@@ -44,7 +44,7 @@ metadata:
 
 **Webhook Design:**
 ```yaml
-# backup-restore-webhook-design.md
+# backup-restore-controller-design.md
 metadata:
   labels:
     openstack.org/backup-restore: "true"
@@ -308,7 +308,7 @@ if pvc.Annotations["openstack.org/backup"] == "true" {
 
 **Webhook Design:**
 ```yaml
-# backup-restore-webhook-design.md - All in order "5"
+# backup-restore-controller-design.md - All in order "5"
 NetConfig:         order: 5
 IPSet:             order: 5
 Reservation:       order: 5
