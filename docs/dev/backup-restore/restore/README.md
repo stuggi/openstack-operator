@@ -18,6 +18,7 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 | `06b-restore-rabbitmq-secrets.yaml` | - | Secrets (to temp ns) | Restore secrets to `openstack-restore-tmp`, copy `*-default-user` as `*-restored-user`, create RabbitMQUser CRs |
 | *(Step 9 in playbook)* | - | **Manual** | Remove deployment-stage annotation, wait for control plane ready |
 | `07-restore-order-60-dataplane.yaml` | 60 | OpenStackDataPlaneNodeSet | DataPlane resources (optional) |
+| *(Post-restore)* | - | **Manual** | Run EDPM deployment to resync credentials (required if credentials were rotated between backup and restore) |
 | *(Final step)* | - | **Manual** | Re-enable InstanceHa (`spec.disabled: False`) after verifying the restored cloud is operational |
 
 ## Prerequisites
