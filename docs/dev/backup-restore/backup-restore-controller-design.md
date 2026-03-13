@@ -1046,7 +1046,7 @@ oc get backup -n openshift-adp -w
 **Example Manual Restore:**
 ```bash
 # Step 0: Create the resource modifier ConfigMap (required for all restores)
-oc apply -f docs/dev/webhook/restore/00-resource-modifiers-configmap.yaml
+oc apply -f docs/dev/backup-restore/restore/00-resource-modifiers-configmap.yaml
 
 # Order 00: PVCs (Storage Foundation)
 cat <<EOF | oc apply -f -

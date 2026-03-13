@@ -42,7 +42,7 @@ We use a two-backup strategy:
 Use the backup playbook to orchestrate the full backup flow:
 
 ```bash
-ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml
+ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml
 ```
 
 The playbook runs three steps:
@@ -54,13 +54,13 @@ PVC backup labels are set automatically by service operators (glance-operator, m
 
 Override defaults with extra vars:
 ```bash
-ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml \
+ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml \
   -e openstack_namespace=openstack \
   -e storage_location=velero-1 \
   -e backup_ttl=168h
 
 # With Data Mover (upload snapshots to S3/MinIO):
-ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml \
+ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml \
   -e snapshot_move_data=true
 ```
 
@@ -186,6 +186,6 @@ spec:
 
 ## See Also
 
-- Restore CRs: `docs/dev/webhook/restore/`
-- Implementation guide: `docs/dev/webhook/backup-restore-controller-implementation.md`
-- Design document: `docs/dev/webhook/backup-restore-controller-design.md`
+- Restore CRs: `docs/dev/backup-restore/restore/`
+- Implementation guide: `docs/dev/backup-restore/backup-restore-controller-implementation.md`
+- Design document: `docs/dev/backup-restore/backup-restore-controller-design.md`

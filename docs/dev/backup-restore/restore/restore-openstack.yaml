@@ -22,12 +22,12 @@
 # - Target namespace is clean (run cleanup first if needed)
 #
 # Usage:
-#   ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml \
+#   ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
 #     -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
 #     -e resources_backup_name=openstack-backup-resources-20260311-081234
 #
 #   # Skip dataplane restore:
-#   ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml \
+#   ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
 #     -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
 #     -e resources_backup_name=openstack-backup-resources-20260311-081234 \
 #     -e restore_dataplane=false

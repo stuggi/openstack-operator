@@ -482,7 +482,7 @@ spec:
   # Add staged deployment annotation via ConfigMap-based resource modifiers
   # The ConfigMap adds core.openstack.org/deployment-stage=infrastructure-only
   # to OpenStackControlPlane during restore
-  # See: docs/dev/webhook/restore/00-resource-modifiers-configmap.yaml
+  # See: docs/dev/backup-restore/restore/00-resource-modifiers-configmap.yaml
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers

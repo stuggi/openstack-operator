@@ -16,9 +16,9 @@
 # - PVC sizes use binary units (Gi, not G) - see OSPRH-27441
 #
 # Usage:
-#   ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml
+#   ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml
 #   # With Data Mover (upload snapshots to S3/MinIO):
-#   ansible-playbook docs/dev/webhook/backup/backup-openstack.yaml -e snapshot_move_data=true
+#   ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml -e snapshot_move_data=true
 #
 # Variables:
 #   openstack_namespace: Target namespace (default: openstack)
@@ -232,4 +232,4 @@
           - "To verify:"
           - "  oc get backup -n {{ oadp_namespace }} | grep {{ backup_name_suffix }}"
           - ""
-          - "To restore, see: docs/dev/webhook/restore/README.md"
+          - "To restore, see: docs/dev/backup-restore/restore/README.md"

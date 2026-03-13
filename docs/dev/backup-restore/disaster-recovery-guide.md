@@ -1799,7 +1799,7 @@ spec:
 
   # Remove last-applied-configuration and add deployment-stage annotation
   # via ConfigMap-based resource modifiers
-  # See: docs/dev/webhook/restore/00-resource-modifiers-configmap.yaml
+  # See: docs/dev/backup-restore/restore/00-resource-modifiers-configmap.yaml
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers

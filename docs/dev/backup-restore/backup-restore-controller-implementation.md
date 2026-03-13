@@ -371,7 +371,7 @@ We use two separate OADP backups:
 
 ### Restore CRs
 
-Restore CRs are in `docs/dev/webhook/restore/`. Each uses a shared resource modifier ConfigMap (`00-resource-modifiers-configmap.yaml`) that:
+Restore CRs are in `docs/dev/backup-restore/restore/`. Each uses a shared resource modifier ConfigMap (`00-resource-modifiers-configmap.yaml`) that:
 - Strips `kubectl.kubernetes.io/last-applied-configuration` annotations
 - Adds `deployment-stage: infrastructure-only` annotation to OpenStackControlPlane
 
@@ -406,14 +406,14 @@ RabbitMQ clusters generate new random credentials on creation, but EDPM nodes st
 4. Create RabbitMQUser CRs to import the old credentials
 5. Clean up the temporary namespace
 
-See `docs/dev/webhook/restore/06b-restore-rabbitmq-secrets.yaml` for the manual procedure or the restore playbook (`docs/dev/webhook/restore/restore-openstack.yaml`) for automation.
+See `docs/dev/backup-restore/restore/06b-restore-rabbitmq-secrets.yaml` for the manual procedure or the restore playbook (`docs/dev/backup-restore/restore/restore-openstack.yaml`) for automation.
 
 ### Automated Restore Playbook
 
-The Ansible playbook at `docs/dev/webhook/restore/restore-openstack.yaml` orchestrates the full restore flow:
+The Ansible playbook at `docs/dev/backup-restore/restore/restore-openstack.yaml` orchestrates the full restore flow:
 
 ```bash
-ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml \
+ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
   -e pvc_backup_name=openstack-backup-pvcs \
   -e resources_backup_name=openstack-backup-resources
 ```
@@ -469,11 +469,11 @@ oc get volumesnapshot -n openstack
 
 ```bash
 # Apply restore CRs in order and wait for each
-oc apply -f docs/dev/webhook/restore/01-restore-order-00-pvcs.yaml
+oc apply -f docs/dev/backup-restore/restore/01-restore-order-00-pvcs.yaml
 oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-pvcs -n openshift-adp --timeout=15m
 
 # Continue with each order...
-# See docs/dev/webhook/restore/README.md for full procedure
+# See docs/dev/backup-restore/restore/README.md for full procedure
 ```
 
 ## Troubleshooting
@@ -514,8 +514,8 @@ oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-
 
 ## See Also
 
-- Design document: `docs/dev/webhook/backup-restore-controller-design.md`
-- Backup CRs: `docs/dev/webhook/backup/`
-- Restore CRs: `docs/dev/webhook/restore/`
-- Restore playbook: `docs/dev/webhook/restore/restore-openstack.yaml`
+- Design document: `docs/dev/backup-restore/backup-restore-controller-design.md`
+- Backup CRs: `docs/dev/backup-restore/backup/`
+- Restore CRs: `docs/dev/backup-restore/restore/`
+- Restore playbook: `docs/dev/backup-restore/restore/restore-openstack.yaml`
 - Restore scripts: `docs/dev/scripts/restore-galera-latest.sh`

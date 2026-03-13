@@ -24,7 +24,7 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 
 - OADP operator installed and configured
 - Velero storage location and volume snapshot location configured
-- Backups exist (created with `docs/dev/webhook/backup/backup-*.yaml`)
+- Backups exist (created with `docs/dev/backup-restore/backup/backup-*.yaml`)
 - Target namespace exists (or will be created during restore)
 
 ## Quick Start
@@ -34,7 +34,7 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 Use the restore playbook to orchestrate the full restore flow:
 
 ```bash
-ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml
+ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml
 ```
 
 The playbook runs all restore steps in order, including:
@@ -48,13 +48,13 @@ The playbook runs all restore steps in order, including:
 
 Override defaults with extra vars:
 ```bash
-ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml \
+ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
   -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
   -e resources_backup_name=openstack-backup-resources-20260311-081234 \
   -e restore_dataplane=false
 
 # With additional RabbitMQ clusters:
-ansible-playbook docs/dev/webhook/restore/restore-openstack.yaml \
+ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
   -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
   -e resources_backup_name=openstack-backup-resources-20260311-081234 \
   -e '{"rabbitmq_clusters": ["rabbitmq", "rabbitmq-cell1", "rabbitmq-cell2"]}'
@@ -147,6 +147,6 @@ oc logs <backup-source>-restore-<restore-name> -n openstack
 
 ## See Also
 
-- Backup CRs: `docs/dev/webhook/backup/`
-- Implementation guide: `docs/dev/webhook/backup-restore-controller-implementation.md`
+- Backup CRs: `docs/dev/backup-restore/backup/`
+- Implementation guide: `docs/dev/backup-restore/backup-restore-controller-implementation.md`
 - Restore scripts: `docs/dev/scripts/restore-galera-latest.sh`
