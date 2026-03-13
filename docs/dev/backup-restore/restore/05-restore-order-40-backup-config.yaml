@@ -1,7 +1,9 @@
 ---
-# Restore Order 40: Backup Configuration
-# Restores GaleraBackup and other backup-related configuration CRs
+# Restore Order 40: Backup Configuration, IP Sets & DataPlane Services
+# Restores GaleraBackup, IPSet, and DataPlaneService CRs
 # Must be restored after OpenStackControlPlane (order 30)
+# DataPlaneService: Custom user-created services are restored here;
+# default services are recreated by the NodeSet controller
 #
 # Prerequisite: Create the resource modifier ConfigMap first:
 #   oc apply -f 00-resource-modifiers-configmap.yaml

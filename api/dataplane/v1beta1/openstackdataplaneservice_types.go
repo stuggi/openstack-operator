@@ -130,6 +130,9 @@ type OpenStackDataPlaneServiceStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:shortName=osdps;osdpservice;osdpservices
 // +operator-sdk:csv:customresourcedefinitions:displayName="OpenStack Data Plane Service"
+// +kubebuilder:metadata:labels=openstack.org/backup-restore=true
+// +kubebuilder:metadata:labels=openstack.org/backup-category=dataplane
+// +kubebuilder:metadata:labels=openstack.org/backup-restore-order=40
 
 // OpenStackDataPlaneService defines the Schema for the openstackdataplaneservices API.
 // OpenStackDataPlaneService name must be a valid RFC1123 as it is used in labels

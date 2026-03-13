@@ -109,9 +109,10 @@ oc describe backup openstack-backup-pvcs -n openshift-adp
 - OpenStackControlPlane
 - Reservation
 
-**Order 40 - Backup Config & IP Sets:**
+**Order 40 - Backup Config, IP Sets & DataPlane Services:**
 - GaleraBackup
 - IPSet
+- DataPlaneService (custom user-created services)
 
 **Order 60 - DataPlane:**
 - OpenStackDataPlaneNodeSet

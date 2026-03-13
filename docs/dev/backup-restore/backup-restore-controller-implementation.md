@@ -90,7 +90,7 @@ const (
     RestoreOrder10 = "10" // Foundation - NADs, Secrets, ConfigMaps
     RestoreOrder20 = "20" // Infrastructure - Issuers, MariaDB, NetConfig, Topology, BGPConfiguration, DNSData, OpenStackVersion, OpenStackBackupConfig
     RestoreOrder30 = "30" // CtlPlane + networking - OpenStackControlPlane, Reservation
-    RestoreOrder40 = "40" // Backup config & IP sets - GaleraBackup, IPSet
+    RestoreOrder40 = "40" // Backup config, IP sets, DataPlane services - GaleraBackup, IPSet, DataPlaneService
     RestoreOrder50 = "50" // Manual steps - database/RabbitMQ restore, resume deployment
     RestoreOrder60 = "60" // DataPlane - DataPlaneNodeSet
 )
@@ -153,6 +153,10 @@ After modifying type definitions, run `make generate manifests` to update genera
 
 4. **OpenStackBackupConfig** (`api/backup/v1beta1/openstackbackupconfig_types.go`)
    - `backup-restore=true`, `category=controlplane`, `order=20`
+
+5. **OpenStackDataPlaneService** (`api/dataplane/v1beta1/openstackdataplaneservice_types.go`)
+   - `backup-restore=true`, `category=dataplane`, `order=40`
+   - Custom user-created services; default services are recreated by NodeSet controller
 
 ### MariaDB Operator CRDs
 
@@ -365,7 +369,7 @@ We use two separate OADP backups:
 | 10 | Secrets, ConfigMaps, NADs | OADP Restore CR | User-provided resources |
 | 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase, NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa | OADP Restore CR | Infrastructure base (InstanceHa restored with `spec.disabled: True`) |
 | 30 | OpenStackControlPlane, Reservation | OADP Restore CR | With `deployment-stage: infrastructure-only` annotation |
-| 40 | GaleraBackup, IPSet | OADP Restore CR | Backup config, IP sets |
+| 40 | GaleraBackup, IPSet, DataPlaneService | OADP Restore CR | Backup config, IP sets, custom DataPlane services |
 | 50 | Database + RabbitMQ restore | **Manual/Playbook** | GaleraRestore CRs, RabbitMQ credential restore, remove staged annotation |
 | 60 | DataPlaneNodeSet | OADP Restore CR | DataPlane resources (optional) |
 
