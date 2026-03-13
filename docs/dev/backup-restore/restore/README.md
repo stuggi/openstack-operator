@@ -24,9 +24,38 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 ## Prerequisites
 
 - OADP operator installed and configured
-- Velero storage location and volume snapshot location configured
-- Backups exist (created with `docs/dev/backup-restore/backup/backup-*.yaml`)
+- Velero BackupStorageLocation (BSL) configured and pointing to the same
+  object storage (S3/MinIO) used during backup
+- VolumeSnapshotLocation configured (for CSI snapshot restores)
 - Target namespace exists (or will be created during restore)
+
+### Discovering Backups
+
+When using the Data Mover (`snapshotMoveData: true`), backup metadata and PVC
+data are stored in the BackupStorageLocation (S3/MinIO). This enables restore
+even on a completely new cluster — Velero automatically syncs and discovers
+existing backups from the object storage.
+
+On a new cluster (or after deleting local Velero backup objects):
+
+```bash
+# 1. Verify BSL is available and syncing
+oc get backupstoragelocation -n openshift-adp
+
+# 2. Wait for Velero to sync (default: every 1 minute)
+#    Backups will appear automatically
+oc get backup -n openshift-adp
+
+# 3. Find the backup names to use for restore
+oc get backup -n openshift-adp -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,CREATED:.metadata.creationTimestamp
+```
+
+Pass the discovered backup names to the restore playbook:
+```bash
+ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
+  -e pvc_backup_name=openstack-backup-pvcs-20260313-122645 \
+  -e resources_backup_name=openstack-backup-resources-20260313-122645
+```
 
 ## Quick Start
 
