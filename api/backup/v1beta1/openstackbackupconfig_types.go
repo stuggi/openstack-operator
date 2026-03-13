@@ -109,9 +109,9 @@ type ResourceCounts struct {
 // +kubebuilder:printcolumn:name="Secrets",type="integer",JSONPath=".status.labeledResources.secrets",description="Labeled Secrets"
 // +kubebuilder:printcolumn:name="ConfigMaps",type="integer",JSONPath=".status.labeledResources.configMaps",description="Labeled ConfigMaps"
 // +kubebuilder:printcolumn:name="NADs",type="integer",JSONPath=".status.labeledResources.networkAttachmentDefinitions",description="Labeled NADs"
-// +kubebuilder:metadata:labels=openstack.org/backup-restore=true
-// +kubebuilder:metadata:labels=openstack.org/backup-category=controlplane
-// +kubebuilder:metadata:labels=openstack.org/backup-restore-order=20
+// +kubebuilder:metadata:labels=backup.openstack.org/restore=true
+// +kubebuilder:metadata:labels=backup.openstack.org/category=controlplane
+// +kubebuilder:metadata:labels=backup.openstack.org/restore-order=20
 
 // OpenStackBackupConfig is the Schema for the openstackbackupconfigs API.
 // It configures automatic backup labeling for user-provided resources (without ownerReferences).

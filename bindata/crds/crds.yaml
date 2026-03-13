@@ -4,9 +4,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
   labels:
-    openstack.org/backup-category: controlplane
-    openstack.org/backup-restore: "true"
-    openstack.org/backup-restore-order: "20"
+    backup.openstack.org/category: controlplane
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/restore-order: "20"
   name: openstackbackupconfigs.backup.openstack.org
 spec:
   group: backup.openstack.org
@@ -37,10 +37,7 @@ spec:
       openAPIV3Schema:
         description: |-
           OpenStackBackupConfig is the Schema for the openstackbackupconfigs API.
-          It configures automatic backup labeling for user-provided resources (without ownerReferences)
-
-          Review whether this approach is sufficient or if webhook-based labeling is needed.
-          See docs/dev/webhook/backup-restore-webhook-design.md for alternative webhook design.
+          It configures automatic backup labeling for user-provided resources (without ownerReferences).
         properties:
           apiVersion:
             description: |-
@@ -522,9 +519,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
   labels:
-    openstack.org/backup-category: controlplane
-    openstack.org/backup-restore: "true"
-    openstack.org/backup-restore-order: "30"
+    backup.openstack.org/category: controlplane
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/restore-order: "30"
   name: openstackcontrolplanes.core.openstack.org
 spec:
   group: core.openstack.org
@@ -19183,9 +19180,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
   labels:
-    openstack.org/backup-category: dataplane
-    openstack.org/backup-restore: "true"
-    openstack.org/backup-restore-order: "60"
+    backup.openstack.org/category: dataplane
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/restore-order: "60"
   name: openstackdataplanenodesets.dataplane.openstack.org
 spec:
   group: dataplane.openstack.org
@@ -21182,6 +21179,10 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
+  labels:
+    backup.openstack.org/category: dataplane
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/restore-order: "40"
   name: openstackdataplaneservices.dataplane.openstack.org
 spec:
   group: dataplane.openstack.org
@@ -21480,9 +21481,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
   labels:
-    openstack.org/backup-category: controlplane
-    openstack.org/backup-restore: "true"
-    openstack.org/backup-restore-order: "20"
+    backup.openstack.org/category: controlplane
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/restore-order: "20"
   name: openstackversions.core.openstack.org
 spec:
   group: core.openstack.org

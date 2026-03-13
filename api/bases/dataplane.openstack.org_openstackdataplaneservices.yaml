@@ -5,9 +5,9 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.18.0
   labels:
-    openstack.org/backup-category: dataplane
-    openstack.org/backup-restore: "true"
-    openstack.org/backup-restore-order: "40"
+    backup.openstack.org/category: dataplane
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/restore-order: "40"
   name: openstackdataplaneservices.dataplane.openstack.org
 spec:
   group: dataplane.openstack.org

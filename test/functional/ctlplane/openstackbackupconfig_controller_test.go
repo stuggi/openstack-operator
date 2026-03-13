@@ -93,8 +93,8 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 			}
 
 			// The controller should look up the OpenStackControlPlane CRD
-			// (which has openstack.org/backup-restore: "true" and
-			// openstack.org/backup-restore-order: "30") and apply
+			// (which has backup.openstack.org/restore: "true" and
+			// backup.openstack.org/restore-order: "30") and apply
 			// backup labels to the CR instance.
 			Eventually(func(g Gomega) {
 				controlPlane := &corev1.OpenStackControlPlane{}

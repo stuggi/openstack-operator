@@ -94,9 +94,9 @@ type OpenStackDataPlaneNodeSetSpec struct {
 // +kubebuilder:resource:shortName=osdpns;osdpnodeset;osdpnodesets
 // +kubebuilder:printcolumn:name="Status",type="string",JSONPath=".status.conditions[0].status",description="Status"
 // +kubebuilder:printcolumn:name="Message",type="string",JSONPath=".status.conditions[0].message",description="Message"
-// +kubebuilder:metadata:labels=openstack.org/backup-restore=true
-// +kubebuilder:metadata:labels=openstack.org/backup-category=dataplane
-// +kubebuilder:metadata:labels=openstack.org/backup-restore-order=60
+// +kubebuilder:metadata:labels=backup.openstack.org/restore=true
+// +kubebuilder:metadata:labels=backup.openstack.org/category=dataplane
+// +kubebuilder:metadata:labels=backup.openstack.org/restore-order=60
 
 // OpenStackDataPlaneNodeSet is the Schema for the openstackdataplanenodesets API
 // OpenStackDataPlaneNodeSet name must be a valid RFC1123 as it is used in labels
