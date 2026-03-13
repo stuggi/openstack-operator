@@ -1,21 +1,22 @@
-# Backup and Restore with Webhook-Based Labeling
+# Backup and Restore Design
 
 ## Overview
 
-This document describes a webhook-based approach to backup and restore for OpenStack on OpenShift. The design eliminates hardcoded resource lists by using CRD labels to declare backup/restore behavior, and mutating webhooks to automatically label resources.
+This document describes the design for backup and restore of OpenStack on OpenShift. The approach eliminates hardcoded resource lists by using CRD labels to declare backup/restore behavior, and a controller (OpenStackBackupConfig) to automatically label resource instances.
+
+> **Note:** An earlier version of this design proposed using mutating admission webhooks to label resources at creation time. After evaluation, the controller-based approach was chosen instead. See [Controller vs Webhook Approach](#controller-vs-webhook-approach) for the rationale.
 
 ## Goals
 
 1. **Full Backup, Selective Restore** (for CRs, Secrets, ConfigMaps):
    - Backup: All user resources (Secrets, ConfigMaps, CRs) - complete snapshot
-   - Restore: Only webhook-labeled resources - automatic filtering
+   - Restore: Only labeled resources - automatic filtering via label selectors
    - **Exception - PVCs**: Selective backup AND selective restore (only labeled PVCs backed up/restored due to storage/performance concerns)
 2. **Dynamic Resource Discovery**: No hardcoded lists - CRD labels declare what needs restore
 3. **Declarative Restore Order**: Restore order defined in CRD labels, not in code
 4. **Operator-Managed Exclusion**: Operators recreate their own resources (not restored from backup)
-5. **Kubernetes-Native**: Leverage OADP label selectors for filtering
-6. **No Controller Required (Initially)**: Can be used manually with OADP Restore CRs
-7. **Optional Automation**: Golang controller for full automation (future enhancement)
+5. **Kubernetes-Native**: Leverage label selectors for filtering
+6. **Controller-Based Labeling**: OpenStackBackupConfig controller labels CR instances based on CRD labels
 
 ## Key Concepts
 
@@ -39,8 +40,8 @@ metadata:
 
 - `openstack.org/backup-restore`: Whether instances of this CRD should be restored
   - **Default if missing**: `"false"` (explicit opt-in required - only restore what's needed)
-  - `"true"`: Include in restore (webhook adds restore labels to instances)
-  - `"false"`: Exclude from restore (webhook does NOT add restore labels)
+  - `"true"`: Include in restore (controller adds restore labels to instances)
+  - `"false"`: Exclude from restore (controller does NOT add restore labels)
 
 - `openstack.org/backup-category`: Category for selective backup/restore
   - `"controlplane"`: Control plane resources (OpenStackControlPlane, MariaDB, services, user-provided Secrets/ConfigMaps, PVCs)
@@ -88,196 +89,58 @@ metadata:
     openstack.org/backup-restore-order: "30"
 ```
 
-### Mutating Webhooks
+### Controller-Based Labeling (OpenStackBackupConfig)
 
-Reuse the existing webhook pattern where openstack-operator already calls `ValidateCreate` and `ValidateUpdate` functions from service operators.
+The OpenStackBackupConfig controller handles resource labeling centrally from the openstack-operator. It discovers CRDs with backup-restore labels and patches matching labels onto CR instances.
 
-**Architecture:**
+**How it works:**
 
-1. **OpenStack Operator Webhooks** (existing pattern):
-   - Existing webhooks in `api/core/v1beta1/openstackcontrolplane_webhook.go`
-   - Already calls `ValidateCreate` from service operators (e.g., `keystone.ValidateCreate`)
-   - Add backup labeling logic to these existing validation functions
-   - Works on both Create and Update (handles existing environments)
-
-2. **Infrastructure Operator Webhook** (independent):
-   - Runs its own separate mutating webhook
-   - Handles infrastructure resources (NetConfig, IPSet, RabbitMQUser, etc.)
-   - Independent from openstack-operator webhook
-
-**Example: Adding Backup Labeling to Existing Webhooks**
-
-In `keystone-operator/api/v1beta1/keystoneapi_webhook.go`:
-
-```go
-func (r *KeystoneAPI) ValidateCreate() error {
-    // Existing validation logic...
-
-    // NEW: Add restore labels to user-provided resources
-    if err := r.labelUserProvidedResourcesForRestore(); err != nil {
-        return err
-    }
-
-    return nil
-}
-
-func (r *KeystoneAPI) labelUserProvidedResourcesForRestore() error {
-    ctx := context.Background()
-
-    // Label Secret if user-provided (no ownerReferences)
-    if r.Spec.Secret != "" {
-        if err := labelResourceForRestoreIfUserProvided(ctx, r.Namespace, "Secret", r.Spec.Secret); err != nil {
-            return err
-        }
-    }
-
-    // Label CustomConfigSecret if user-provided
-    if r.Spec.HttpdCustomization != nil && r.Spec.HttpdCustomization.CustomConfigSecret != "" {
-        if err := labelResourceForRestoreIfUserProvided(ctx, r.Namespace, "Secret",
-            r.Spec.HttpdCustomization.CustomConfigSecret); err != nil {
-            return err
-        }
-    }
-
-    // Label referenced ConfigMaps in ExtraMounts if user-provided
-    for _, mount := range r.Spec.ExtraMounts {
-        for _, vol := range mount.Propagation {
-            if vol.ConfigMap != nil {
-                if err := labelResourceForRestoreIfUserProvided(ctx, r.Namespace, "ConfigMap",
-                    vol.ConfigMap.Name); err != nil {
-                    return err
-                }
-            }
-        }
-    }
-
-    return nil
-}
-```
-
-**Generic Helper Function (in lib-common):**
-
-```go
-// labelResourceForRestoreIfUserProvided adds restore labels to resource if it has no ownerReferences
-func labelResourceForRestoreIfUserProvided(ctx context.Context, namespace, kind, name string) error {
-    // Get the resource
-    var obj client.Object
-    switch kind {
-    case "Secret":
-        obj = &corev1.Secret{}
-    case "ConfigMap":
-        obj = &corev1.ConfigMap{}
-    default:
-        return fmt.Errorf("unsupported resource kind: %s", kind)
-    }
-
-    key := client.ObjectKey{Namespace: namespace, Name: name}
-    if err := k8sClient.Get(ctx, key, obj); err != nil {
-        if errors.IsNotFound(err) {
-            // Resource doesn't exist yet, skip labeling
-            return nil
-        }
-        return err
-    }
-
-    // Check if resource has ownerReferences
-    if len(obj.GetOwnerReferences()) > 0 {
-        // Resource is managed by controller, skip labeling
-        return nil
-    }
-
-    // Add restore labels (user-provided resource)
-    labels := obj.GetLabels()
-    if labels == nil {
-        labels = make(map[string]string)
-    }
-
-    // Only add if not already labeled
-    if labels["openstack.org/backup-restore"] == "true" {
-        return nil
-    }
-
-    labels["openstack.org/backup-restore"] = "true"
-
-    // Set category if not already set (allows user override)
-    if labels["openstack.org/backup-category"] == "" {
-        labels["openstack.org/backup-category"] = "controlplane"
-    }
-
-    // Set default restore order if not already set (allows user override)
-    if labels["openstack.org/backup-restore-order"] == "" {
-        // Default restore order by resource type
-        // Users can pre-label resources to customize order
-        switch kind {
-        case "Secret", "ConfigMap":
-            labels["openstack.org/backup-restore-order"] = "10"
-        default:
-            labels["openstack.org/backup-restore-order"] = "10"
-        }
-    }
-
-    obj.SetLabels(labels)
-
-    // Update the resource
-    return k8sClient.Update(ctx, obj)
-}
-```
+1. **CRD Label Cache**: Built once at operator startup, maps CRD names to their backup labels
+2. **CR Instance Labeling**: Controller lists CR instances for each labeled CRD and patches backup labels onto them
+3. **User Resource Labeling**: Secrets, ConfigMaps, and NADs without ownerReferences are labeled for restore
+4. **PVC Labeling**: Service operators (glance-operator, mariadb-operator) label their PVCs directly
 
 **Key Points:**
 
-1. **Reuse Existing Pattern**: No new webhook infrastructure needed
-2. **Service Operator Knowledge**: Each service operator knows what resources it references
-3. **Generic Helper**: Common logic to check ownerReferences and add labels
-4. **Works on Create and Update**: Handles both new and existing deployments
-5. **User-Provided Detection**: Webhook labels resources without ownerReferences
-6. **Operator-Created Resources**: Operators directly label resources they create (even with ownerReferences)
+1. **Centralized**: Single controller in openstack-operator handles all API groups
+2. **Retroactive**: Labels resources that existed before the controller was deployed
+3. **Safe**: Controller failure doesn't block resource creation
+4. **Dynamic Discovery**: Uses CRD label cache — adding labels to a new CRD type automatically includes its instances
+5. **User-Provided Detection**: Only labels Secrets/ConfigMaps/NADs without ownerReferences (user-provided)
 
-### Two Labeling Approaches
+### Controller vs Webhook Approach
+
+An earlier version of this design proposed using mutating admission webhooks to label resources at creation time. The controller-based approach was chosen instead for these reasons:
+
+| Aspect | Controller (chosen) | Webhook (considered) |
+|--------|--------------------|--------------------|
+| **Complexity** | Single controller, centralized | Webhook per operator, distributed |
+| **Infrastructure** | No extra TLS/service/webhook config | Requires webhook TLS certs, services, configs per operator |
+| **Retroactive labeling** | Yes — labels existing resources | No — only fires on create/update; needs controller fallback anyway |
+| **Failure impact** | Labels delayed, resource creation not blocked | Webhook failure blocks all resource creation |
+| **Testing** | Simple envtests | Requires webhook server in tests |
+| **Race condition** | Brief window before labeling | Atomic at creation time |
+
+The theoretical race condition (resource created but not yet labeled when a backup runs) is not a practical concern: OpenStack deployments take minutes to hours to complete, and backups are scheduled operations. The controller labels resources within seconds of creation — long before any backup would run.
+
+### Two Labeling Mechanisms
 
 Resources get labeled for restore through two complementary mechanisms:
 
-#### 1. Webhook Labels User-Provided Resources (No ownerReferences)
+#### 1. Controller Labels CR Instances and User-Provided Resources
 
-The webhook labels user-provided resources that have no ownerReferences:
-- User-provided Secrets (SSH keys, CA certs, passwords)
-- User-provided ConfigMaps (custom configurations)
-- User-created RabbitMQUser/RabbitMQVhost
-- User-created DataPlaneService
-
-**Logic:**
-```go
-// Generic helper in lib-common
-func labelResourceForRestoreIfUserProvided(ctx context.Context, namespace, kind, name string) error {
-    // Get resource
-    obj := getResource(ctx, namespace, kind, name)
-
-    // Check if resource has ownerReferences
-    if len(obj.GetOwnerReferences()) > 0 {
-        // Resource is managed by controller, skip labeling
-        return nil
-    }
-
-    // User-provided resource - add restore labels
-    labels := obj.GetLabels()
-    if labels == nil {
-        labels = make(map[string]string)
-    }
-
-    labels["openstack.org/backup-restore"] = "true"
-    labels["openstack.org/backup-category"] = "controlplane"
-    labels["openstack.org/backup-restore-order"] = "10"  // Default for Secrets/ConfigMaps
-    obj.SetLabels(labels)
-
-    return k8sClient.Update(ctx, obj)
-}
-```
+The OpenStackBackupConfig controller labels:
+- **CR instances**: Based on CRD labels (e.g., OpenStackControlPlane, NetConfig, MariaDBDatabase)
+- **User-provided Secrets**: Without ownerReferences (SSH keys, CA certs, passwords)
+- **User-provided ConfigMaps**: Without ownerReferences (custom configurations)
+- **NetworkAttachmentDefinitions**: Without ownerReferences
 
 #### 2. Operators Directly Label Resources They Create
 
 Operators add restore labels when creating resources, even if those resources have ownerReferences:
 - Issuers (cert-manager) - both operator-managed and custom
-- PVCs (with annotation override support)
-- NetworkAttachmentDefinitions (if created by operators)
+- PVCs (glance-operator, mariadb-operator)
+- Database password secrets (mariadb-operator)
 
 **Why:** Some resources need restore even though they have ownerReferences:
 - **Issuers**: Custom Issuers (external CAs) must be preserved; operator-managed Issuers (rootca-*) are harmlessly reconciled
@@ -384,7 +247,7 @@ func getBackupLabels(annotations map[string]string) map[string]string {
 ```
 
 **Summary:**
-- **Webhook**: Labels user-provided resources (no ownerReferences)
+- **Controller**: Labels CR instances and user-provided resources (no ownerReferences)
 - **Operators**: Label resources they create (can have ownerReferences)
 - **Result**: All necessary resources get labeled for restore, regardless of ownership
 
@@ -428,7 +291,7 @@ spec:
 **Why backup ALL CRs/Secrets/ConfigMaps?**
 - Ensures complete snapshot (nothing missed)
 - Simple backup logic (no label selector on OADP Backup CR)
-- Restore is selective via webhook labels (see below - only resources with `backup-restore: "true"` labels are restored)
+- Restore is selective via labels (see below - only resources with `backup-restore: "true"` labels are restored)
 - Examples of backed up but not restored: DataPlaneDeployment, operator-managed Secrets/ConfigMaps
 
 **Note on PVC Backup:**
@@ -479,19 +342,19 @@ spec:
 
 #### Selective Restore (By Order)
 
-Multiple OADP Restore CRs, one per restore order, using labels added by webhooks.
+Multiple Restore CRs, one per restore order, using labels added by the controller.
 
 **Restore Strategy:**
 - ✅ **Only resources with** `openstack.org/backup-restore: "true"` **label**
-- ✅ **Webhooks add labels to user-provided resources** (no ownerReferences)
+- ✅ **Controller labels user-provided resources** (no ownerReferences) and CR instances
 - ❌ **Operator-managed resources excluded** (no labels, will be recreated by operators)
 
 This means:
-- User-provided Secrets → Labeled by webhook → Restored ✅
+- User-provided Secrets → Labeled by controller → Restored ✅
 - Operator-created Secrets → Not labeled → Not restored, recreated by operator ✅
-- User-provided ConfigMaps → Labeled by webhook → Restored ✅
+- User-provided ConfigMaps → Labeled by controller → Restored ✅
 - Operator-created ConfigMaps → Not labeled → Not restored, recreated by operator ✅
-- All CRs with annotations → Labeled by webhook → Restored ✅
+- CR instances (with CRD labels) → Labeled by controller → Restored ✅
 
 #### OwnerReference and Annotation Handling
 
@@ -615,14 +478,14 @@ spec:
 - **Metadata Cleanup**: All restore orders use `resourceModifiers` to remove:
   - `ownerReferences` - Prevents orphaned resources (operators adopt during reconciliation)
   - `kubectl.kubernetes.io/last-applied-configuration` - Can be too large and cause restore failures
-- **Webhooks**: Add restore labels to user-provided resources (no ownerReferences)
+- **Controller**: Adds restore labels to CR instances and user-provided resources (no ownerReferences)
 - **Operators**: Recreate their own Secrets/ConfigMaps on reconciliation (not restored from backup)
 
 ## Customizing Restore Order for Core Resources
 
 ### Manual Labeling (Available Immediately)
 
-Users can pre-label Secrets, ConfigMaps, PVCs, and cert-manager resources to customize their restore order. The webhook respects existing labels and won't overwrite them.
+Users can pre-label Secrets, ConfigMaps, PVCs, and cert-manager resources to customize their restore order. The controller respects existing labels and won't overwrite them.
 
 **Example: CA secret restored in order 10, service secret in order 50**
 
@@ -644,13 +507,13 @@ oc label secret nova-cell1-config \
 
 **How it works:**
 1. User creates and labels resource with desired restore order
-2. Webhook checks if resource already has `openstack.org/backup-restore: "true"`
-3. If yes, webhook skips labeling (preserves user's custom order)
-4. If no, webhook applies default labels
+2. Controller checks if resource already has `openstack.org/backup-restore: "true"`
+3. If yes, controller skips labeling (preserves user's custom order)
+4. If no, controller applies default labels
 
 ### Annotation-Based Overrides (Alternative to Manual Labels)
 
-Instead of pre-labeling resources, users can override restore order using **annotations**. Operators/webhooks read annotations and apply corresponding labels.
+Instead of pre-labeling resources, users can override restore order using **annotations**. The controller reads annotations and applies corresponding labels.
 
 **Advantages:**
 - Annotations show what's been customized (visible override)
@@ -677,7 +540,7 @@ stringData:
     ...
 EOF
 
-# Webhook/operator reads annotation and applies label
+# Controller/operator reads annotation and applies label
 # Result:
 # labels:
 #   openstack.org/backup-restore: "true"
@@ -772,7 +635,7 @@ spec:
 - Can be backed up and restored along with other CRs
 
 **Implementation approach:**
-1. Webhook reads OpenStackBackupConfig CR to get default orders
+1. Controller reads OpenStackBackupConfig CR to get default orders
 2. Applies configured defaults instead of hardcoded values
 3. Still respects existing labels (manual overrides take precedence)
 4. Fallback to hardcoded defaults if no config CR exists
@@ -807,7 +670,7 @@ The restore sequence is critical for maintaining dependencies between resources.
 This section shows the labels that should be added to each CRD definition.
 
 **Column definitions:**
-- **Restore**: `openstack.org/backup-restore` label value (true = webhook labels instances for restore, defaults to false if missing)
+- **Restore**: `openstack.org/backup-restore` label value (true = controller labels instances for restore, defaults to false if missing)
 - **Category**: `openstack.org/backup-category` label value
 - **Order**: `openstack.org/backup-restore-order` label value
 
@@ -926,7 +789,7 @@ labelSelector:
 
 ### Kubernetes Core Resources
 
-**Note:** These are not OpenStack CRDs, so they don't have CRD annotations. Instead, webhooks/operators add labels directly to resource instances.
+**Note:** These are not OpenStack CRDs, so they don't have CRD annotations. Instead, the controller/operators add labels directly to resource instances.
 
 | Resource | Restore | Category | Order | Notes |
 |----------|---------|----------|-------|-------|
@@ -936,7 +799,7 @@ labelSelector:
 | Issuer (cert-manager) | all | controlplane | 20 | All backed up; operator adds labels to all for restore |
 | PersistentVolumeClaim** | labeled-only | controlplane | 00 | **Storage Foundation**: Only labeled PVCs backed up and restored (exception to full backup)<br>Restored FIRST so backup data is available for database restore |
 
-*All Secrets/ConfigMaps included in full namespace backup; webhook only labels user-provided ones (no ownerReferences) for restore
+*All Secrets/ConfigMaps included in full namespace backup; controller only labels user-provided ones (no ownerReferences) for restore
 **PVCs use dual-label approach and selective backup (see PVC Labeling Strategy below)
 
 ### PVC Labeling Strategy
@@ -1026,7 +889,7 @@ metadata:
 **Who Sets These Labels:**
 
 - Service operators add `openstack.org/backup: "true"` when creating PVCs that need backup
-- Webhook (or operator) adds `openstack.org/backup-restore: "true"` + order to PVCs that should restore
+- Controller (or operator) adds `openstack.org/backup-restore: "true"` + order to PVCs that should restore
 - Manual override via `backup.velero.io/backup-volumes: "false"` annotation when needed
 
 ## Backup Categories
@@ -1090,16 +953,15 @@ Use cases:
 
 ## Implementation Phases
 
-### Phase 1: Webhook & CRD Annotations (No Controller)
+### Phase 1: Controller & CRD Annotations
 
 **Goal**: Automatic labeling of resources for restore
 
 **Changes:**
 1. Add CRD annotations to all operator CRDs
-2. Implement mutating webhook in openstack-operator (reuse ValidateCreate pattern)
+2. Implement OpenStackBackupConfig controller in openstack-operator
 3. Implement generic helper function in lib-common (respects existing labels)
-4. Deploy webhook configuration
-5. Test that resources get labeled on creation
+4. Test that resources get labeled on reconciliation
 
 **Backward Compatibility**: Existing Ansible backup/restore continues to work
 
@@ -1107,18 +969,18 @@ Use cases:
 - Automatic labeling of user-provided resources (no ownerReferences)
 - Respects existing labels (allows manual customization)
 - Default restore order based on resource type
-- Works on both Create and Update (handles existing environments)
+- Periodic reconciliation handles existing environments and new resources
 
 **Testing:**
 ```bash
 # Test 1: Automatic labeling with defaults
 oc create secret generic test-secret --from-literal=foo=bar -n openstack
 
-# Verify default labels were added
+# Verify labels were added after controller reconciliation
 oc get secret test-secret -n openstack -o jsonpath='{.metadata.labels}'
 # Should show: openstack.org/backup-restore: "true", openstack.org/backup-restore-order: "10"
 
-# Test 2: Manual override (pre-label before webhook runs)
+# Test 2: Manual override (pre-label before controller runs)
 oc create secret generic custom-secret \
   --from-literal=foo=bar \
   -n openstack \
@@ -1427,14 +1289,14 @@ status:
 
 ### Compared to Current Ansible Approach
 
-| Aspect | Current (Ansible) | Proposed (Webhook + OADP) |
-|--------|------------------|---------------------------|
+| Aspect | Current (Ansible) | Proposed (Controller + OADP) |
+|--------|------------------|-------------------------------|
 | Resource Discovery | Hardcoded `jq` filters | Dynamic via CRD annotations |
 | Backup Mechanism | `oc get` + jq + OADP (for PVCs) | Single OADP Backup CR |
 | Restore Order | Hardcoded in playbook | Declared in CRD annotations |
 | Adding New CRD | Update Ansible playbook | Add CRD annotation only |
 | Manual Restore | Run full playbook | Create OADP Restore CRs |
-| Automation | Ansible playbook | Optional Golang controller |
+| Automation | Ansible playbook | Golang controller |
 | Kubernetes-Native | Partial (mixes oc + OADP) | Full (pure OADP) |
 
 ### Key Improvements
@@ -1452,35 +1314,22 @@ status:
    - Run in parallel?
    - Deterministic sub-ordering (e.g., alphabetically by CRD name)?
 
-2. **Webhook Performance**: Mutating webhook adds latency to CREATE operations
-   - Is this acceptable?
-   - Can we optimize for specific resource types?
-
-3. **Database Restore Automation**: Should controller exec into pods or require manual intervention?
+2. **Database Restore Automation**: Should controller exec into pods or require manual intervention?
    - Automated mode: Controller execs into pods
    - Manual mode: User runs commands
 
-4. **Webhook Scope**: Should webhook run in openstack-operator or separate deployment?
-   - openstack-operator: Simpler deployment (reuse existing webhooks)
-   - Separate: Cleaner separation of concerns
-
-5. **OpenStackBackupConfig Scope**: Should the config CR be namespace-scoped or cluster-scoped?
+3. **OpenStackBackupConfig Scope**: Should the config CR be namespace-scoped or cluster-scoped?
    - Namespace-scoped: Different configs per OpenStack deployment
    - Cluster-scoped: Single config for all OpenStack deployments
 
-6. **Default vs Custom Order Precedence**: How should the order precedence work?
+4. **Default vs Custom Order Precedence**: How should the order precedence work?
    - Current proposal: Manual labels > OpenStackBackupConfig > Hardcoded defaults
    - Alternative: OpenStackBackupConfig > Manual labels > Hardcoded defaults
 
-7. **Webhook Update Logic**: Should webhook update resources on every reconcile?
-   - Only on Create: Simpler, but doesn't handle label removal
-   - On Create and Update: Handles label changes, but more update operations
-   - Current proposal: On Create and Update (ValidateCreate + ValidateUpdate)
-
 ## Next Steps
 
-1. Sketch detailed implementation for Phase 1 (webhook)
+1. Sketch detailed implementation for Phase 1 (controller)
 2. Define exact CRD annotation schema
-3. Implement webhook in openstack-operator
+3. Implement controller in openstack-operator
 4. Test with sample resources
 5. Document migration path from current Ansible approach
