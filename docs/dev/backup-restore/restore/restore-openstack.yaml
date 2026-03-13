@@ -298,6 +298,22 @@
       changed_when: true
       when: pin_pvcs | bool
 
+    - name: Show PVC status after restore
+      ansible.builtin.shell: |
+        oc get pvc -n {{ openstack_namespace }}
+      register: pvc_status
+      changed_when: false
+
+    - name: Print PVC status
+      ansible.builtin.debug:
+        msg: "{{ pvc_status.stdout_lines }}"
+
+    - name: Pause after PVC restore for verification
+      ansible.builtin.pause:
+        prompt: >-
+          PVC restore complete. Verify PVCs are Bound above.
+          Press Enter to continue with resource restores, or Ctrl+C then 'A' to abort
+
     # ========================================
     # Step 2: Restore Foundation (Order 10)
     # ========================================
@@ -493,6 +509,12 @@
           - "Infrastructure is ready"
           - "ControlPlane: {{ ctlplane_name.stdout }}"
           - "Galera pod phases: {{ galera_pod_phases.stdout }}"
+
+    - name: Pause after infrastructure ready for verification
+      ansible.builtin.pause:
+        prompt: >-
+          Infrastructure is ready (Galera, OVN, RabbitMQ, Memcached).
+          Press Enter to continue with database restore, or Ctrl+C then 'A' to abort
 
     # ========================================
     # Step 7: Database Restore
