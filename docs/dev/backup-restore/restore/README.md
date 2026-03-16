@@ -153,8 +153,14 @@ oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-30-
 oc apply -f 05-restore-order-40-backup-config.yaml
 oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-40-backup-config -n openshift-adp --timeout=5m
 
-# 6. Manual database restore
-# See 06-manual-database-restore.md for detailed steps
+# 6. Manual database restore — REQUIRED
+#    Follow the full procedure in 06-manual-database-restore.md:
+#    - Create GaleraRestore CRs
+#    - Wait for restore pods
+#    - Execute restore_galera inside each pod
+#    - Restore RabbitMQ credentials
+#    - Remove deployment-stage annotation
+#    - Wait for services to start
 
 # 7. DataPlane (if applicable)
 oc apply -f 07-restore-order-60-dataplane.yaml

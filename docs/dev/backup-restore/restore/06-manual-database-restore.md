@@ -52,49 +52,88 @@ EOF
 
 ### 3. Wait for restore pods to be ready
 
-The mariadb-operator will create restore pods:
+The mariadb-operator will create restore pods. The pod name follows the
+pattern `<backupSource>-restore-<restoreName>`:
 
 ```bash
 oc get pods -n openstack | grep restore
+# Expected pods:
+#   openstack-restore-openstackrestore        (main cell)
+#   openstack-cell1-restore-openstackrestorecell1  (cell1, if multi-cell)
 ```
 
-Wait for pods to be in `Running` state.
-
-### 4. Execute the database restore
-
-Use the helper script to restore from the backup. Pass the backup timestamp
-(the same one used during backup and for the OADP restore):
+Wait for pods to be in `Running` state:
 
 ```bash
-# Main cell
-docs/dev/scripts/restore-galera.sh openstackrestore <BACKUP_TIMESTAMP> openstack
+oc wait --for=jsonpath='{.status.phase}'=Running \
+  pod/openstack-restore-openstackrestore -n openstack --timeout=5m
 
-# Cell1 (if multi-cell)
-docs/dev/scripts/restore-galera.sh openstackrestorecell1 <BACKUP_TIMESTAMP> openstack
-
-# Example with timestamp:
-# docs/dev/scripts/restore-galera.sh openstackrestore 20260311-081234 openstack
+# Cell1 (if multi-cell):
+oc wait --for=jsonpath='{.status.phase}'=Running \
+  pod/openstack-cell1-restore-openstackrestorecell1 -n openstack --timeout=5m
 ```
 
-The script will:
-- Find the backup files matching the specified timestamp
-- Execute the restore_galera script
-- Delete the GaleraRestore CR after successful restore
+### 4. Verify backup files exist
 
-### 5. Verify database restore
+List the backup dump files matching your backup timestamp on the restore pod.
+Replace `<BACKUP_TIMESTAMP>` with the timestamp used during backup
+(e.g., `20260311-081234`):
+
+```bash
+BACKUP_TIMESTAMP=<BACKUP_TIMESTAMP>
+
+# Main cell
+oc exec -n openstack openstack-restore-openstackrestore -- \
+  ls -1 /backup/data/*_${BACKUP_TIMESTAMP}.sql.gz
+
+# Cell1 (if multi-cell)
+oc exec -n openstack openstack-cell1-restore-openstackrestorecell1 -- \
+  ls -1 /backup/data/*_${BACKUP_TIMESTAMP}.sql.gz
+```
+
+You should see two files per cell: a database dump and a grants file.
+
+### 5. Execute the database restore
+
+Run the `restore_galera` script inside each restore pod. The `--yes` flag
+skips the confirmation prompt:
+
+```bash
+BACKUP_TIMESTAMP=<BACKUP_TIMESTAMP>
+
+# Main cell
+oc exec -n openstack openstack-restore-openstackrestore -- \
+  /var/lib/backup-scripts/restore_galera --yes "/backup/data/*_${BACKUP_TIMESTAMP}.sql.gz"
+
+# Cell1 (if multi-cell)
+oc exec -n openstack openstack-cell1-restore-openstackrestorecell1 -- \
+  /var/lib/backup-scripts/restore_galera --yes "/backup/data/*_${BACKUP_TIMESTAMP}.sql.gz"
+```
+
+### 6. Verify database restore
 
 ```bash
 # Check databases are restored
 oc exec -it galera-0 -n openstack -- mysql -e "SHOW DATABASES;"
 ```
 
-### 6. Restore RabbitMQ user credentials
+### 7. Clean up GaleraRestore CRs
+
+Delete the GaleraRestore CRs to terminate the restore pods:
+
+```bash
+oc delete galerarestore openstackrestore -n openstack
+# Cell1 (if multi-cell):
+oc delete galerarestore openstackrestorecell1 -n openstack
+```
+
+### 8. Restore RabbitMQ user credentials
 
 The new RabbitMQ clusters have random credentials. Restore the original
 `*-default-user` secrets from the backup to recover the old credentials,
 then create RabbitMQUser CRs to re-establish them.
 
-#### 6a. Restore secrets to a temporary namespace
+#### 8a. Restore secrets to a temporary namespace
 
 ```bash
 # Create temp namespace
@@ -107,7 +146,7 @@ oc wait --for=jsonpath='{.status.phase}'=Completed \
   restore/openstack-restore-rabbitmq-secrets -n openshift-adp --timeout=5m
 ```
 
-#### 6b. Copy old credentials to target namespace
+#### 8b. Copy old credentials to target namespace
 
 ```bash
 # For each RabbitMQ cluster (adjust cluster names for your deployment)
@@ -125,7 +164,7 @@ for CLUSTER in rabbitmq rabbitmq-cell1; do
 done
 ```
 
-#### 6c. Create RabbitMQUser CRs
+#### 8c. Create RabbitMQUser CRs
 
 ```bash
 for CLUSTER in rabbitmq rabbitmq-cell1; do
@@ -156,13 +195,13 @@ EOF
 done
 ```
 
-#### 6d. Clean up temp namespace
+#### 8d. Clean up temp namespace
 
 ```bash
 oc delete namespace openstack-restore-tmp
 ```
 
-### 7. Remove deployment-stage annotation
+### 9. Remove deployment-stage annotation
 
 Resume full OpenStack deployment by removing the annotation:
 
@@ -172,7 +211,7 @@ oc annotate openstackcontrolplane <name> -n openstack core.openstack.org/deploym
 
 Replace `<name>` with your OpenStackControlPlane CR name.
 
-### 8. Wait for OpenStack services to start
+### 10. Wait for OpenStack services to start
 
 ```bash
 oc get pods -n openstack
