@@ -78,8 +78,10 @@ BACKUP_TS=$(date +%Y%m%d-%H%M%S)
 #    so DB dump filenames match the backup name.
 for CRONJOB in $(oc get cronjob -n openstack -l app=galera -o jsonpath='{.items[*].metadata.name}'); do
   JOB_NAME="${CRONJOB}-${BACKUP_TS}"
-  oc -n openstack create job --from=cronjob/${CRONJOB} ${JOB_NAME}
-  oc -n openstack set env job/${JOB_NAME} BACKUP_TIMESTAMP=${BACKUP_TS}
+  oc -n openstack create job --from=cronjob/${CRONJOB} ${JOB_NAME} \
+    --dry-run=client -o json | \
+    jq '.spec.template.spec.containers[0].env += [{"name":"BACKUP_TIMESTAMP","value":"'${BACKUP_TS}'"}]' | \
+    oc -n openstack create -f -
 done
 
 # Wait for all backup jobs to complete

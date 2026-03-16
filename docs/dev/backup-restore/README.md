@@ -38,8 +38,9 @@ ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
 1. **OpenShift CLI (`oc`) installed** — version compatible with your cluster
 2. **Cluster access** — cluster admin or namespace admin for the `openstack` namespace
 3. **Ansible** — for running backup/restore playbooks
-4. **OADP operator** installed and configured (see [`oadp/README.md`](oadp/README.md) and [`minio/README.md`](minio/README.md))
-5. **CSI Volume Snapshot support** — required for PVC backup/restore
+4. **`jq`** — for JSON manipulation during Galera backup job creation
+5. **OADP operator** installed and configured (see [`oadp/README.md`](oadp/README.md) and [`minio/README.md`](minio/README.md))
+6. **CSI Volume Snapshot support** — required for PVC backup/restore
 
 ### CSI Volume Snapshot Support
 
