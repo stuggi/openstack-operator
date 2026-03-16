@@ -14,9 +14,9 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 | `03-restore-order-20-infrastructure.yaml` | 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase, NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa | Infrastructure base (**InstanceHa restored with `spec.disabled: True`**) |
 | `04-restore-order-30-controlplane.yaml` | 30 | OpenStackControlPlane, Reservation | **Adds `deployment-stage: infrastructure-only` annotation** |
 | `05-restore-order-40-backup-config.yaml` | 40 | GaleraBackup, IPSet, DataPlaneService | Backup config, IP sets, custom DataPlane services |
-| `06-manual-database-restore.md` | 50 | **Manual** | Create GaleraRestore CRs, run restore script |
-| `06b-restore-rabbitmq-secrets.yaml` | - | Secrets (to temp ns) | Restore secrets to `openstack-restore-tmp`, copy `*-default-user` as `*-restored-user`, create RabbitMQUser CRs |
-| *(Step 9 in playbook)* | - | **Manual** | Remove deployment-stage annotation, wait for control plane ready |
+| `06-manual-database-restore.md` | 50 | **Manual** | Create GaleraRestore CRs, restore databases, remove deployment-stage annotation |
+| `06b-restore-rabbitmq-secrets.yaml` | - | Secrets (to temp ns) | OADP Restore CR used by `06c-manual-rabbitmq-restore.md` |
+| `06c-manual-rabbitmq-restore.md` | 55 | **Manual** | Restore RabbitMQ `*-default-user` secrets, create RabbitMQUser CRs |
 | `07-restore-order-60-dataplane.yaml` | 60 | OpenStackDataPlaneNodeSet | DataPlane resources (optional) |
 | *(Post-restore)* | - | **Manual** | Run EDPM deployment to resync credentials (required if credentials were rotated between backup and restore) |
 | *(Final step)* | - | **Manual** | Re-enable InstanceHa (`spec.disabled: False`) after verifying the restored cloud is operational |
@@ -154,13 +154,15 @@ oc apply -f 05-restore-order-40-backup-config.yaml
 oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-40-backup-config -n openshift-adp --timeout=5m
 
 # 6. Manual database restore — REQUIRED
-#    Follow the full procedure in 06-manual-database-restore.md:
-#    - Create GaleraRestore CRs
-#    - Wait for restore pods
+#    Follow the procedure in 06-manual-database-restore.md:
+#    - Create GaleraRestore CRs, wait for restore pods
 #    - Execute restore_galera inside each pod
-#    - Restore RabbitMQ credentials
-#    - Remove deployment-stage annotation
-#    - Wait for services to start
+#    - Remove deployment-stage annotation, wait for services
+
+# 6.5 Manual RabbitMQ credential restore — REQUIRED
+#     Follow the procedure in 06c-manual-rabbitmq-restore.md:
+#     - Restore *-default-user secrets from backup
+#     - Create RabbitMQUser CRs
 
 # 7. DataPlane (if applicable)
 oc apply -f 07-restore-order-60-dataplane.yaml

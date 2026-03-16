@@ -127,81 +127,7 @@ oc delete galerarestore openstackrestore -n openstack
 oc delete galerarestore openstackrestorecell1 -n openstack
 ```
 
-### 8. Restore RabbitMQ user credentials
-
-The new RabbitMQ clusters have random credentials. Restore the original
-`*-default-user` secrets from the backup to recover the old credentials,
-then create RabbitMQUser CRs to re-establish them.
-
-#### 8a. Restore secrets to a temporary namespace
-
-```bash
-# Create temp namespace
-oc create namespace openstack-restore-tmp
-
-# Restore all secrets from backup to temp namespace
-# Edit backupName in 06b-restore-rabbitmq-secrets.yaml first, then:
-oc apply -f 06b-restore-rabbitmq-secrets.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed \
-  restore/openstack-restore-rabbitmq-secrets -n openshift-adp --timeout=5m
-```
-
-#### 8b. Copy old credentials to target namespace
-
-```bash
-# For each RabbitMQ cluster (adjust cluster names for your deployment)
-for CLUSTER in rabbitmq rabbitmq-cell1; do
-  if ! oc get secret "${CLUSTER}-default-user" -n openstack-restore-tmp &>/dev/null; then
-    echo "Secret ${CLUSTER}-default-user not found in temp namespace - skipping"
-    continue
-  fi
-
-  TMPDIR=$(mktemp -d)
-  oc extract secret/${CLUSTER}-default-user -n openstack-restore-tmp --to=${TMPDIR} --confirm
-  oc create secret generic ${CLUSTER}-restored-user -n openstack --from-file=${TMPDIR}
-  rm -rf ${TMPDIR}
-  echo "Created ${CLUSTER}-restored-user in openstack"
-done
-```
-
-#### 8c. Create RabbitMQUser CRs
-
-```bash
-for CLUSTER in rabbitmq rabbitmq-cell1; do
-  RESTORED_SECRET="${CLUSTER}-restored-user"
-
-  if ! oc get secret "${RESTORED_SECRET}" -n openstack &>/dev/null; then
-    echo "Secret ${RESTORED_SECRET} not found - skipping"
-    continue
-  fi
-
-  cat <<EOF | oc apply -f -
-  apiVersion: rabbitmq.openstack.org/v1beta1
-  kind: RabbitMQUser
-  metadata:
-    name: ${CLUSTER}-restored-user
-    namespace: openstack
-  spec:
-    rabbitmqClusterName: ${CLUSTER}
-    secret: ${RESTORED_SECRET}
-    tags:
-      - administrator
-    permissions:
-      configure: ".*"
-      read: ".*"
-      write: ".*"
-EOF
-  echo "Created RabbitMQUser CR for ${CLUSTER}"
-done
-```
-
-#### 8d. Clean up temp namespace
-
-```bash
-oc delete namespace openstack-restore-tmp
-```
-
-### 9. Remove deployment-stage annotation
+### 8. Remove deployment-stage annotation
 
 Resume full OpenStack deployment by removing the annotation:
 
@@ -211,7 +137,7 @@ oc annotate openstackcontrolplane <name> -n openstack core.openstack.org/deploym
 
 Replace `<name>` with your OpenStackControlPlane CR name.
 
-### 10. Wait for OpenStack services to start
+### 9. Wait for OpenStack services to start
 
 ```bash
 oc get pods -n openstack
@@ -240,11 +166,12 @@ on the dataplane nodes with the restored control plane state.
 
 ## Next Steps
 
-After database restore, RabbitMQ credential restore, and annotation removal, proceed to:
-1. **Order 60**: Restore DataPlane resources (if applicable)
-2. **Run an EDPM deployment**: Required to resync credentials on dataplane nodes with
+After database restore and annotation removal, proceed to:
+1. **Order 55**: Restore RabbitMQ credentials (see `06c-manual-rabbitmq-restore.md`)
+2. **Order 60**: Restore DataPlane resources (if applicable)
+3. **Run an EDPM deployment**: Required to resync credentials on dataplane nodes with
    the restored control plane, especially if credentials were rotated between backup and restore.
-3. **Re-enable InstanceHa**: After verifying the restored cloud is fully operational,
+4. **Re-enable InstanceHa**: After verifying the restored cloud is fully operational,
    re-enable InstanceHa (it was restored with `spec.disabled: True` to prevent fencing):
    ```bash
    oc patch instanceha <name> -n openstack --type merge -p '{"spec":{"disabled":"False"}}'
