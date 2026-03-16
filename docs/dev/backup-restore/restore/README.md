@@ -109,9 +109,8 @@ ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
   -e resources_backup_name=openstack-backup-resources-20260311-081234 \
   -e '{"rabbitmq_clusters": ["rabbitmq", "rabbitmq-cell1", "rabbitmq-cell2"]}'
 
-# Data Mover restore with WaitForFirstConsumer storage (LVM):
-# Pre-create dummy pods to pin PVCs to nodes (see Troubleshooting section),
-# then run the playbook with pin_pvcs=true:
+# Data Mover restore with WaitForFirstConsumer storage (LVM) — required:
+# See "Data Mover Restore with WaitForFirstConsumer Storage" section below.
 ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
   -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
   -e resources_backup_name=openstack-backup-resources-20260311-081234 \
@@ -126,9 +125,17 @@ Create the resource modifier ConfigMap first, then apply restore CRs in order:
 # 0. Create resource modifier ConfigMap (required for all restores)
 oc apply -f 00-resource-modifiers-configmap.yaml
 
+# 0.5 (Optional - required for LVM/topolvm with Data Mover)
+#     Pin PVCs to their original nodes before restoring.
+#     See "Data Mover Restore with WaitForFirstConsumer Storage" section below.
+#     Skip this step if not using Data Mover or not using WaitForFirstConsumer storage.
+
 # 1. Storage foundation - PVCs
 oc apply -f 01-restore-order-00-pvcs.yaml
 oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-pvcs -n openshift-adp --timeout=15m
+
+# 1.5 (If step 0.5 was used) Delete dummy Deployments
+# oc delete deployment -n openstack -l app=pvc-pin
 
 # 2. Foundation resources
 oc apply -f 02-restore-order-10-foundation.yaml
@@ -154,71 +161,25 @@ oc apply -f 07-restore-order-60-dataplane.yaml
 oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-60-dataplane -n openshift-adp --timeout=5m
 ```
 
-## Verification
+## Data Mover Restore with WaitForFirstConsumer Storage (LVM)
 
-After each restore step:
+**Required for LVM/topolvm environments using Data Mover.** Skip if not using
+Data Mover (`snapshotMoveData: true`) or if your StorageClass uses
+`volumeBindingMode: Immediate`.
 
-```bash
-# Check restore status
-oc get restore -n openshift-adp
+When using the OADP Data Mover with a StorageClass that has
+`volumeBindingMode: WaitForFirstConsumer` (e.g., LVM/topolvm), the PVC restore
+will deadlock. The data mover waits for the PVC to be consumed by a pod before
+downloading data, but with WaitForFirstConsumer the PVC won't bind until a pod
+references it. Since PVCs are restored before any workload pods exist, this
+creates a deadlock.
 
-# Check restored resources
-oc get all,pvc,secret,configmap,nad -n openstack
+**Solution:** Pre-create dummy Deployments with `nodeSelector` to pin PVCs to
+their original nodes. The PVC-to-node mapping is extracted from the PV
+`nodeAffinity` in the backup metadata.
 
-# Check OpenStack CRs
-oc get openstackcontrolplane,openstackversion,mariadbaccount,mariadbdatabase -n openstack
-```
-
-## Troubleshooting
-
-### Restore stuck or failed
-
-```bash
-# Check restore details
-oc describe restore <restore-name> -n openshift-adp
-
-# Check Velero logs
-oc logs -n openshift-adp deployment/velero
-```
-
-### PVC restore issues
-
-```bash
-# Check volume snapshots
-oc get volumesnapshot -n openstack
-oc get volumesnapshotcontent
-
-# Check PVC events
-oc describe pvc <pvc-name> -n openstack
-```
-
-### Data Mover restore stuck with WaitForFirstConsumer storage (LVM)
-
-**Known issue:** When using the OADP Data Mover (`snapshotMoveData: true`) with a
-StorageClass that has `volumeBindingMode: WaitForFirstConsumer` (e.g., LVM/topolvm),
-the PVC restore at order 00 will deadlock. The data mover waits for the PVC to be
-consumed by a pod before downloading data, but with WaitForFirstConsumer the PVC
-won't bind until a pod references it. Since PVCs are restored before any workload
-pods exist, this creates a deadlock.
-
-**Symptoms:**
-- Restore stuck in `WaitingForPluginOperations` phase
-- DataDownload CRs in `Accepted` or `<none>` phase, never progressing
-- PVCs in `Pending` state with event: "waiting for first consumer to be created"
-- Node-agent logs: `error to wait target PVC consumed ... context deadline exceeded`
-
-**Upstream issues:**
-- [velero#7561](https://github.com/vmware-tanzu/velero/issues/7561) — WaitForFirstConsumer incompatibility
-- [velero#8044](https://github.com/vmware-tanzu/velero/issues/8044) — Enhancement proposal
-- [velero#9343](https://github.com/vmware-tanzu/velero/issues/9343) — Topology-aware storage
-
-**Workaround (recommended): Pre-create dummy pods to pin PVCs to nodes.**
-This approach solves the WaitForFirstConsumer deadlock AND preserves the original
-node-to-PVC mapping from the backup. Dummy pods with `nodeSelector` act as the
-"first consumer" — the scheduler annotates the PVC with the selected node, which
-triggers WaitForFirstConsumer binding when the restore creates the PVCs.
 Use `nodeSelector` (not `nodeName`) because `nodeName` bypasses the scheduler
-and the PVC binding annotation never gets set.
+and the PVC `volume.kubernetes.io/selected-node` annotation never gets set.
 
 ```bash
 # 1. Download the backup metadata (small — only resource manifests, no PV data)
@@ -244,13 +205,7 @@ done
 #   mysql-db-openstack-galera-2:master-2
 
 # 3. Create dummy Deployments BEFORE the PVC restore.
-#    Pods referencing non-existent PVCs stay Pending until the restore creates
-#    the PVCs. The scheduler then annotates the PVC with the selected node,
-#    triggering WaitForFirstConsumer binding on the target node.
-#    Using Deployments (not bare Pods) ensures automatic restart if a pod
-#    gets evicted during longer manual procedures.
-#    IMPORTANT: Use nodeSelector (not nodeName) so the pod goes through the
-#    scheduler — nodeName bypasses it and the PVC annotation never gets set.
+#    IMPORTANT: Use nodeSelector (not nodeName) — see above.
 for pvc_node in \
   "glance-glance-default-single-0:master-0" \
   "glance-glance-default-single-1:master-1" \
@@ -299,31 +254,53 @@ spec:
 EOF
 done
 
-# 4. Apply the resource modifier ConfigMap (no StorageClass swap needed)
-oc apply -f 00-resource-modifiers-configmap.yaml
-
-# 5. Run the PVC restore
-#    Velero creates PVCs → dummy pods trigger WaitForFirstConsumer binding
-#    on target nodes → DataDownloads proceed
-oc apply -f 01-restore-order-00-pvcs.yaml
-
-# 6. Monitor progress
-oc get datadownload -n openshift-adp -w
-
-# 7. After all DataDownloads complete, delete dummy Deployments
+# 4. Continue with the PVC restore (step 1 in the manual procedure)
+# 5. After PVC restore completes, delete dummy Deployments:
 oc delete deployment -n openstack -l app=pvc-pin
 ```
 
-**Alternative: Immediate StorageClass.** If you don't need to control which node
-each PVC lands on, you can create a StorageClass with `volumeBindingMode: Immediate`
-and use a Velero resource modifier to swap the StorageClass during restore.
-This is simpler but topolvm picks nodes by capacity, which may place multiple
-PVCs for the same StatefulSet on one node (breaking pod anti-affinity scheduling).
-See `00-resource-modifiers-configmap.yaml` rule 4 for the StorageClass swap rule.
+**Upstream issues:**
+- [velero#7561](https://github.com/vmware-tanzu/velero/issues/7561) — WaitForFirstConsumer incompatibility
+- [velero#8044](https://github.com/vmware-tanzu/velero/issues/8044) — Enhancement proposal
+- [velero#9343](https://github.com/vmware-tanzu/velero/issues/9343) — Topology-aware storage
 
-**Note:** These workarounds are only needed when restoring from the
-BackupStorageLocation (S3/MinIO) using the Data Mover (`snapshotMoveData: true`).
-They are not needed when restoring from local CSI snapshots (without data mover).
+## Verification
+
+After each restore step:
+
+```bash
+# Check restore status
+oc get restore -n openshift-adp
+
+# Check restored resources
+oc get all,pvc,secret,configmap,nad -n openstack
+
+# Check OpenStack CRs
+oc get openstackcontrolplane,openstackversion,mariadbaccount,mariadbdatabase -n openstack
+```
+
+## Troubleshooting
+
+### Restore stuck or failed
+
+```bash
+# Check restore details
+oc describe restore <restore-name> -n openshift-adp
+
+# Check Velero logs
+oc logs -n openshift-adp deployment/velero
+```
+
+### PVC restore issues
+
+```bash
+# Check volume snapshots
+oc get volumesnapshot -n openstack
+oc get volumesnapshotcontent
+
+# Check PVC events
+oc describe pvc <pvc-name> -n openstack
+```
 
 ### Database restore issues
 
