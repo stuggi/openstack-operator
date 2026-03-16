@@ -32,6 +32,10 @@ spec:
       jsonPath: .status.labeledResources.networkAttachmentDefinitions
       name: NADs
       type: integer
+    - description: Labeled Issuers
+      jsonPath: .status.labeledResources.issuers
+      name: Issuers
+      type: integer
     name: v1beta1
     schema:
       openAPIV3Schema:
@@ -101,6 +105,42 @@ spec:
                 description: DefaultRestoreOrder is the restore order assigned to
                   user-provided resources
                 type: string
+              issuers:
+                default:
+                  enabled: true
+                description: |-
+                  Issuers configuration for backup labeling of cert-manager Issuers.
+                  Only custom (user-provided) Issuers without ownerReferences are labeled.
+                  Operator-created Issuers (rootca-*, selfsigned-issuer) have ownerRefs
+                  and are recreated by the operator during reconciliation.
+                properties:
+                  enabled:
+                    default: true
+                    description: Enabled controls whether to label this resource type
+                      for backup
+                    type: boolean
+                  excludeLabelKeys:
+                    description: |-
+                      ExcludeLabelKeys is a list of label keys - resources with any of these labels are excluded
+                      Example: ["service-cert", "osdp-service"] excludes service-cert and dataplane service secrets
+                    items:
+                      type: string
+                    type: array
+                  excludeNames:
+                    description: |-
+                      ExcludeNames is a list of resource names to exclude from backup labeling
+                      Example: ["kube-root-ca.crt", "openshift-service-ca.crt"] for system ConfigMaps
+                    items:
+                      type: string
+                    type: array
+                  includeLabelSelector:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      IncludeLabelSelector allows filtering resources by label selector
+                      Only resources matching this selector will be labeled (in addition to ownerRef check)
+                    type: object
+                type: object
               networkAttachmentDefinitions:
                 default:
                   enabled: true
@@ -231,6 +271,10 @@ spec:
                   configMaps:
                     description: ConfigMaps is the number of configmaps labeled for
                       backup
+                    type: integer
+                  issuers:
+                    description: Issuers is the number of cert-manager Issuers labeled
+                      for backup
                     type: integer
                   networkAttachmentDefinitions:
                     description: NetworkAttachmentDefinitions is the number of NADs

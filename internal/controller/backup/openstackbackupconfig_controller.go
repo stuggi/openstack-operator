@@ -124,6 +124,14 @@ func shouldLabelResource(obj client.Object, config backupv1beta1.ResourceBackupC
 	return true
 }
 
+// getRestoreOrder returns the per-type restore order if set, otherwise the global default
+func getRestoreOrder(config backupv1beta1.ResourceBackupConfig, defaultOrder string) string {
+	if config.RestoreOrder != "" {
+		return config.RestoreOrder
+	}
+	return defaultOrder
+}
+
 // labelResource adds backup labels to a resource
 func (r *OpenStackBackupConfigReconciler) labelResource(ctx context.Context, log logr.Logger, obj client.Object, restoreOrder string) error {
 	labels := obj.GetLabels()
@@ -158,7 +166,7 @@ func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log 
 	for i := range secretList.Items {
 		secret := &secretList.Items[i]
 		if shouldLabelResource(secret, instance.Spec.Secrets) {
-			if err := r.labelResource(ctx, log, secret, instance.Spec.DefaultRestoreOrder); err != nil {
+			if err := r.labelResource(ctx, log, secret, getRestoreOrder(instance.Spec.Secrets, instance.Spec.DefaultRestoreOrder)); err != nil {
 				log.Error(err, "Failed to label secret", "name", secret.Name)
 				errs = append(errs, fmt.Errorf("secret %s: %w", secret.Name, err))
 				continue
@@ -182,7 +190,7 @@ func (r *OpenStackBackupConfigReconciler) labelConfigMaps(ctx context.Context, l
 	for i := range cmList.Items {
 		cm := &cmList.Items[i]
 		if shouldLabelResource(cm, instance.Spec.ConfigMaps) {
-			if err := r.labelResource(ctx, log, cm, instance.Spec.DefaultRestoreOrder); err != nil {
+			if err := r.labelResource(ctx, log, cm, getRestoreOrder(instance.Spec.ConfigMaps, instance.Spec.DefaultRestoreOrder)); err != nil {
 				log.Error(err, "Failed to label configmap", "name", cm.Name)
 				errs = append(errs, fmt.Errorf("configmap %s: %w", cm.Name, err))
 				continue
@@ -206,7 +214,7 @@ func (r *OpenStackBackupConfigReconciler) labelNetworkAttachmentDefinitions(ctx 
 	for i := range nadList.Items {
 		nad := &nadList.Items[i]
 		if shouldLabelResource(nad, instance.Spec.NetworkAttachmentDefinitions) {
-			if err := r.labelResource(ctx, log, nad, instance.Spec.DefaultRestoreOrder); err != nil {
+			if err := r.labelResource(ctx, log, nad, getRestoreOrder(instance.Spec.NetworkAttachmentDefinitions, instance.Spec.DefaultRestoreOrder)); err != nil {
 				log.Error(err, "Failed to label network-attachment-definition", "name", nad.Name)
 				errs = append(errs, fmt.Errorf("network-attachment-definition %s: %w", nad.Name, err))
 				continue
@@ -232,7 +240,7 @@ func (r *OpenStackBackupConfigReconciler) labelIssuers(ctx context.Context, log 
 	for i := range issuerList.Items {
 		issuer := &issuerList.Items[i]
 		if shouldLabelResource(issuer, instance.Spec.Issuers) {
-			if err := r.labelResource(ctx, log, issuer, instance.Spec.DefaultRestoreOrder); err != nil {
+			if err := r.labelResource(ctx, log, issuer, getRestoreOrder(instance.Spec.Issuers, instance.Spec.DefaultRestoreOrder)); err != nil {
 				log.Error(err, "Failed to label issuer", "name", issuer.Name)
 				errs = append(errs, fmt.Errorf("issuer %s: %w", issuer.Name, err))
 				continue

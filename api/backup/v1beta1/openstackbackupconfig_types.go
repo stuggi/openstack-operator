@@ -57,8 +57,10 @@ type OpenStackBackupConfigSpec struct {
 	// Only custom (user-provided) Issuers without ownerReferences are labeled.
 	// Operator-created Issuers (rootca-*, selfsigned-issuer) have ownerRefs
 	// and are recreated by the operator during reconciliation.
+	// Custom Issuers default to restore order 20 (after secrets at order 10,
+	// since Issuers reference CA secrets).
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default={enabled:true}
+	// +kubebuilder:default={enabled:true,restoreOrder:"20"}
 	Issuers ResourceBackupConfig `json:"issuers,omitempty"`
 }
 
@@ -68,6 +70,11 @@ type ResourceBackupConfig struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=true
 	Enabled bool `json:"enabled,omitempty"`
+
+	// RestoreOrder overrides the default restore order for this resource type.
+	// If empty, the global DefaultRestoreOrder is used.
+	// +kubebuilder:validation:Optional
+	RestoreOrder string `json:"restoreOrder,omitempty"`
 
 	// ExcludeLabelKeys is a list of label keys - resources with any of these labels are excluded
 	// Example: ["service-cert", "osdp-service"] excludes service-cert and dataplane service secrets

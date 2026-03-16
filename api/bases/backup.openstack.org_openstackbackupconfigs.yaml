@@ -100,6 +100,11 @@ spec:
                       IncludeLabelSelector allows filtering resources by label selector
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
+                  restoreOrder:
+                    description: |-
+                      RestoreOrder overrides the default restore order for this resource type.
+                      If empty, the global DefaultRestoreOrder is used.
+                    type: string
                 type: object
               defaultRestoreOrder:
                 default: "10"
@@ -109,11 +114,14 @@ spec:
               issuers:
                 default:
                   enabled: true
+                  restoreOrder: "20"
                 description: |-
                   Issuers configuration for backup labeling of cert-manager Issuers.
                   Only custom (user-provided) Issuers without ownerReferences are labeled.
                   Operator-created Issuers (rootca-*, selfsigned-issuer) have ownerRefs
                   and are recreated by the operator during reconciliation.
+                  Custom Issuers default to restore order 20 (after secrets at order 10,
+                  since Issuers reference CA secrets).
                 properties:
                   enabled:
                     default: true
@@ -141,6 +149,11 @@ spec:
                       IncludeLabelSelector allows filtering resources by label selector
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
+                  restoreOrder:
+                    description: |-
+                      RestoreOrder overrides the default restore order for this resource type.
+                      If empty, the global DefaultRestoreOrder is used.
+                    type: string
                 type: object
               networkAttachmentDefinitions:
                 default:
@@ -174,6 +187,11 @@ spec:
                       IncludeLabelSelector allows filtering resources by label selector
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
+                  restoreOrder:
+                    description: |-
+                      RestoreOrder overrides the default restore order for this resource type.
+                      If empty, the global DefaultRestoreOrder is used.
+                    type: string
                 type: object
               secrets:
                 default:
@@ -211,6 +229,11 @@ spec:
                       IncludeLabelSelector allows filtering resources by label selector
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
+                  restoreOrder:
+                    description: |-
+                      RestoreOrder overrides the default restore order for this resource type.
+                      If empty, the global DefaultRestoreOrder is used.
+                    type: string
                 type: object
               targetNamespace:
                 default: openstack
