@@ -220,55 +220,9 @@ func getBackupLabels(annotations map[string]string) map[string]string {
 
 ### OADP Integration
 
-#### Full Namespace Backup
+#### Split Backup: CRs and PVCs
 
-One OADP Backup CR captures **all user resources** in the namespace (complete snapshot):
-
-```yaml
-apiVersion: velero.io/v1
-kind: Backup
-metadata:
-  name: openstack-backup-20260303-120000
-  namespace: openshift-adp
-spec:
-  includedNamespaces:
-  - openstack
-  # NO labelSelector - backup all CRs, Secrets, ConfigMaps
-  # Exclude operator-managed resources that will be recreated
-  excludedResources:
-  - pods
-  - replicasets
-  - jobs
-  - events
-  - statefulsets
-  snapshotVolumes: true  # Enable CSI snapshots for PVCs
-  defaultVolumesToFsBackup: false
-  storageLocation: velero-1
-  ttl: 720h
-```
-
-**Backup Strategy:**
-- ✅ **All Secrets** in namespace (user-provided AND operator-managed)
-- ✅ **All ConfigMaps** in namespace (user-provided AND operator-managed)
-- ✅ **All CRs** (OpenStackControlPlane, MariaDBDatabase, DataPlaneNodeSet, DataPlaneDeployment, etc.)
-- ✅ **All NetworkAttachmentDefinitions, Issuers, etc.**
-- ✅ **PVCs with label** `backup.openstack.org/backup: "true"` (CSI snapshots)
-- ❌ **Excluded**: Pods, ReplicaSets, Jobs, Events, StatefulSets (operator-managed, will be recreated)
-
-**Why backup ALL CRs/Secrets/ConfigMaps?**
-- Ensures complete snapshot (nothing missed)
-- Simple backup logic (no label selector on OADP Backup CR)
-- Restore is selective via labels (see below - only resources with `backup-restore: "true"` labels are restored)
-- Examples of backed up but not restored: DataPlaneDeployment, operator-managed Secrets/ConfigMaps
-
-**Note on PVC Backup:**
-- **PVCs are selectively backed up** using the `backup.openstack.org/backup: "true"` label
-- OADP's CSI snapshot logic respects the backup label when creating volume snapshots
-- Individual PVCs can be excluded using annotation: `backup.velero.io/backup-volumes: "false"`
-
-See [PVC Labeling Strategy](#pvc-labeling-strategy) for details on how PVCs are labeled for backup.
-
-**Alternative: Split Backup into CRs and PVCs** (if you want explicit separation):
+The backup uses two OADP Backup CRs — one for all namespace resources (CRs, Secrets, ConfigMaps, etc.) and one for PVC snapshots:
 
 ```yaml
 # Backup 1: All CRs and core resources (no PVCs)
@@ -306,6 +260,30 @@ spec:
   storageLocation: velero-1
   ttl: 720h
 ```
+
+**Why two Backup CRs?**
+- PVCs require CSI snapshots (`snapshotVolumes: true`) which is expensive and should only target labeled PVCs
+- CR/Secret/ConfigMap backup is a simple object store operation with no volume snapshots
+- Separating them allows independent backup schedules (e.g., PVC snapshots less frequently)
+
+**Backup 1 (CRs) captures:**
+- ✅ **All Secrets** in namespace (user-provided AND operator-managed)
+- ✅ **All ConfigMaps** in namespace (user-provided AND operator-managed)
+- ✅ **All CRs** (OpenStackControlPlane, MariaDBDatabase, DataPlaneNodeSet, etc.)
+- ✅ **All NetworkAttachmentDefinitions, custom Issuers, etc.**
+- ❌ **Excluded**: PVCs/PVs (handled by Backup 2)
+
+**Backup 2 (PVCs) captures:**
+- ✅ **PVCs with label** `backup.openstack.org/backup: "true"` (CSI snapshots)
+- ❌ **Unlabeled PVCs**: Not backed up
+
+**Why backup ALL CRs/Secrets/ConfigMaps (no label selector on Backup 1)?**
+- Ensures complete snapshot (nothing missed)
+- Simple backup logic
+- Restore is selective via labels (only resources with `backup-restore: "true"` labels are restored)
+- Examples of backed up but not restored: DataPlaneDeployment, operator-managed Secrets/ConfigMaps
+
+See [PVC Labeling Strategy](#pvc-labeling-strategy) for details on how PVCs are labeled for backup.
 
 #### Selective Restore (By Order)
 
