@@ -18,10 +18,13 @@ package backup
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
 	backupv1beta1 "github.com/openstack-k8s-operators/openstack-operator/api/backup/v1beta1"
+
+	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 
 	"github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
@@ -150,19 +153,21 @@ func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log 
 		return 0, err
 	}
 
+	var errs []error
 	count := 0
 	for i := range secretList.Items {
 		secret := &secretList.Items[i]
 		if shouldLabelResource(secret, instance.Spec.Secrets) {
 			if err := r.labelResource(ctx, log, secret, instance.Spec.DefaultRestoreOrder); err != nil {
 				log.Error(err, "Failed to label secret", "name", secret.Name)
+				errs = append(errs, fmt.Errorf("secret %s: %w", secret.Name, err))
 				continue
 			}
 			count++
 		}
 	}
 
-	return count, nil
+	return count, stderrors.Join(errs...)
 }
 
 // labelConfigMaps labels configmaps in the target namespace
@@ -172,19 +177,21 @@ func (r *OpenStackBackupConfigReconciler) labelConfigMaps(ctx context.Context, l
 		return 0, err
 	}
 
+	var errs []error
 	count := 0
 	for i := range cmList.Items {
 		cm := &cmList.Items[i]
 		if shouldLabelResource(cm, instance.Spec.ConfigMaps) {
 			if err := r.labelResource(ctx, log, cm, instance.Spec.DefaultRestoreOrder); err != nil {
 				log.Error(err, "Failed to label configmap", "name", cm.Name)
+				errs = append(errs, fmt.Errorf("configmap %s: %w", cm.Name, err))
 				continue
 			}
 			count++
 		}
 	}
 
-	return count, nil
+	return count, stderrors.Join(errs...)
 }
 
 // labelNetworkAttachmentDefinitions labels NADs in the target namespace
@@ -194,19 +201,47 @@ func (r *OpenStackBackupConfigReconciler) labelNetworkAttachmentDefinitions(ctx 
 		return 0, err
 	}
 
+	var errs []error
 	count := 0
 	for i := range nadList.Items {
 		nad := &nadList.Items[i]
 		if shouldLabelResource(nad, instance.Spec.NetworkAttachmentDefinitions) {
 			if err := r.labelResource(ctx, log, nad, instance.Spec.DefaultRestoreOrder); err != nil {
 				log.Error(err, "Failed to label network-attachment-definition", "name", nad.Name)
+				errs = append(errs, fmt.Errorf("network-attachment-definition %s: %w", nad.Name, err))
 				continue
 			}
 			count++
 		}
 	}
 
-	return count, nil
+	return count, stderrors.Join(errs...)
+}
+
+// labelIssuers labels cert-manager Issuers in the target namespace.
+// Only custom (user-provided) Issuers without ownerReferences are labeled.
+// Operator-created Issuers have ownerRefs and are recreated during reconciliation.
+func (r *OpenStackBackupConfigReconciler) labelIssuers(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
+	issuerList := &certmgrv1.IssuerList{}
+	if err := r.List(ctx, issuerList, client.InNamespace(instance.Spec.TargetNamespace)); err != nil {
+		return 0, err
+	}
+
+	var errs []error
+	count := 0
+	for i := range issuerList.Items {
+		issuer := &issuerList.Items[i]
+		if shouldLabelResource(issuer, instance.Spec.Issuers) {
+			if err := r.labelResource(ctx, log, issuer, instance.Spec.DefaultRestoreOrder); err != nil {
+				log.Error(err, "Failed to label issuer", "name", issuer.Name)
+				errs = append(errs, fmt.Errorf("issuer %s: %w", issuer.Name, err))
+				continue
+			}
+			count++
+		}
+	}
+
+	return count, stderrors.Join(errs...)
 }
 
 // labelCRInstances labels CR instances based on CRD backup-restore labels
@@ -293,6 +328,7 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=k8s.cni.cncf.io,resources=network-attachment-definitions,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=cert-manager.io,resources=issuers,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch
 // RBAC for labeling CR instances across all openstack.org API groups.
 // Kubernetes RBAC does not support wildcard group patterns (*.openstack.org),
@@ -348,16 +384,41 @@ func (r *OpenStackBackupConfigReconciler) Reconcile(ctx context.Context, req ctr
 		return ctrl.Result{}, err
 	}
 
-	// Initialize status if needed
+	//
+	// initialize Conditions
+	//
 	if instance.Status.Conditions == nil {
 		instance.Status.Conditions = condition.Conditions{}
 	}
+
+	cl := condition.CreateList(
+		condition.UnknownCondition(condition.ReadyCondition, condition.InitReason, condition.ReadyInitMessage),
+		condition.UnknownCondition(backupv1beta1.OpenStackBackupConfigSecretsReadyCondition, condition.InitReason, condition.InitReason),
+		condition.UnknownCondition(backupv1beta1.OpenStackBackupConfigConfigMapsReadyCondition, condition.InitReason, condition.InitReason),
+		condition.UnknownCondition(backupv1beta1.OpenStackBackupConfigNADsReadyCondition, condition.InitReason, condition.InitReason),
+		condition.UnknownCondition(backupv1beta1.OpenStackBackupConfigIssuersReadyCondition, condition.InitReason, condition.InitReason),
+		condition.UnknownCondition(backupv1beta1.OpenStackBackupConfigCRsReadyCondition, condition.InitReason, condition.InitReason),
+	)
+	instance.Status.Conditions.Init(&cl)
 
 	// Save a copy of the conditions for LastTransitionTime restore
 	savedConditions := instance.Status.Conditions.DeepCopy()
 
 	// Always patch the instance status when exiting this function
 	defer func() {
+		// update the Ready condition based on the sub conditions
+		if instance.Status.Conditions.AllSubConditionIsTrue() {
+			instance.Status.Conditions.MarkTrue(
+				condition.ReadyCondition, condition.ReadyMessage)
+		} else {
+			// something is not ready so reset the Ready condition
+			instance.Status.Conditions.MarkUnknown(
+				condition.ReadyCondition, condition.InitReason, condition.ReadyInitMessage)
+			// and recalculate it based on the state of the rest of the conditions
+			instance.Status.Conditions.Set(
+				instance.Status.Conditions.Mirror(condition.ReadyCondition))
+		}
+
 		condition.RestoreLastTransitionTimes(&instance.Status.Conditions, savedConditions)
 		if err := h.PatchInstance(ctx, instance); err != nil {
 			_err = err
@@ -365,38 +426,67 @@ func (r *OpenStackBackupConfigReconciler) Reconcile(ctx context.Context, req ctr
 		}
 	}()
 
-	// Label resources in target namespace
+	// Label resources in target namespace — process all types and collect errors
+	var reconcileErrs []error
+
 	secretCount, err := r.labelSecrets(ctx, log, instance)
 	if err != nil {
 		log.Error(err, "Failed to label secrets")
 		instance.Status.Conditions.Set(condition.FalseCondition(
-			condition.ReadyCondition,
+			backupv1beta1.OpenStackBackupConfigSecretsReadyCondition,
 			condition.ErrorReason,
 			condition.SeverityWarning,
 			"Failed to label secrets: %v", err))
-		return ctrl.Result{}, err
+		reconcileErrs = append(reconcileErrs, err)
+	} else {
+		instance.Status.Conditions.Set(condition.TrueCondition(
+			backupv1beta1.OpenStackBackupConfigSecretsReadyCondition,
+			"Labeled %d secrets", secretCount))
 	}
 
 	configMapCount, err := r.labelConfigMaps(ctx, log, instance)
 	if err != nil {
 		log.Error(err, "Failed to label configmaps")
 		instance.Status.Conditions.Set(condition.FalseCondition(
-			condition.ReadyCondition,
+			backupv1beta1.OpenStackBackupConfigConfigMapsReadyCondition,
 			condition.ErrorReason,
 			condition.SeverityWarning,
 			"Failed to label configmaps: %v", err))
-		return ctrl.Result{}, err
+		reconcileErrs = append(reconcileErrs, err)
+	} else {
+		instance.Status.Conditions.Set(condition.TrueCondition(
+			backupv1beta1.OpenStackBackupConfigConfigMapsReadyCondition,
+			"Labeled %d configmaps", configMapCount))
 	}
 
 	nadCount, err := r.labelNetworkAttachmentDefinitions(ctx, log, instance)
 	if err != nil {
 		log.Error(err, "Failed to label network-attachment-definitions")
 		instance.Status.Conditions.Set(condition.FalseCondition(
-			condition.ReadyCondition,
+			backupv1beta1.OpenStackBackupConfigNADsReadyCondition,
 			condition.ErrorReason,
 			condition.SeverityWarning,
 			"Failed to label network-attachment-definitions: %v", err))
-		return ctrl.Result{}, err
+		reconcileErrs = append(reconcileErrs, err)
+	} else {
+		instance.Status.Conditions.Set(condition.TrueCondition(
+			backupv1beta1.OpenStackBackupConfigNADsReadyCondition,
+			"Labeled %d NADs", nadCount))
+	}
+
+	issuerCount, err := r.labelIssuers(ctx, log, instance)
+	if err != nil {
+		log.Error(err, "Failed to label issuers")
+		instance.Status.Conditions.Set(condition.FalseCondition(
+			backupv1beta1.OpenStackBackupConfigIssuersReadyCondition,
+			condition.ErrorReason,
+			condition.SeverityWarning,
+			"Failed to label issuers: %v", err))
+		reconcileErrs = append(reconcileErrs, err)
+	} else {
+		instance.Status.Conditions.Set(condition.TrueCondition(
+			backupv1beta1.OpenStackBackupConfigIssuersReadyCondition,
+			"Labeled %d issuers", issuerCount))
 	}
 
 	// Label CR instances based on CRD backup-restore labels
@@ -404,23 +494,28 @@ func (r *OpenStackBackupConfigReconciler) Reconcile(ctx context.Context, req ctr
 	if err != nil {
 		log.Error(err, "Failed to label CR instances")
 		instance.Status.Conditions.Set(condition.FalseCondition(
-			condition.ReadyCondition,
+			backupv1beta1.OpenStackBackupConfigCRsReadyCondition,
 			condition.ErrorReason,
 			condition.SeverityWarning,
 			"Failed to label CR instances: %v", err))
-		return ctrl.Result{}, err
+		reconcileErrs = append(reconcileErrs, err)
+	} else {
+		instance.Status.Conditions.Set(condition.TrueCondition(
+			backupv1beta1.OpenStackBackupConfigCRsReadyCondition,
+			"Labeled %d CRs", crCount))
 	}
 
-	// Update status
+	// Update status counts
 	instance.Status.LabeledResources.Secrets = secretCount
 	instance.Status.LabeledResources.ConfigMaps = configMapCount
 	instance.Status.LabeledResources.NetworkAttachmentDefinitions = nadCount
+	instance.Status.LabeledResources.Issuers = issuerCount
 
-	instance.Status.Conditions.Set(condition.TrueCondition(
-		condition.ReadyCondition,
-		"Labeled %d secrets, %d configmaps, %d NADs, %d CRs", secretCount, configMapCount, nadCount, crCount))
+	if len(reconcileErrs) > 0 {
+		return ctrl.Result{}, stderrors.Join(reconcileErrs...)
+	}
 
-	log.Info("Successfully labeled resources", "secrets", secretCount, "configmaps", configMapCount, "nads", nadCount)
+	log.Info("Successfully labeled resources", "secrets", secretCount, "configmaps", configMapCount, "nads", nadCount, "issuers", issuerCount, "crs", crCount)
 	return ctrl.Result{}, nil
 }
 
@@ -452,6 +547,7 @@ func (r *OpenStackBackupConfigReconciler) SetupWithManager(mgr ctrl.Manager) err
 		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource)).
 		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource)).
 		Watches(&k8s_networkingv1.NetworkAttachmentDefinition{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource)).
+		Watches(&certmgrv1.Issuer{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource)).
 		Named("openstackbackupconfig").
 		Complete(r)
 }

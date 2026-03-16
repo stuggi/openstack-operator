@@ -52,6 +52,14 @@ type OpenStackBackupConfigSpec struct {
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default={enabled:true}
 	NetworkAttachmentDefinitions ResourceBackupConfig `json:"networkAttachmentDefinitions,omitempty"`
+
+	// Issuers configuration for backup labeling of cert-manager Issuers.
+	// Only custom (user-provided) Issuers without ownerReferences are labeled.
+	// Operator-created Issuers (rootca-*, selfsigned-issuer) have ownerRefs
+	// and are recreated by the operator during reconciliation.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default={enabled:true}
+	Issuers ResourceBackupConfig `json:"issuers,omitempty"`
 }
 
 // ResourceBackupConfig defines backup labeling rules for a resource type
@@ -101,6 +109,10 @@ type ResourceCounts struct {
 	// NetworkAttachmentDefinitions is the number of NADs labeled for backup
 	// +kubebuilder:validation:Optional
 	NetworkAttachmentDefinitions int `json:"networkAttachmentDefinitions,omitempty"`
+
+	// Issuers is the number of cert-manager Issuers labeled for backup
+	// +kubebuilder:validation:Optional
+	Issuers int `json:"issuers,omitempty"`
 }
 
 // +kubebuilder:object:root=true
@@ -109,6 +121,7 @@ type ResourceCounts struct {
 // +kubebuilder:printcolumn:name="Secrets",type="integer",JSONPath=".status.labeledResources.secrets",description="Labeled Secrets"
 // +kubebuilder:printcolumn:name="ConfigMaps",type="integer",JSONPath=".status.labeledResources.configMaps",description="Labeled ConfigMaps"
 // +kubebuilder:printcolumn:name="NADs",type="integer",JSONPath=".status.labeledResources.networkAttachmentDefinitions",description="Labeled NADs"
+// +kubebuilder:printcolumn:name="Issuers",type="integer",JSONPath=".status.labeledResources.issuers",description="Labeled Issuers"
 // +kubebuilder:metadata:labels=backup.openstack.org/restore=true
 // +kubebuilder:metadata:labels=backup.openstack.org/category=controlplane
 // +kubebuilder:metadata:labels=backup.openstack.org/restore-order=20
