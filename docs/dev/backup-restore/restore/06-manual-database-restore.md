@@ -144,35 +144,10 @@ oc get pods -n openstack
 oc get openstackcontrolplane -n openstack
 ```
 
-## Important: Credential Rotation and EDPM Nodes
-
-If credentials or certificates were rotated between the backup and the restore, EDPM nodes
-may still have newer credentials/certs that don't match the restored control plane state.
-This applies to:
-
-- **ApplicationCredentials**: The restored Keystone DB contains old ACs. The openstack-operator
-  will create new AC CRs on reconciliation, which generates new AC secrets. EDPM nodes still
-  have the credentials from the last deployment run, which may not match.
-  Additionally, if the backup is old, restored ACs may already be expired in the DB,
-  requiring immediate rotation.
-- **RabbitMQ**: The restored credentials (via `*-restored-user` secrets) match the backup,
-  but EDPM nodes may have been updated with newer credentials since.
-- **TLS/CA certificates**: If CAs were rotated between backup and restore, the restored
-  control plane uses the old CA. EDPM nodes may have certificates signed by a newer CA,
-  causing TLS trust failures in both directions.
-
-**An EDPM deployment is required after restore** to resync all credentials and certificates
-on the dataplane nodes with the restored control plane state.
-
 ## Next Steps
 
 After database restore and annotation removal, proceed to:
 1. **Order 55**: Restore RabbitMQ credentials (see `06c-manual-rabbitmq-restore.md`)
 2. **Order 60**: Restore DataPlane resources (if applicable)
-3. **Run an EDPM deployment**: Required to resync credentials on dataplane nodes with
-   the restored control plane, especially if credentials were rotated between backup and restore.
-4. **Re-enable InstanceHa**: After verifying the restored cloud is fully operational,
-   re-enable InstanceHa (it was restored with `spec.disabled: True` to prevent fencing):
-   ```bash
-   oc patch instanceha <name> -n openstack --type merge -p '{"spec":{"disabled":"False"}}'
-   ```
+3. See [Post-Restore](../README.md#post-restore-credential-rotation-and-edpm-nodes)
+   for EDPM deployment and InstanceHa re-enablement

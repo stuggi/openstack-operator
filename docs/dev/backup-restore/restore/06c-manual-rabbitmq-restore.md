@@ -83,7 +83,6 @@ oc delete namespace openstack-restore-tmp
 ## Next Steps
 
 After RabbitMQ credential restore, proceed to:
-1. Remove the `deployment-stage` annotation (see step 9 in `06-manual-database-restore.md`)
-2. **Order 60**: Restore DataPlane resources (if applicable)
-3. **Run an EDPM deployment**: Required to resync credentials on dataplane nodes
-4. **Re-enable InstanceHa** (`spec.disabled: False`) after verifying the restored cloud is operational
+1. **Order 60**: Restore DataPlane resources (if applicable)
+2. See [Post-Restore](../README.md#post-restore-credential-rotation-and-edpm-nodes)
+   for EDPM deployment and InstanceHa re-enablement
