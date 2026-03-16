@@ -22,7 +22,7 @@ This document describes the design for backup and restore of OpenStack on OpenSh
 
 ### CRD Labels
 
-CRD definitions use **restore labels** to control which instances should be restored (all prefixed with `backup.openstack.org/backup-`):
+CRD definitions use **restore labels** to control which instances should be restored (all prefixed with `backup.openstack.org/`):
 
 ```yaml
 apiVersion: apiextensions.k8s.io/v1
@@ -894,7 +894,7 @@ metadata:
 
 ## Backup Categories
 
-Categories enable selective backup/restore scenarios. The design uses **two categories**: `controlplane` and `dataplane`.
+Categories enable selective backup/restore scenarios. The design uses **three categories**: `controlplane`, `dataplane`, and `all`.
 
 ### Category Assignment
 
