@@ -29,6 +29,26 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 - VolumeSnapshotLocation configured (for CSI snapshot restores)
 - Target namespace exists (or will be created during restore)
 
+```bash
+# Check the Velero version bundled with your OADP installation
+VELERO_POD=$(oc get pods -n openshift-adp -l deploy=velero \
+  --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
+oc exec -n openshift-adp ${VELERO_POD} -- /velero version
+```
+
+**Note:** [Velero v1.16+](https://github.com/vmware-tanzu/velero/releases/tag/v1.16.0)
+(expected in OADP for OCP 4.19+) adds the `ignoreDelayBinding` flag for
+node-agent, which allows Data Mover restores to handle `WaitForFirstConsumer`
+PVCs natively without the dummy pod workaround described below. However, it
+spreads restores evenly across nodes and may not respect StatefulSet
+anti-affinity requirements — the dummy pod approach may still be needed to
+guarantee correct node placement for services like Glance.
+[velero#9343](https://github.com/vmware-tanzu/velero/issues/9343) /
+[velero#9532](https://github.com/vmware-tanzu/velero/pull/9532) adds PV
+topology constraints as pod affinities on data mover pods, which would
+restore PVCs to their original nodes natively — making the dummy pod
+workaround unnecessary. Check v1.18.1 or v1.19 release notes when released.
+
 ### Discovering Backups
 
 When using the Data Mover (`snapshotMoveData: true`), backup metadata and PVC
