@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Package backup contains the controller for OpenStackBackupConfig resources.
 package backup
 
 import (
@@ -530,7 +531,7 @@ func (r *OpenStackBackupConfigReconciler) Reconcile(ctx context.Context, req ctr
 // SetupWithManager sets up the controller with the Manager.
 func (r *OpenStackBackupConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	// findBackupConfigForResource maps a resource back to the BackupConfig that should process it
-	findBackupConfigForResource := func(ctx context.Context, obj client.Object) []reconcile.Request {
+	findBackupConfigForResource := func(ctx context.Context, _ client.Object) []reconcile.Request {
 		// For now, reconcile all BackupConfigs when any resource changes
 		// TODO: optimize to only reconcile the BackupConfig for the resource's namespace
 		configList := &backupv1beta1.OpenStackBackupConfigList{}
