@@ -52,7 +52,7 @@ metadata:
   - Common orders:
     - 00 (storage foundation - PVCs)
     - 10 (foundation - NADs, Secrets, ConfigMaps)
-    - 20 (TLS & infrastructure - Issuers, MariaDB, NetConfig)
+    - 20 (TLS & infrastructure - custom Issuers, MariaDB, NetConfig, OpenStackVersion)
     - 30 (CtlPlane + networking)
     - 40 (backup config & user resources)
     - 50 (manual steps - database/RabbitMQ restore, resume deployment)
@@ -138,56 +138,23 @@ The OpenStackBackupConfig controller labels:
 #### 2. Operators Directly Label Resources They Create
 
 Operators add restore labels when creating resources, even if those resources have ownerReferences:
-- Issuers (cert-manager) - both operator-managed and custom
 - PVCs (glance-operator, mariadb-operator)
 - Database password secrets (mariadb-operator)
 
 **Why:** Some resources need restore even though they have ownerReferences:
-- **Issuers**: Custom Issuers (external CAs) must be preserved; operator-managed Issuers (rootca-*) are harmlessly reconciled
 - **PVCs**: Need snapshot restore before pods start (staged deployment)
 
-**Example: openstack-operator creates Issuers with labels**
+**Issuers (cert-manager) — handled by BackupConfig controller:**
 
-```go
-// In openstack-operator when creating Issuer CRs
-func (r *OpenStackControlPlaneReconciler) createIssuer(
-    ctx context.Context,
-    name string,
-    spec certmanagerv1.IssuerSpec,
-    instance *corev1beta1.OpenStackControlPlane,
-) error {
-    issuer := &certmanagerv1.Issuer{
-        ObjectMeta: metav1.ObjectMeta{
-            Name:      name,
-            Namespace: instance.Namespace,
-            Labels: map[string]string{
-                // Add restore labels
-                "backup.openstack.org/restore":       "true",
-                "backup.openstack.org/category":      "all",
-                "backup.openstack.org/restore-order": "20",
-            },
-            OwnerReferences: []metav1.OwnerReference{
-                // Set OpenStackControlPlane as owner
-                {
-                    APIVersion: instance.APIVersion,
-                    Kind:       instance.Kind,
-                    Name:       instance.Name,
-                    UID:        instance.UID,
-                    Controller: ptr.To(true),
-                },
-            },
-        },
-        Spec: spec,
-    }
+Operator-created Issuers (rootca-internal, rootca-public, rootca-ovn, rootca-libvirt, selfsigned-issuer) have ownerReferences pointing to the OpenStackControlPlane CR. They do **not** need backup labels because:
+- They are recreated automatically when the OpenStackControlPlane reconciles
+- The CA cert secrets they reference are restored separately (as user-provided secrets)
 
-    return r.Client.Create(ctx, issuer)
-}
-```
+Custom Issuers (ACME, Vault, external CAs) referenced in `spec.tls.*.ca.customIssuer` do **not** have ownerReferences (they are user-provided). The BackupConfig controller labels these automatically using the same ownerRef-based filtering used for secrets and configmaps.
 
-**What gets labeled:**
-- ✅ Operator-managed Issuers (selfsigned-issuer, rootca-internal, rootca-public, rootca-ovn, rootca-libvirt)
-- ✅ Custom Issuers referenced in OpenStackControlPlane spec (ACME, Vault, external CAs)
-- ⚠️ User-created Issuers (outside OpenStackControlPlane) - User manually labels if backup/restore needed
+**What gets labeled by the BackupConfig controller:**
+- ✅ Custom Issuers without ownerReferences (user-provided external CAs)
+- ❌ Operator-managed Issuers with ownerReferences (recreated by reconciliation)
 
 **Example: PVC creation with annotation override support**
 
@@ -648,7 +615,7 @@ The restore sequence is critical for maintaining dependencies between resources.
 |-------|-----------|-------|
 | 00 | **PVCs** | **Storage Foundation**: CSI snapshots for all storage volumes (Galera backups, Glance images, Cinder volumes, Manila shares)<br>Restored first so backup data is available for database restore in order 50 |
 | 10 | NetworkAttachmentDefinitions<br>Secrets (user-provided)<br>ConfigMaps (user-provided) | **Foundation Resources**: Core resources with no dependencies<br>Includes CA certs, DB passwords, SSH keys |
-| 20 | OpenStackVersion<br>TLS Issuers<br>MariaDBDatabase<br>MariaDBAccount<br>Infrastructure CRs<br>NetConfig<br>InstanceHa | **Version & Infrastructure**: OpenStackVersion restored first (required by ControlPlane)<br>TLS Issuers need CA secrets, MariaDBAccount needs password secrets<br>Infrastructure: Topology, BGPConfiguration, DNSData<br>NetConfig: Network topology (required by Reservation/IPSet)<br>InstanceHa: Restored with `spec.disabled: True` (resource modifier) to prevent fencing; re-enable after verifying EDPM connectivity |
+| 20 | OpenStackVersion<br>Custom TLS Issuers<br>MariaDBDatabase<br>MariaDBAccount<br>Infrastructure CRs<br>NetConfig<br>InstanceHa | **Version & Infrastructure**: OpenStackVersion restored first (required by ControlPlane)<br>Custom Issuers need CA secrets from order 10; operator-created Issuers are not restored (recreated by reconciliation)<br>MariaDBAccount needs password secrets<br>Infrastructure: Topology, BGPConfiguration, DNSData<br>NetConfig: Network topology (required by Reservation/IPSet)<br>InstanceHa: Restored with `spec.disabled: True` (resource modifier) to prevent fencing; re-enable after verifying EDPM connectivity |
 | 30 | OpenStackControlPlane<br>Reservation | **Control Plane + Networking**: CtlPlane restored with staged deployment annotation (`deployment-stage: infrastructure-only`)<br>ControlPlane controller will use the already-restored OpenStackVersion from order 20<br>Reservation needs NetConfig from order 20<br>Wait for infrastructure ready before proceeding |
 | 40 | IPSet<br>GaleraBackup<br>RabbitMQUser (user-created)<br>RabbitMQVhost<br>DataPlaneService (user-created) | **IP Sets, Backup Config & User Resources** (while in infra-only mode)<br>IPSet: Requires Reservation from order 30<br>GaleraBackup: Backup configuration CR (needs CtlPlane)<br>RabbitMQUser/Vhost: User-created resources only (no ownerReferences)<br>DataPlaneService: Custom services before NodeSets |
 | 50 | *Database Restore*<br>*RabbitMQ Credentials*<br>*Resume Deployment* | **Manual/Controller** (while in infra-only mode):<br>1. Create GaleraRestore CRs, execute restore from PVCs (order 00), clean up<br>2. Create RabbitMQUser CRs with old credentials (extract from backed-up secrets, create new `-restored-user` secrets/CRs)<br>3. Remove `deployment-stage` annotation → CtlPlane reconciles and starts all services |
@@ -796,7 +763,7 @@ labelSelector:
 | Secret* | user-only | controlplane | 10 | All backed up; only user-provided restored (no ownerReferences) |
 | ConfigMap* | user-only | controlplane | 10 | All backed up; only user-provided restored (no ownerReferences) |
 | NetworkAttachmentDefinition | all | controlplane | 10 | All backed up and restored |
-| Issuer (cert-manager) | all | controlplane | 20 | All backed up; operator adds labels to all for restore |
+| Issuer (cert-manager) | custom-only | controlplane | 20 | All backed up; BackupConfig controller labels custom Issuers (no ownerRef); operator-created Issuers are recreated by reconciliation |
 | PersistentVolumeClaim** | labeled-only | controlplane | 00 | **Storage Foundation**: Only labeled PVCs backed up and restored (exception to full backup)<br>Restored FIRST so backup data is available for database restore |
 
 *All Secrets/ConfigMaps included in full namespace backup; controller only labels user-provided ones (no ownerReferences) for restore
@@ -902,7 +869,7 @@ Categories enable selective backup/restore scenarios. The design uses **three ca
 - OpenStackControlPlane CR
 - MariaDBDatabase, MariaDBAccount, GaleraBackup
 - RabbitMQUser, RabbitMQVhost
-- Issuers (cert-manager), InstanceHa
+- Custom Issuers (cert-manager, user-provided without ownerRef), InstanceHa
 - **All user-provided Secrets and ConfigMaps** (CA certs, passwords, SSH keys, EDPM configs)
 - PVCs for services
 
