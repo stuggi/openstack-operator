@@ -99,6 +99,13 @@ for earlier versions.
 | ControlPlane | OpenStackControlPlane, OpenStackVersion, NADs, Secrets, ConfigMaps, MariaDBDatabase/Account, GaleraBackup, Topology, BGPConfiguration, DNSData, InstanceHa, Database contents (Galera dumps), PVCs (Glance, GaleraBackup), RabbitMQ user credentials | Individual service CRs (recreated by controller), Certificate CRs (recreated by operators), Running pods, OVN database contents, RabbitMQ queue data (fresh cluster) |
 | DataPlane | NetConfig, OpenStackDataPlaneNodeSet, OpenStackDataPlaneService, Reservation, IPSet | OpenStackDataPlaneDeployment (not restored to avoid triggering new deployments) |
 
+**ExtraMounts PVCs:** PVCs passed via `extraMounts` (global or per-service)
+are user-managed and **must be labeled manually** for backup/restore. Add
+`backup.openstack.org/backup: "true"`, `backup.openstack.org/restore: "true"`,
+and `backup.openstack.org/restore-order: "00"` to the PVC before creating it.
+See the [PVC Labeling Strategy](backup-restore-controller-design.md#pvc-labeling-strategy)
+in the design doc for details.
+
 ## Restore Order
 
 Restores must be executed in sequence. See [`restore/README.md`](restore/README.md)

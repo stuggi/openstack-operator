@@ -837,6 +837,50 @@ metadata:
 - Controller (or operator) adds `backup.openstack.org/restore: "true"` + order to PVCs that should restore
 - Manual override via `backup.velero.io/backup-volumes: "false"` annotation when needed
 
+#### ExtraMounts PVCs
+
+PVCs referenced via `extraMounts` in the OpenStackControlPlane or individual
+service specs are **user-managed** and must be labeled manually by the user.
+
+The BackupConfig controller cannot automatically label ExtraMounts PVCs because:
+- Operators don't consistently set ownerReferences on PVCs, so there is no
+  reliable way to distinguish user-provided PVCs from operator-created ones
+- Walking the ExtraMounts spec would require the backup controller to have
+  in-depth knowledge of each operator's API structure (global and per-service
+  ExtraMounts)
+
+**User action required:** When adding a PVC via `extraMounts`, add backup
+labels to the PVC before creating it:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: my-extra-data
+  namespace: openstack
+  labels:
+    backup.openstack.org/backup: "true"
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/restore-order: "00"
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+```
+
+If a PVC is removed from `extraMounts`, the backup labels will persist on the
+PVC. This is harmless (the PVC will continue to be backed up) but can be
+cleaned up manually if desired:
+
+```bash
+oc label pvc my-extra-data -n openstack \
+  backup.openstack.org/backup- \
+  backup.openstack.org/restore- \
+  backup.openstack.org/restore-order-
+```
+
 ## Backup Categories
 
 Categories enable selective backup/restore scenarios. The design uses **three categories**: `controlplane`, `dataplane`, and `all`.
