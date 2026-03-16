@@ -1170,7 +1170,7 @@ echo "Step 1: Database Restore"
 # Create GaleraRestore CRs (reference backup PVCs from order 00)
 # Execute restore_galera script
 # Clean up GaleraRestore CRs
-# See: docs/dev/scripts/restore-galera-latest.sh
+# See: docs/dev/scripts/restore-galera.sh
 
 # 50.2: RabbitMQ Credentials Restore
 echo "Step 2: RabbitMQ Credentials"

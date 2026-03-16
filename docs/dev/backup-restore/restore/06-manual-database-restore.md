@@ -62,18 +62,22 @@ Wait for pods to be in `Running` state.
 
 ### 4. Execute the database restore
 
-Use the helper script to restore from the latest backup:
+Use the helper script to restore from the backup. Pass the backup timestamp
+(the same one used during backup and for the OADP restore):
 
 ```bash
 # Main cell
-docs/dev/scripts/restore-galera-latest.sh openstackrestore openstack
+docs/dev/scripts/restore-galera.sh openstackrestore <BACKUP_TIMESTAMP> openstack
 
 # Cell1 (if multi-cell)
-docs/dev/scripts/restore-galera-latest.sh openstackrestorecell1 openstack
+docs/dev/scripts/restore-galera.sh openstackrestorecell1 <BACKUP_TIMESTAMP> openstack
+
+# Example with timestamp:
+# docs/dev/scripts/restore-galera.sh openstackrestore 20260311-081234 openstack
 ```
 
 The script will:
-- Find the latest backup file in the restore pod
+- Find the backup files matching the specified timestamp
 - Execute the restore_galera script
 - Delete the GaleraRestore CR after successful restore
 

@@ -70,21 +70,23 @@ oc get backup -n openshift-adp
 oc get backup -n openshift-adp -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,CREATED:.metadata.creationTimestamp
 ```
 
-Pass the discovered backup names to the restore playbook:
+Pass the backup timestamp to the restore playbook:
 ```bash
 ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-  -e pvc_backup_name=openstack-backup-pvcs-20260313-122645 \
-  -e resources_backup_name=openstack-backup-resources-20260313-122645
+  -e backup_timestamp=20260313-122645
 ```
 
 ## Quick Start
 
 ### Automated (Recommended)
 
-Use the restore playbook to orchestrate the full restore flow:
+Use the restore playbook to orchestrate the full restore flow. Pass the
+`backup_timestamp` used during backup — it derives all backup names and is
+passed to the Galera restore script to select the correct database dump.
 
 ```bash
-ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml
+ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
+  -e backup_timestamp=20260311-081234
 ```
 
 The playbook runs all restore steps in order, including:
@@ -98,22 +100,20 @@ The playbook runs all restore steps in order, including:
 
 Override defaults with extra vars:
 ```bash
+# Skip dataplane restore:
 ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-  -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
-  -e resources_backup_name=openstack-backup-resources-20260311-081234 \
+  -e backup_timestamp=20260311-081234 \
   -e restore_dataplane=false
 
 # With additional RabbitMQ clusters:
 ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-  -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
-  -e resources_backup_name=openstack-backup-resources-20260311-081234 \
+  -e backup_timestamp=20260311-081234 \
   -e '{"rabbitmq_clusters": ["rabbitmq", "rabbitmq-cell1", "rabbitmq-cell2"]}'
 
 # Data Mover restore with WaitForFirstConsumer storage (LVM) — required:
 # See "Data Mover Restore with WaitForFirstConsumer Storage" section below.
 ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-  -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
-  -e resources_backup_name=openstack-backup-resources-20260311-081234 \
+  -e backup_timestamp=20260311-081234 \
   -e pin_pvcs=true
 ```
 
@@ -317,4 +317,4 @@ oc logs <backup-source>-restore-<restore-name> -n openstack
 
 - Backup CRs: `docs/dev/backup-restore/backup/`
 - Implementation guide: `docs/dev/backup-restore/backup-restore-controller-implementation.md`
-- Restore scripts: `docs/dev/scripts/restore-galera-latest.sh`
+- Restore scripts: `docs/dev/scripts/restore-galera.sh`

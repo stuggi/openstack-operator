@@ -522,4 +522,4 @@ oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-
 - Backup CRs: `docs/dev/backup-restore/backup/`
 - Restore CRs: `docs/dev/backup-restore/restore/`
 - Restore playbook: `docs/dev/backup-restore/restore/restore-openstack.yaml`
-- Restore scripts: `docs/dev/scripts/restore-galera-latest.sh`
+- Restore scripts: `docs/dev/scripts/restore-galera.sh`

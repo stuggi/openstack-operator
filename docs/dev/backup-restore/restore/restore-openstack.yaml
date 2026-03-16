@@ -23,36 +23,25 @@
 #
 # Usage:
 #   ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-#     -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
-#     -e resources_backup_name=openstack-backup-resources-20260311-081234
-#
-#   # Skip dataplane restore:
-#   ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-#     -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
-#     -e resources_backup_name=openstack-backup-resources-20260311-081234 \
-#     -e restore_dataplane=false
+#     -e backup_timestamp=20260311-081234
 #
 #   # Data Mover restore with WaitForFirstConsumer storage (LVM):
-#   # Pre-create dummy pods to pin PVCs to nodes before restoring.
-#   # The playbook downloads backup metadata, extracts PVC-to-node mapping
-#   # from PV nodeAffinity, and creates dummy pods with nodeName.
 #   ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-#     -e pvc_backup_name=openstack-backup-pvcs-20260311-081234 \
-#     -e resources_backup_name=openstack-backup-resources-20260311-081234 \
+#     -e backup_timestamp=20260311-081234 \
 #     -e pin_pvcs=true
 #
 # Variables:
 #   openstack_namespace: Target namespace (default: openstack)
 #   oadp_namespace: OADP namespace (default: openshift-adp)
-#   pvc_backup_name: Name of the PVC backup (REQUIRED)
-#   resources_backup_name: Name of the resources backup (REQUIRED)
+#   backup_timestamp: Backup timestamp suffix (e.g., 20260311-081234). REQUIRED.
+#     Used to derive backup names and passed to the Galera restore script.
 #   restore_timeout: Timeout in seconds for each restore step (default: 900)
 #   infra_ready_timeout: Timeout waiting for infrastructure (default: 20m)
 #   ctlplane_ready_timeout: Timeout waiting for full control plane (default: 10m)
 #   strict_restore: Fail on PartiallyFailed restores (default: true)
 #   restore_dataplane: Whether to restore dataplane (default: true)
 #   rabbitmq_clusters: List of RabbitMQ cluster names (default: [rabbitmq, rabbitmq-cell1])
-#   pin_pvcs: Create dummy pods to pin PVCs to their original nodes during
+#   pin_pvcs: Create dummy Deployments to pin PVCs to their original nodes during
 #     Data Mover restores with WaitForFirstConsumer storage (e.g., LVM).
 #     Extracts PVC-to-node mapping from PV nodeAffinity in the backup.
 #     (default: false)
@@ -78,14 +67,18 @@
     - name: Validate required parameters
       ansible.builtin.fail:
         msg: |
-          Required parameters missing. Usage:
+          Required parameter missing. Usage:
             ansible-playbook restore-openstack.yaml \
-              -e pvc_backup_name=openstack-backup-pvcs-YYYYMMDD-HHMMSS \
-              -e resources_backup_name=openstack-backup-resources-YYYYMMDD-HHMMSS
+              -e backup_timestamp=YYYYMMDD-HHMMSS
 
           List available backups:
             oc get backup -n {{ oadp_namespace }}
-      when: pvc_backup_name is not defined or resources_backup_name is not defined
+      when: backup_timestamp is not defined
+
+    - name: Derive backup names from timestamp
+      ansible.builtin.set_fact:
+        pvc_backup_name: "openstack-backup-pvcs-{{ backup_timestamp }}"
+        resources_backup_name: "openstack-backup-resources-{{ backup_timestamp }}"
 
     - name: Set restore timestamp
       ansible.builtin.set_fact:
@@ -591,7 +584,7 @@
     - name: Execute database restore for each GaleraRestore
       ansible.builtin.shell: |
         RESTORE_NAME="{{ item.stdout_lines[-1] }}"
-        {{ playbook_dir }}/../../scripts/restore-galera-latest.sh ${RESTORE_NAME} {{ openstack_namespace }}
+        {{ playbook_dir }}/../../scripts/restore-galera.sh ${RESTORE_NAME} {{ backup_timestamp }} {{ openstack_namespace }}
       loop: "{{ galerarestore_names.results }}"
       changed_when: true
       when: galerabackup_names.stdout != ""

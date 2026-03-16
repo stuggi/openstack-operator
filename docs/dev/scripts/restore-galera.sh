@@ -1,20 +1,21 @@
 #!/bin/bash
-# Helper Script: Restore Galera Database from Latest Backup
+# Helper Script: Restore Galera Database from Backup
 #
-# This script automatically finds the latest backup dump file in a GaleraRestore
-# pod and executes the restore. Useful for automated testing and CI/CD pipelines.
+# This script restores a Galera database from a backup dump file in a
+# GaleraRestore pod using the specified backup timestamp.
 #
 # Usage:
-#   ./restore-galera-latest.sh <restore-name> [namespace]
-#   ./restore-galera-latest.sh openstackrestore
-#   ./restore-galera-latest.sh openstackrestorecell1 openstack
+#   ./restore-galera.sh <restore-name> <backup-timestamp> [namespace]
+#   ./restore-galera.sh openstackrestore 20260311-081234
+#   ./restore-galera.sh openstackrestorecell1 20260311-081234 openstack
 
 set -e
 
 # Configuration
 RESTORE_NAME="${1}"
-OPENSTACK_NAMESPACE="${2:-openstack}"
-DELETE_CR="${3:-yes}"  # Delete GaleraRestore CR after successful restore (yes/no)
+BACKUP_TIMESTAMP="${2}"
+OPENSTACK_NAMESPACE="${3:-openstack}"
+DELETE_CR="${4:-yes}"  # Delete GaleraRestore CR after successful restore (yes/no)
 
 # Colors for output
 RED='\033[0;31m'
@@ -48,21 +49,21 @@ print_info() {
 }
 
 # Validate arguments
-if [ -z "$RESTORE_NAME" ]; then
-    print_error "Restore name is required"
+if [ -z "$RESTORE_NAME" ] || [ -z "$BACKUP_TIMESTAMP" ]; then
+    print_error "Restore name and backup timestamp are required"
     echo ""
     echo "Usage:"
-    echo "  $0 <restore-name> [namespace] [delete-cr]"
+    echo "  $0 <restore-name> <backup-timestamp> [namespace] [delete-cr]"
     echo ""
     echo "Arguments:"
-    echo "  restore-name  - Name of the GaleraRestore CR (e.g., openstackrestore)"
-    echo "  namespace     - OpenStack namespace (default: openstack)"
-    echo "  delete-cr     - Delete GaleraRestore CR after successful restore (default: yes)"
+    echo "  restore-name      - Name of the GaleraRestore CR (e.g., openstackrestore)"
+    echo "  backup-timestamp  - Timestamp of the backup (e.g., 20260311-081234)"
+    echo "  namespace         - OpenStack namespace (default: openstack)"
+    echo "  delete-cr         - Delete GaleraRestore CR after successful restore (default: yes)"
     echo ""
     echo "Examples:"
-    echo "  $0 openstackrestore"
-    echo "  $0 openstackrestorecell1 openstack"
-    echo "  $0 openstackrestore openstack no  # Keep GaleraRestore CR"
+    echo "  $0 openstackrestore 20260311-081234"
+    echo "  $0 openstackrestorecell1 20260311-081234 openstack"
     exit 1
 fi
 
@@ -107,37 +108,10 @@ fi
 
 print_success "Restore pod is running"
 
-# List backup files in the pod
-print_header "Finding Latest Backup"
-print_info "Listing backup files in /backup/data/..."
-
-BACKUP_FILES=$(oc exec -n "$OPENSTACK_NAMESPACE" "$POD_NAME" -- sh -c 'ls -1 /backup/data/*_backup_*.sql.gz 2>/dev/null | grep -v grants' || true)
-
-if [ -z "$BACKUP_FILES" ]; then
-    print_error "No backup files found in /backup/data/"
-    print_info "Expected files matching pattern: *_backup_YYYY-MM-DD_HH-MM-SS.sql.gz"
-    exit 1
-fi
-
-# Count backup files
-BACKUP_COUNT=$(echo "$BACKUP_FILES" | wc -l)
-print_success "Found $BACKUP_COUNT backup file(s)"
-
-# Get latest backup (last in sorted list)
-LATEST_BACKUP=$(echo "$BACKUP_FILES" | sort | tail -1)
-print_info "Latest backup: $LATEST_BACKUP"
-
-# Extract timestamp from filename
-# Pattern: openstack-cell1_backup_2026-03-03_15-32-13.sql.gz
-# Extract: 2026-03-03_15-32-13
-TIMESTAMP=$(basename "$LATEST_BACKUP" | sed -E 's/.*_backup_(.*)\.sql\.gz/\1/')
-
-if [ -z "$TIMESTAMP" ]; then
-    print_error "Could not extract timestamp from filename: $LATEST_BACKUP"
-    exit 1
-fi
-
-print_success "Extracted timestamp: $TIMESTAMP"
+# Use the specified backup timestamp
+print_header "Using Backup Timestamp"
+TIMESTAMP="$BACKUP_TIMESTAMP"
+print_success "Timestamp: $TIMESTAMP"
 
 # Construct restore pattern
 # The restore script expects: /backup/data/*_YYYY-MM-DD_HH-MM-SS.sql.gz
@@ -164,7 +138,7 @@ done
 
 # Execute restore
 print_header "Executing Database Restore"
-echo "This will restore the database from the latest backup."
+echo "This will restore the database from the specified backup."
 echo "Pattern: $RESTORE_PATTERN"
 echo ""
 
@@ -181,8 +155,7 @@ echo ""
 
 if [ $RESTORE_EXIT_CODE -eq 0 ]; then
     print_header "Restore Completed Successfully"
-    print_success "Database restored from: $LATEST_BACKUP"
-    print_success "Timestamp: $TIMESTAMP"
+    print_success "Database restored with timestamp: $TIMESTAMP"
 
     # Clean up GaleraRestore CR if requested
     if [ "$DELETE_CR" == "yes" ]; then
