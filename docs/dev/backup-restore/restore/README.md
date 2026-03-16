@@ -325,4 +325,4 @@ oc logs <backup-source>-restore-<restore-name> -n openstack
 
 - Backup CRs: `docs/dev/backup-restore/backup/`
 - Implementation guide: `docs/dev/backup-restore/backup-restore-controller-implementation.md`
-- Restore scripts: `docs/dev/scripts/restore-galera.sh`
+- Restore scripts: [`scripts/restore-galera.sh`](../scripts/restore-galera.sh)

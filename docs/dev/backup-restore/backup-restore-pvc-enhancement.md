@@ -575,5 +575,5 @@ Instead of full serialization each time, track resource changes:
 ## References
 
 - [POC Implementation Guide](backup-restore-controller-implementation.md)
-- [OADP Integration Documentation](../oadp-integration.md)
-- [OpenStackBackupConfig Documentation](../api/backup-config.md)
+- [OADP Setup](oadp/README.md)
+- [Backup/Restore Design](backup-restore-controller-design.md)

@@ -22,9 +22,11 @@ ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
 
 | Path | Description |
 |------|-------------|
+| [`minio/`](minio/) | MinIO deployment (S3-compatible storage for OADP) |
+| [`oadp/`](oadp/) | OADP operator installation and configuration |
 | [`backup/`](backup/) | OADP Backup CRs and backup playbook |
 | [`restore/`](restore/) | OADP Restore CRs, manual restore docs, and restore playbook |
-| [`scripts/`](scripts/) | Helper scripts (e.g., `list-backup-candidates.sh`) |
+| [`scripts/`](scripts/) | Helper scripts (`restore-galera.sh`, `list-backup-candidates.sh`) |
 | [`backup-restore-controller-design.md`](backup-restore-controller-design.md) | Design: CRD labels, controller-based labeling, restore ordering |
 | [`backup-restore-controller-implementation.md`](backup-restore-controller-implementation.md) | Implementation guide for the OpenStackBackupConfig controller |
 | [`backup-restore-pvc-enhancement.md`](backup-restore-pvc-enhancement.md) | Enhancement proposal: serialize CRs to PVC |
@@ -36,7 +38,7 @@ ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
 1. **OpenShift CLI (`oc`) installed** — version compatible with your cluster
 2. **Cluster access** — cluster admin or namespace admin for the `openstack` namespace
 3. **Ansible** — for running backup/restore playbooks
-4. **OADP operator** installed and configured (see [`setup-oadp-minio.md`](../setup-oadp-minio.md))
+4. **OADP operator** installed and configured (see [`oadp/README.md`](oadp/README.md) and [`minio/README.md`](minio/README.md))
 5. **CSI Volume Snapshot support** — required for PVC backup/restore
 
 ### CSI Volume Snapshot Support
@@ -185,6 +187,6 @@ Metal3, additional procedures are required.
 
 ## See Also
 
-- OADP setup: [`../setup-oadp-minio.md`](../setup-oadp-minio.md)
-- Old (pre-OADP) procedures: [`../backup-restore-ctlplane.md`](../backup-restore-ctlplane.md), [`../backup-restore-dataplane.md`](../backup-restore-dataplane.md)
-- Restore scripts: [`../scripts/restore-galera.sh`](../scripts/restore-galera.sh)
+- MinIO setup: [`minio/README.md`](minio/README.md)
+- OADP setup: [`oadp/README.md`](oadp/README.md)
+- Restore scripts: [`scripts/restore-galera.sh`](scripts/restore-galera.sh)
