@@ -72,6 +72,7 @@
       ansible.builtin.shell: |
         BACKUP_JOB_NAME="{{ item }}-{{ backup_name_suffix }}"
         oc -n {{ openstack_namespace }} create job --from=cronjob/{{ item }} ${BACKUP_JOB_NAME}
+        oc -n {{ openstack_namespace }} set env job/${BACKUP_JOB_NAME} BACKUP_TIMESTAMP={{ backup_name_suffix }}
         echo ${BACKUP_JOB_NAME}
       loop: "{{ galera_backup_cronjobs.stdout.split() }}"
       register: galera_backup_jobs

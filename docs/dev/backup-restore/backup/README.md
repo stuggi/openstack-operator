@@ -69,22 +69,33 @@ ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml \
 
 ### Manual
 
-Apply the backup CRs directly:
-
 ```bash
-# Create both backups
-oc apply -f backup-openstack-resources.yaml
-oc apply -f backup-openstack-pvcs.yaml
+# Set a common timestamp for all backup artifacts
+BACKUP_TS=$(date +%Y%m%d-%H%M%S)
 
-# Monitor backup progress
-oc get backup -n openshift-adp -w
+# 1. Trigger Galera database dumps (required before PVC backup)
+#    Creates jobs from GaleraBackup cronjobs and passes the timestamp
+#    so DB dump filenames match the backup name.
+for CRONJOB in $(oc get cronjob -n openstack -l app=galera -o jsonpath='{.items[*].metadata.name}'); do
+  JOB_NAME="${CRONJOB}-${BACKUP_TS}"
+  oc -n openstack create job --from=cronjob/${CRONJOB} ${JOB_NAME}
+  oc -n openstack set env job/${JOB_NAME} BACKUP_TIMESTAMP=${BACKUP_TS}
+done
+
+# Wait for all backup jobs to complete
+oc -n openstack wait --for=condition=complete job -l app=galera --timeout=10m
+
+# 2. OADP PVC backup (CSI snapshots of labeled PVCs)
+oc apply -f backup-openstack-pvcs.yaml
+oc wait --for=jsonpath='{.status.phase}'=Completed backup/openstack-backup-pvcs -n openshift-adp --timeout=30m
+
+# 3. OADP resources backup
+oc apply -f backup-openstack-resources.yaml
+oc wait --for=jsonpath='{.status.phase}'=Completed backup/openstack-backup-resources -n openshift-adp --timeout=30m
 
 # Check backup status
-oc describe backup openstack-backup-resources -n openshift-adp
-oc describe backup openstack-backup-pvcs -n openshift-adp
+oc get backup -n openshift-adp -o custom-columns=NAME:.metadata.name,PHASE:.status.phase
 ```
-
-**Note:** When running manually, trigger Galera DB dumps first to ensure fresh database backups on the PVCs before the CSI snapshot.
 
 ## Backup Contents
 
