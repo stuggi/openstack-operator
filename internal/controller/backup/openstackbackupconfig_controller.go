@@ -21,6 +21,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"strings"
 
 	"github.com/go-logr/logr"
 	backupv1beta1 "github.com/openstack-k8s-operators/openstack-operator/api/backup/v1beta1"
@@ -133,6 +134,87 @@ func getRestoreOrder(config backupv1beta1.ResourceBackupConfig, defaultOrder str
 	return defaultOrder
 }
 
+// syncAnnotationOverrides checks if a resource has backup-related annotations
+// that act as user overrides. If found, they are synced to labels. This allows
+// users to override the controller's default behavior by setting annotations like:
+//   - backup.openstack.org/restore: "true" (force restore) or "false" (skip restore)
+//   - backup.openstack.org/restore-order: "XX" (custom restore order)
+//
+// When restore is set to "true" but no restore-order annotation is provided,
+// defaultRestoreOrder is used. When restore is "false", restore-order is removed.
+//
+// Returns true if an annotation override was applied (caller should skip default labeling).
+func (r *OpenStackBackupConfigReconciler) syncAnnotationOverrides(ctx context.Context, log logr.Logger, obj client.Object, defaultRestoreOrder string) (bool, error) {
+	annotations := obj.GetAnnotations()
+	if annotations == nil {
+		return false, nil
+	}
+
+	restoreVal, hasRestore := annotations[backup.BackupRestoreLabel]
+	orderVal, hasOrder := annotations[backup.BackupRestoreOrderLabel]
+
+	if !hasRestore && !hasOrder {
+		return false, nil
+	}
+
+	labels := obj.GetLabels()
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+
+	needsUpdate := false
+
+	if hasRestore {
+		normalizedRestore := strings.ToLower(restoreVal)
+		if labels[backup.BackupRestoreLabel] != normalizedRestore {
+			labels[backup.BackupRestoreLabel] = normalizedRestore
+			needsUpdate = true
+		}
+
+		if normalizedRestore == "true" {
+			// Ensure restore-order is set: use annotation override or default
+			order := defaultRestoreOrder
+			if hasOrder {
+				order = strings.ToLower(orderVal)
+			}
+			if labels[backup.BackupRestoreOrderLabel] != order {
+				labels[backup.BackupRestoreOrderLabel] = order
+				needsUpdate = true
+			}
+		} else {
+			// restore=false: remove restore-order
+			if _, has := labels[backup.BackupRestoreOrderLabel]; has {
+				delete(labels, backup.BackupRestoreOrderLabel)
+				needsUpdate = true
+			}
+		}
+	} else if hasOrder {
+		// Only restore-order annotation without restore annotation:
+		// sync the order and ensure restore=true
+		normalizedOrder := strings.ToLower(orderVal)
+		if labels[backup.BackupRestoreOrderLabel] != normalizedOrder {
+			labels[backup.BackupRestoreOrderLabel] = normalizedOrder
+			needsUpdate = true
+		}
+		if labels[backup.BackupRestoreLabel] != "true" {
+			labels[backup.BackupRestoreLabel] = "true"
+			needsUpdate = true
+		}
+	}
+
+	if needsUpdate {
+		obj.SetLabels(labels)
+		log.Info("Synced annotation overrides to labels", "name", obj.GetName(),
+			"restore", labels[backup.BackupRestoreLabel],
+			"restoreOrder", labels[backup.BackupRestoreOrderLabel])
+		if err := r.Update(ctx, obj); err != nil {
+			return true, err
+		}
+	}
+
+	return true, nil
+}
+
 // labelResource adds backup labels to a resource
 func (r *OpenStackBackupConfigReconciler) labelResource(ctx context.Context, log logr.Logger, obj client.Object, restoreOrder string) error {
 	labels := obj.GetLabels()
@@ -152,6 +234,29 @@ func (r *OpenStackBackupConfigReconciler) labelResource(ctx context.Context, log
 
 	log.Info("Labeled resource for backup", "kind", obj.GetObjectKind().GroupVersionKind().Kind, "name", obj.GetName(),
 		"restoreOrder", restoreOrder)
+	return r.Update(ctx, obj)
+}
+
+// labelResourceRestoreFalse explicitly sets restore: "false" on a resource to
+// indicate it should not be restored. This makes the exclusion visible.
+// Also removes restore-order since it's meaningless when restore is disabled.
+func (r *OpenStackBackupConfigReconciler) labelResourceRestoreFalse(ctx context.Context, log logr.Logger, obj client.Object) error {
+	labels := obj.GetLabels()
+	if labels == nil {
+		labels = make(map[string]string)
+	}
+
+	// Check if already set correctly
+	_, hasOrder := labels[backup.BackupRestoreOrderLabel]
+	if labels[backup.BackupRestoreLabel] == "false" && !hasOrder {
+		return nil
+	}
+
+	labels[backup.BackupRestoreLabel] = "false"
+	delete(labels, backup.BackupRestoreOrderLabel)
+	obj.SetLabels(labels)
+
+	log.Info("Labeled resource restore=false", "name", obj.GetName())
 	return r.Update(ctx, obj)
 }
 
@@ -204,8 +309,9 @@ func (r *OpenStackBackupConfigReconciler) isCertManagerOperatorSecret(ctx contex
 }
 
 // labelSecrets labels secrets in the target namespace.
-// Secrets managed by cert-manager for operator-created non-CA Certificates are
-// excluded — cert-manager will regenerate them from the restored CA Issuer.
+// Secrets managed by cert-manager for operator-created non-CA Certificates get
+// restore: "false" — cert-manager will regenerate them from the restored CA Issuer.
+// User annotation overrides take precedence over all default behavior.
 func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
 	secretList := &corev1.SecretList{}
 	if err := r.List(ctx, secretList, client.InNamespace(instance.Spec.TargetNamespace)); err != nil {
@@ -216,13 +322,32 @@ func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log 
 	count := 0
 	for i := range secretList.Items {
 		secret := &secretList.Items[i]
+
+		// Annotation overrides take precedence — skip default labeling if present
+		overridden, err := r.syncAnnotationOverrides(ctx, log, secret, getRestoreOrder(instance.Spec.Secrets, instance.Spec.DefaultRestoreOrder))
+		if err != nil {
+			log.Error(err, "Failed to sync annotation overrides for secret", "name", secret.Name)
+			errs = append(errs, fmt.Errorf("secret %s: %w", secret.Name, err))
+			continue
+		}
+		if overridden {
+			count++
+			continue
+		}
+
 		if !shouldLabelResource(secret, instance.Spec.Secrets) {
 			continue
 		}
-		// Skip secrets for operator-managed non-CA certificates
+
+		// Operator-managed non-CA cert secrets: explicitly set restore=false
 		if r.isCertManagerOperatorSecret(ctx, log, secret) {
+			if err := r.labelResourceRestoreFalse(ctx, log, secret); err != nil {
+				log.Error(err, "Failed to label cert secret restore=false", "name", secret.Name)
+				errs = append(errs, fmt.Errorf("secret %s: %w", secret.Name, err))
+			}
 			continue
 		}
+
 		if err := r.labelResource(ctx, log, secret, getRestoreOrder(instance.Spec.Secrets, instance.Spec.DefaultRestoreOrder)); err != nil {
 			log.Error(err, "Failed to label secret", "name", secret.Name)
 			errs = append(errs, fmt.Errorf("secret %s: %w", secret.Name, err))
@@ -245,6 +370,18 @@ func (r *OpenStackBackupConfigReconciler) labelConfigMaps(ctx context.Context, l
 	count := 0
 	for i := range cmList.Items {
 		cm := &cmList.Items[i]
+
+		overridden, err := r.syncAnnotationOverrides(ctx, log, cm, getRestoreOrder(instance.Spec.ConfigMaps, instance.Spec.DefaultRestoreOrder))
+		if err != nil {
+			log.Error(err, "Failed to sync annotation overrides for configmap", "name", cm.Name)
+			errs = append(errs, fmt.Errorf("configmap %s: %w", cm.Name, err))
+			continue
+		}
+		if overridden {
+			count++
+			continue
+		}
+
 		if shouldLabelResource(cm, instance.Spec.ConfigMaps) {
 			if err := r.labelResource(ctx, log, cm, getRestoreOrder(instance.Spec.ConfigMaps, instance.Spec.DefaultRestoreOrder)); err != nil {
 				log.Error(err, "Failed to label configmap", "name", cm.Name)
@@ -269,6 +406,18 @@ func (r *OpenStackBackupConfigReconciler) labelNetworkAttachmentDefinitions(ctx 
 	count := 0
 	for i := range nadList.Items {
 		nad := &nadList.Items[i]
+
+		overridden, err := r.syncAnnotationOverrides(ctx, log, nad, getRestoreOrder(instance.Spec.NetworkAttachmentDefinitions, instance.Spec.DefaultRestoreOrder))
+		if err != nil {
+			log.Error(err, "Failed to sync annotation overrides for NAD", "name", nad.Name)
+			errs = append(errs, fmt.Errorf("network-attachment-definition %s: %w", nad.Name, err))
+			continue
+		}
+		if overridden {
+			count++
+			continue
+		}
+
 		if shouldLabelResource(nad, instance.Spec.NetworkAttachmentDefinitions) {
 			if err := r.labelResource(ctx, log, nad, getRestoreOrder(instance.Spec.NetworkAttachmentDefinitions, instance.Spec.DefaultRestoreOrder)); err != nil {
 				log.Error(err, "Failed to label network-attachment-definition", "name", nad.Name)
@@ -295,6 +444,18 @@ func (r *OpenStackBackupConfigReconciler) labelIssuers(ctx context.Context, log 
 	count := 0
 	for i := range issuerList.Items {
 		issuer := &issuerList.Items[i]
+
+		overridden, err := r.syncAnnotationOverrides(ctx, log, issuer, getRestoreOrder(instance.Spec.Issuers, instance.Spec.DefaultRestoreOrder))
+		if err != nil {
+			log.Error(err, "Failed to sync annotation overrides for issuer", "name", issuer.Name)
+			errs = append(errs, fmt.Errorf("issuer %s: %w", issuer.Name, err))
+			continue
+		}
+		if overridden {
+			count++
+			continue
+		}
+
 		if shouldLabelResource(issuer, instance.Spec.Issuers) {
 			if err := r.labelResource(ctx, log, issuer, getRestoreOrder(instance.Spec.Issuers, instance.Spec.DefaultRestoreOrder)); err != nil {
 				log.Error(err, "Failed to label issuer", "name", issuer.Name)
@@ -353,6 +514,17 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 		// Label each CR instance
 		for i := range list.Items {
 			obj := &list.Items[i]
+
+			// Annotation overrides take precedence over CRD-defined defaults
+			overridden, err := r.syncAnnotationOverrides(ctx, log, obj, backupConfig.RestoreOrder)
+			if err != nil {
+				log.Error(err, "Failed to sync annotation overrides for CR", "kind", gvk.Kind, "name", obj.GetName())
+				continue
+			}
+			if overridden {
+				count++
+				continue
+			}
 
 			labels := obj.GetLabels()
 			if labels == nil {

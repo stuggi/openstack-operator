@@ -634,23 +634,20 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 			DeferCleanup(th.DeleteInstance, backupConfig)
 		})
 
-		It("Should NOT label the operator-created leaf cert secret for restore", func() {
-			// Wait for reconciliation to complete
-			th.ExpectCondition(
-				backupConfigName,
-				ConditionGetterFunc(OpenStackBackupConfigConditionGetter),
-				condition.ReadyCondition,
-				k8s_corev1.ConditionTrue,
-			)
+		It("Should label the operator-created leaf cert secret with restore=false and no restore-order", func() {
+			Eventually(func(g Gomega) {
+				secret := &k8s_corev1.Secret{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name: "cert-keystone-internal-svc", Namespace: namespace,
+				}, secret)).Should(Succeed())
 
-			secret := &k8s_corev1.Secret{}
-			Expect(k8sClient.Get(ctx, types.NamespacedName{
-				Name: "cert-keystone-internal-svc", Namespace: namespace,
-			}, secret)).Should(Succeed())
-
-			labels := secret.GetLabels()
-			Expect(labels[commonbackup.BackupRestoreLabel]).To(BeEmpty(),
-				"Operator-created non-CA cert secret should NOT be labeled for restore")
+				labels := secret.GetLabels()
+				g.Expect(labels).NotTo(BeNil())
+				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("false"),
+					"Operator-created non-CA cert secret should have restore=false")
+				g.Expect(labels).NotTo(HaveKey(commonbackup.BackupRestoreOrderLabel),
+					"restore-order should not be set when restore=false")
+			}, timeout, interval).Should(Succeed())
 		})
 	})
 
@@ -710,6 +707,294 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 				g.Expect(labels).NotTo(BeNil())
 				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("true"),
 					"User-created cert secret should be labeled for restore")
+			}, timeout, interval).Should(Succeed())
+		})
+	})
+
+	When("A secret has a restore annotation override set to false", func() {
+		BeforeEach(func() {
+			backupConfigName = types.NamespacedName{
+				Name:      "test-backup-annotation-false",
+				Namespace: namespace,
+			}
+
+			// Create a secret with annotation override restore=false
+			secret := &k8s_corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "override-skip-secret",
+					Namespace: namespace,
+					Annotations: map[string]string{
+						commonbackup.BackupRestoreLabel: "false",
+					},
+				},
+				Data: map[string][]byte{"key": []byte("value")},
+			}
+			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
+			DeferCleanup(th.DeleteInstance, secret)
+
+			backupConfig := CreateBackupConfig(backupConfigName)
+			DeferCleanup(th.DeleteInstance, backupConfig)
+		})
+
+		It("Should sync the annotation to label restore=false without restore-order", func() {
+			Eventually(func(g Gomega) {
+				secret := &k8s_corev1.Secret{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name: "override-skip-secret", Namespace: namespace,
+				}, secret)).Should(Succeed())
+
+				labels := secret.GetLabels()
+				g.Expect(labels).NotTo(BeNil())
+				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("false"),
+					"Annotation override restore=false should be synced to label")
+				g.Expect(labels).NotTo(HaveKey(commonbackup.BackupRestoreOrderLabel),
+					"restore-order should not be set when restore=false")
+			}, timeout, interval).Should(Succeed())
+		})
+	})
+
+	When("A secret has a restore annotation override set to true", func() {
+		BeforeEach(func() {
+			backupConfigName = types.NamespacedName{
+				Name:      "test-backup-annotation-true",
+				Namespace: namespace,
+			}
+
+			// Create a secret that would normally be excluded (has ownerRef)
+			// but has annotation override restore=true
+			secret := &k8s_corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "override-restore-secret",
+					Namespace: namespace,
+					Annotations: map[string]string{
+						commonbackup.BackupRestoreLabel: "true",
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "core.openstack.org/v1beta1",
+							Kind:       "OpenStackControlPlane",
+							Name:       "controlplane",
+							UID:        "fake-uid",
+						},
+					},
+				},
+				Data: map[string][]byte{"key": []byte("value")},
+			}
+			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
+			DeferCleanup(th.DeleteInstance, secret)
+
+			backupConfig := CreateBackupConfig(backupConfigName)
+			DeferCleanup(th.DeleteInstance, backupConfig)
+		})
+
+		It("Should sync the annotation to label restore=true with default restore-order even with ownerRef", func() {
+			Eventually(func(g Gomega) {
+				secret := &k8s_corev1.Secret{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name: "override-restore-secret", Namespace: namespace,
+				}, secret)).Should(Succeed())
+
+				labels := secret.GetLabels()
+				g.Expect(labels).NotTo(BeNil())
+				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("true"),
+					"Annotation override restore=true should be synced to label, overriding ownerRef exclusion")
+				g.Expect(labels[commonbackup.BackupRestoreOrderLabel]).NotTo(BeEmpty(),
+					"restore-order should be set to default when restore=true via annotation")
+			}, timeout, interval).Should(Succeed())
+		})
+	})
+
+	When("A secret has a restore-order annotation override", func() {
+		BeforeEach(func() {
+			backupConfigName = types.NamespacedName{
+				Name:      "test-backup-annotation-order",
+				Namespace: namespace,
+			}
+
+			// Create a secret with annotation override for restore order
+			secret := &k8s_corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "custom-order-secret",
+					Namespace: namespace,
+					Annotations: map[string]string{
+						commonbackup.BackupRestoreLabel:      "true",
+						commonbackup.BackupRestoreOrderLabel: "05",
+					},
+				},
+				Data: map[string][]byte{"key": []byte("value")},
+			}
+			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
+			DeferCleanup(th.DeleteInstance, secret)
+
+			backupConfig := CreateBackupConfig(backupConfigName)
+			DeferCleanup(th.DeleteInstance, backupConfig)
+		})
+
+		It("Should sync both restore and restore-order annotations to labels", func() {
+			Eventually(func(g Gomega) {
+				secret := &k8s_corev1.Secret{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name: "custom-order-secret", Namespace: namespace,
+				}, secret)).Should(Succeed())
+
+				labels := secret.GetLabels()
+				g.Expect(labels).NotTo(BeNil())
+				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("true"))
+				g.Expect(labels[commonbackup.BackupRestoreOrderLabel]).To(Equal("05"),
+					"Annotation override restore-order=05 should be synced to label")
+			}, timeout, interval).Should(Succeed())
+		})
+	})
+
+	When("An operator-created leaf cert secret has annotation override restore=true", func() {
+		BeforeEach(func() {
+			backupConfigName = types.NamespacedName{
+				Name:      "test-backup-cert-override",
+				Namespace: namespace,
+			}
+
+			// Create an operator-created leaf Certificate
+			leafCert := &certmgrv1.Certificate{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "keystone-override-svc",
+					Namespace: namespace,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion: "keystone.openstack.org/v1beta1",
+							Kind:       "KeystoneAPI",
+							Name:       "keystone",
+							UID:        "fake-uid-3",
+						},
+					},
+				},
+				Spec: certmgrv1.CertificateSpec{
+					SecretName: "cert-keystone-override-svc",
+					IssuerRef: certmgrmetav1.ObjectReference{
+						Name: "rootca-internal",
+						Kind: "Issuer",
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, leafCert)).Should(Succeed())
+			DeferCleanup(th.DeleteInstance, leafCert)
+
+			// Create the secret with annotation override to force restore
+			leafSecret := &k8s_corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "cert-keystone-override-svc",
+					Namespace: namespace,
+					Annotations: map[string]string{
+						"cert-manager.io/certificate-name": "keystone-override-svc",
+						commonbackup.BackupRestoreLabel:    "true",
+					},
+				},
+				Data: map[string][]byte{
+					"tls.crt": []byte("leaf-cert"),
+					"tls.key": []byte("leaf-key"),
+				},
+			}
+			Expect(k8sClient.Create(ctx, leafSecret)).Should(Succeed())
+			DeferCleanup(th.DeleteInstance, leafSecret)
+
+			backupConfig := CreateBackupConfig(backupConfigName)
+			DeferCleanup(th.DeleteInstance, backupConfig)
+		})
+
+		It("Should honor annotation override and set restore=true with default restore-order", func() {
+			Eventually(func(g Gomega) {
+				secret := &k8s_corev1.Secret{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name: "cert-keystone-override-svc", Namespace: namespace,
+				}, secret)).Should(Succeed())
+
+				labels := secret.GetLabels()
+				g.Expect(labels).NotTo(BeNil())
+				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("true"),
+					"Annotation override should take precedence over cert-manager leaf secret default")
+				g.Expect(labels[commonbackup.BackupRestoreOrderLabel]).NotTo(BeEmpty(),
+					"restore-order should be set to default when restore=true via annotation")
+			}, timeout, interval).Should(Succeed())
+		})
+	})
+
+	When("A secret has only a restore-order annotation override", func() {
+		BeforeEach(func() {
+			backupConfigName = types.NamespacedName{
+				Name:      "test-backup-annotation-order-only",
+				Namespace: namespace,
+			}
+
+			// Create a secret with only restore-order annotation (no restore annotation)
+			secret := &k8s_corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "order-only-secret",
+					Namespace: namespace,
+					Annotations: map[string]string{
+						commonbackup.BackupRestoreOrderLabel: "05",
+					},
+				},
+				Data: map[string][]byte{"key": []byte("value")},
+			}
+			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
+			DeferCleanup(th.DeleteInstance, secret)
+
+			backupConfig := CreateBackupConfig(backupConfigName)
+			DeferCleanup(th.DeleteInstance, backupConfig)
+		})
+
+		It("Should imply restore=true and use the specified restore-order", func() {
+			Eventually(func(g Gomega) {
+				secret := &k8s_corev1.Secret{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name: "order-only-secret", Namespace: namespace,
+				}, secret)).Should(Succeed())
+
+				labels := secret.GetLabels()
+				g.Expect(labels).NotTo(BeNil())
+				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("true"),
+					"restore-order annotation should imply restore=true")
+				g.Expect(labels[commonbackup.BackupRestoreOrderLabel]).To(Equal("05"),
+					"restore-order should use the annotation value")
+			}, timeout, interval).Should(Succeed())
+		})
+	})
+
+	When("A secret has annotation override with mixed case value", func() {
+		BeforeEach(func() {
+			backupConfigName = types.NamespacedName{
+				Name:      "test-backup-annotation-case",
+				Namespace: namespace,
+			}
+
+			// Create a secret with mixed-case annotation value
+			secret := &k8s_corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "mixed-case-secret",
+					Namespace: namespace,
+					Annotations: map[string]string{
+						commonbackup.BackupRestoreLabel: "True",
+					},
+				},
+				Data: map[string][]byte{"key": []byte("value")},
+			}
+			Expect(k8sClient.Create(ctx, secret)).Should(Succeed())
+			DeferCleanup(th.DeleteInstance, secret)
+
+			backupConfig := CreateBackupConfig(backupConfigName)
+			DeferCleanup(th.DeleteInstance, backupConfig)
+		})
+
+		It("Should normalize the annotation value to lowercase in the label", func() {
+			Eventually(func(g Gomega) {
+				secret := &k8s_corev1.Secret{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
+					Name: "mixed-case-secret", Namespace: namespace,
+				}, secret)).Should(Succeed())
+
+				labels := secret.GetLabels()
+				g.Expect(labels).NotTo(BeNil())
+				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("true"),
+					"Mixed case 'True' annotation should be normalized to 'true' label")
 			}, timeout, interval).Should(Succeed())
 		})
 	})
