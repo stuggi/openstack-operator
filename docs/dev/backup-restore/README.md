@@ -1,9 +1,11 @@
 # OpenStack Backup and Restore
 
 This directory contains the OADP-based backup and restore implementation for
-OpenStack on OpenShift. It uses CRD labels for dynamic resource discovery,
-OADP/Velero for PVC snapshots and resource backup, and Ansible playbooks for
-orchestration.
+OpenStack on OpenShift. It uses CRD labels for dynamic discovery of OpenStack
+CR types, and the OpenStackBackupConfig controller to label both CR instances
+and other resource types (Secrets, ConfigMaps, NADs, Issuers) for restore
+filtering. OADP/Velero handles PVC snapshots and resource backup, with Ansible
+playbooks for orchestration.
 
 ## Quick Start
 
