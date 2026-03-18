@@ -155,7 +155,57 @@ func (r *OpenStackBackupConfigReconciler) labelResource(ctx context.Context, log
 	return r.Update(ctx, obj)
 }
 
-// labelSecrets labels secrets in the target namespace
+// isCertManagerOperatorSecret checks if a secret is managed by cert-manager for an
+// operator-created (non-CA) Certificate. Such secrets do not need the restore label
+// because cert-manager will regenerate them from the restored CA Issuer and Certificate CRs.
+// The secrets are still included in the namespace-wide backup (no label needed for that).
+//
+// Returns true (skip restore label) for:
+//   - Operator-created non-CA cert secrets (Certificate CR has ownerRef, isCA != true)
+//
+// Returns false (set restore label) for:
+//   - Non-cert-manager secrets
+//   - CA certificate secrets (spec.isCA: true) — must be restored to preserve CA identity
+//   - Secrets from user-created Certificates (no ownerRef on Certificate CR)
+func (r *OpenStackBackupConfigReconciler) isCertManagerOperatorSecret(ctx context.Context, log logr.Logger, secret *corev1.Secret) bool {
+	certName, hasCertAnnotation := secret.Annotations["cert-manager.io/certificate-name"]
+	if !hasCertAnnotation {
+		return false
+	}
+
+	// Look up the Certificate CR
+	cert := &certmgrv1.Certificate{}
+	if err := r.Get(ctx, types.NamespacedName{
+		Name:      certName,
+		Namespace: secret.Namespace,
+	}, cert); err != nil {
+		// Certificate not found — could be deleted, treat secret as user-provided
+		log.V(1).Info("Certificate CR not found for secret, treating as user-provided",
+			"secret", secret.Name, "certificate", certName)
+		return false
+	}
+
+	// CA certificates must be restored to preserve the CA identity
+	if cert.Spec.IsCA {
+		log.V(1).Info("Secret is for CA certificate, will be backed up",
+			"secret", secret.Name, "certificate", certName)
+		return false
+	}
+
+	// If the Certificate CR has no ownerRef, it's user-created — restore the secret
+	if len(cert.GetOwnerReferences()) == 0 {
+		return false
+	}
+
+	// Operator-created, non-CA certificate — cert-manager will regenerate
+	log.V(1).Info("Skipping operator-managed cert secret (will be regenerated)",
+		"secret", secret.Name, "certificate", certName)
+	return true
+}
+
+// labelSecrets labels secrets in the target namespace.
+// Secrets managed by cert-manager for operator-created non-CA Certificates are
+// excluded — cert-manager will regenerate them from the restored CA Issuer.
 func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
 	secretList := &corev1.SecretList{}
 	if err := r.List(ctx, secretList, client.InNamespace(instance.Spec.TargetNamespace)); err != nil {
@@ -166,14 +216,19 @@ func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log 
 	count := 0
 	for i := range secretList.Items {
 		secret := &secretList.Items[i]
-		if shouldLabelResource(secret, instance.Spec.Secrets) {
-			if err := r.labelResource(ctx, log, secret, getRestoreOrder(instance.Spec.Secrets, instance.Spec.DefaultRestoreOrder)); err != nil {
-				log.Error(err, "Failed to label secret", "name", secret.Name)
-				errs = append(errs, fmt.Errorf("secret %s: %w", secret.Name, err))
-				continue
-			}
-			count++
+		if !shouldLabelResource(secret, instance.Spec.Secrets) {
+			continue
 		}
+		// Skip secrets for operator-managed non-CA certificates
+		if r.isCertManagerOperatorSecret(ctx, log, secret) {
+			continue
+		}
+		if err := r.labelResource(ctx, log, secret, getRestoreOrder(instance.Spec.Secrets, instance.Spec.DefaultRestoreOrder)); err != nil {
+			log.Error(err, "Failed to label secret", "name", secret.Name)
+			errs = append(errs, fmt.Errorf("secret %s: %w", secret.Name, err))
+			continue
+		}
+		count++
 	}
 
 	return count, stderrors.Join(errs...)
@@ -338,6 +393,7 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 // +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=k8s.cni.cncf.io,resources=network-attachment-definitions,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=issuers,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups=cert-manager.io,resources=certificates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=get;list;watch
 // RBAC for labeling CR instances across all openstack.org API groups.
 // Kubernetes RBAC does not support wildcard group patterns (*.openstack.org),
