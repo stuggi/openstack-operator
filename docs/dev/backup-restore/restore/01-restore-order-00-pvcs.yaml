@@ -20,6 +20,11 @@ spec:
   includedNamespaces:
   - openstack
 
+  # Exclude pods - Velero includes them as related items for PVCs,
+  # but they fail to restore (missing ServiceAccounts) and aren't needed
+  excludedResources:
+  - pods
+
   # Resource modifiers: strip last-applied-configuration and optionally
   # change StorageClass to Immediate binding for Data Mover restores
   resourceModifier:
