@@ -837,6 +837,33 @@ metadata:
 - Controller (or operator) adds `backup.openstack.org/restore: "true"` + order to PVCs that should restore
 - Manual override via `backup.velero.io/backup-volumes: "false"` annotation when needed
 
+#### Operator PVC Backup Decisions
+
+| Operator | PVC Purpose | Backed Up | Rationale |
+|----------|-------------|-----------|-----------|
+| **glance-operator** | Image storage (`/var/lib/glance`) | Yes | Contains uploaded Glance images that must survive restore |
+| **glance-operator** | Image cache (`image-cache` annotation) | No | Ephemeral cache data; repopulated automatically on image access |
+| **mariadb-operator** | Galera database (StatefulSet) | No (special) | Database is restored via GaleraRestore from backup dumps, not from PVC snapshots. PVCs use `Retain` policy and are deleted during cleanup. |
+| **mariadb-operator** | GaleraBackup dumps | Yes | Contains database dump files needed for GaleraRestore during restore procedure |
+| **swift-operator** | Object storage data (`/srv/node/pv`) | Yes | Contains actual Swift objects (user data). PVC labels set at VolumeClaimTemplate creation + reconcile for existing PVCs. Restore order 00 (PVCs). |
+| **swift-operator** | Ring ConfigMap (`swift-ring-files`) | Yes | Ring files map objects to storage nodes. Created by rebalance job, has ownerRef (SwiftRing CR). Backup labels reconciled by SwiftRing controller after job completes. Restore order 10. |
+| **swift-operator** | `swift-conf` Secret | Yes | Contains randomly generated `swift_hash_path_prefix/suffix` for ring placement. Regeneration produces new random values, making existing object data inaccessible. Backup labels set at Secret creation + reconcile for existing envs. Controller already skips creation if Secret exists (safe for restore). Restore order 10. |
+| **designate-operator** | BIND9 zone data (`/var/named-persistent`) | Yes | DNS zone data is eventually reconstructed from the DB, but with many zones/records this takes time and causes DNS errors during reconstruction. Restoring the PVC provides immediate availability. |
+| **ironic-operator** | Conductor state (`/var/lib/ironic`) | No | Ironic conductor state is reconstructed from the Ironic database after restore |
+| **ovn-operator** | OVN database (`etc-ovn`) | No | OVN databases (Northbound/Southbound) are reconstructed by OVN controllers after restore |
+| **telemetry-operator** | Metrics storage | No | Telemetry data is ephemeral (default 24h retention, max 2 weeks); after restore, metrics collection starts fresh |
+| **test-operator** | Test logs (external PVC) | No | Test results are ephemeral; operator references externally-created PVCs, does not create them |
+| **User (extraMounts)** | Custom PVCs | Manual | User must label PVCs manually before creating them (see below) |
+
+**TODO: Annotation overrides for operator-managed resources.** The
+`syncAnnotationOverrides` function currently lives in the openstack-operator's
+BackupConfig controller. Sub-operators (glance, swift) that label PVCs,
+Secrets, and ConfigMaps directly do not yet support annotation-based user
+overrides on those resources. When `syncAnnotationOverrides` is promoted to
+lib-common, sub-operators should call it during label reconciliation so users
+can override backup/restore behavior via annotations (e.g., exclude a PVC
+with `backup.openstack.org/restore: "false"`).
+
 #### ExtraMounts PVCs
 
 PVCs referenced via `extraMounts` in the OpenStackControlPlane or individual
