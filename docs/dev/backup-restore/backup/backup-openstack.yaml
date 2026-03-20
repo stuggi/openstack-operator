@@ -193,22 +193,34 @@
 
     - name: Wait for PVC backup to complete
       ansible.builtin.shell: |
-        oc wait --for=jsonpath='{.status.phase}'=Completed \
-          backup/openstack-backup-pvcs-{{ backup_name_suffix }} \
-          -n {{ oadp_namespace }} \
-          --timeout={{ oadp_backup_timeout }}
-      changed_when: false
-
-    - name: Get PVC backup status
-      ansible.builtin.shell: |
-        oc get backup openstack-backup-pvcs-{{ backup_name_suffix }} -n {{ oadp_namespace }} \
-          -o jsonpath='{.status.phase}'
-      register: pvc_backup_status
+        BACKUP_NAME="openstack-backup-pvcs-{{ backup_name_suffix }}"
+        TIMEOUT={{ oadp_backup_timeout | regex_replace('[^0-9]', '') }}
+        ELAPSED=0
+        while [ $ELAPSED -lt $((TIMEOUT * 60)) ]; do
+          read -r PHASE ITEMS_DONE ITEMS_TOTAL OPS_DONE OPS_TOTAL <<< $(oc get backup ${BACKUP_NAME} -n {{ oadp_namespace }} \
+            -o jsonpath='{.status.phase} {.status.progress.itemsBackedUp} {.status.progress.totalItems} {.status.backupItemOperationsCompleted} {.status.backupItemOperationsAttempted}' 2>/dev/null)
+          PROGRESS="Phase: ${PHASE:-Pending} | Items: ${ITEMS_DONE:-0}/${ITEMS_TOTAL:-?}"
+          [ -n "${OPS_TOTAL}" ] && PROGRESS="${PROGRESS} | Operations: ${OPS_DONE:-0}/${OPS_TOTAL}"
+          echo "  $(date +%H:%M:%S) ${PROGRESS}" > /dev/tty
+          case "${PROGRESS}" in
+            *"Phase: Completed"*)
+              echo "${PROGRESS}"
+              exit 0 ;;
+            *"Phase: Failed"*|*"Phase: PartiallyFailed"*)
+              echo "${PROGRESS}" >&2
+              exit 1 ;;
+          esac
+          sleep 10
+          ELAPSED=$((ELAPSED + 10))
+        done
+        echo "Timeout waiting for backup ${BACKUP_NAME} after ${TIMEOUT}m" >&2
+        exit 1
+      register: pvc_backup_progress
       changed_when: false
 
     - name: Print Step 2 result
       ansible.builtin.debug:
-        msg: "PVC backup status: {{ pvc_backup_status.stdout }}"
+        msg: "PVC backup: {{ pvc_backup_progress.stdout }}"
 
     # ========================================
     # Step 3: OADP Resources Backup
@@ -233,7 +245,7 @@
     - name: Pause before resources backup
       ansible.builtin.pause:
         prompt: >-
-          Step 2 complete: PVC backup ({{ pvc_backup_status.stdout }}).
+          Step 2 complete: PVC backup ({{ pvc_backup_progress.stdout }}).
           Press Enter to create resources backup, or Ctrl+C then 'A' to abort
       when: not (auto_ack | bool)
 
@@ -244,22 +256,34 @@
 
     - name: Wait for resources backup to complete
       ansible.builtin.shell: |
-        oc wait --for=jsonpath='{.status.phase}'=Completed \
-          backup/openstack-backup-resources-{{ backup_name_suffix }} \
-          -n {{ oadp_namespace }} \
-          --timeout={{ oadp_backup_timeout }}
-      changed_when: false
-
-    - name: Get resources backup status
-      ansible.builtin.shell: |
-        oc get backup openstack-backup-resources-{{ backup_name_suffix }} -n {{ oadp_namespace }} \
-          -o jsonpath='{.status.phase}'
-      register: resources_backup_status
+        BACKUP_NAME="openstack-backup-resources-{{ backup_name_suffix }}"
+        TIMEOUT={{ oadp_backup_timeout | regex_replace('[^0-9]', '') }}
+        ELAPSED=0
+        while [ $ELAPSED -lt $((TIMEOUT * 60)) ]; do
+          read -r PHASE ITEMS_DONE ITEMS_TOTAL OPS_DONE OPS_TOTAL <<< $(oc get backup ${BACKUP_NAME} -n {{ oadp_namespace }} \
+            -o jsonpath='{.status.phase} {.status.progress.itemsBackedUp} {.status.progress.totalItems} {.status.backupItemOperationsCompleted} {.status.backupItemOperationsAttempted}' 2>/dev/null)
+          PROGRESS="Phase: ${PHASE:-Pending} | Items: ${ITEMS_DONE:-0}/${ITEMS_TOTAL:-?}"
+          [ -n "${OPS_TOTAL}" ] && PROGRESS="${PROGRESS} | Operations: ${OPS_DONE:-0}/${OPS_TOTAL}"
+          echo "  $(date +%H:%M:%S) ${PROGRESS}" > /dev/tty
+          case "${PROGRESS}" in
+            *"Phase: Completed"*)
+              echo "${PROGRESS}"
+              exit 0 ;;
+            *"Phase: Failed"*|*"Phase: PartiallyFailed"*)
+              echo "${PROGRESS}" >&2
+              exit 1 ;;
+          esac
+          sleep 10
+          ELAPSED=$((ELAPSED + 10))
+        done
+        echo "Timeout waiting for backup ${BACKUP_NAME} after ${TIMEOUT}m" >&2
+        exit 1
+      register: resources_backup_progress
       changed_when: false
 
     - name: Print Step 3 result
       ansible.builtin.debug:
-        msg: "Resources backup status: {{ resources_backup_status.stdout }}"
+        msg: "Resources backup: {{ resources_backup_progress.stdout }}"
 
     # ========================================
     # Summary
