@@ -1,23 +1,28 @@
 # OpenStack Restore Process
 
-This directory contains OADP Restore CRs for restoring OpenStack from backup.
+This directory contains restore templates and playbook for restoring OpenStack from backup.
+
+The `templates/` directory contains Jinja2 templates for Velero Restore CRs and
+ConfigMaps. The restore playbook (`restore-openstack.yaml`) renders these
+templates with the appropriate variables and applies them in order, ensuring that
+what gets tested is exactly what gets documented.
 
 ## Restore Order
 
 Restores must be executed in sequence. Wait for each restore to complete before starting the next.
 
-| File | Order | Resources | Notes |
-|------|-------|-----------|-------|
-| `00-resource-modifiers-configmap.yaml` | - | ConfigMap | **Prerequisite:** resource modifier rules for all restores |
-| `01-restore-order-00-pvcs.yaml` | 00 | PVCs (Glance images, GaleraBackup) | Storage foundation, restored from CSI snapshots |
-| `02-restore-order-10-foundation.yaml` | 10 | Secrets, ConfigMaps, NADs | User-provided resources without ownerRefs |
-| `03-restore-order-20-infrastructure.yaml` | 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase, NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa | Infrastructure base (**InstanceHa restored with `spec.disabled: True`**) |
-| `04-restore-order-30-controlplane.yaml` | 30 | OpenStackControlPlane, Reservation | **Adds `deployment-stage: infrastructure-only` annotation** |
-| `05-restore-order-40-backup-config.yaml` | 40 | GaleraBackup, IPSet, DataPlaneService | Backup config, IP sets, custom DataPlane services |
+| Template | Order | Resources | Notes |
+|----------|-------|-----------|-------|
+| `templates/00-resource-modifiers-configmap.yaml.j2` | - | ConfigMap | **Prerequisite:** resource modifier rules for all restores |
+| `templates/01-restore-order-00-pvcs.yaml.j2` | 00 | PVCs (Glance images, GaleraBackup) | Storage foundation, restored from CSI snapshots |
+| `templates/02-restore-order-10-foundation.yaml.j2` | 10 | Secrets, ConfigMaps, NADs | User-provided resources without ownerRefs |
+| `templates/03-restore-order-20-infrastructure.yaml.j2` | 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase, NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa | Infrastructure base (**InstanceHa restored with `spec.disabled: True`**) |
+| `templates/04-restore-order-30-controlplane.yaml.j2` | 30 | OpenStackControlPlane, Reservation | **Adds `deployment-stage: infrastructure-only` annotation** |
+| `templates/05-restore-order-40-backup-config.yaml.j2` | 40 | GaleraBackup, IPSet, DataPlaneService | Backup config, IP sets, custom DataPlane services |
 | `06-manual-database-restore.md` | 50 | **Manual** | Create GaleraRestore CRs, restore databases, remove deployment-stage annotation |
-| `06b-restore-rabbitmq-secrets.yaml` | - | Secrets (to temp ns) | OADP Restore CR used by `06c-manual-rabbitmq-restore.md` |
+| `templates/06b-restore-rabbitmq-secrets.yaml.j2` | - | Secrets (to temp ns) | Velero Restore CR used by `06c-manual-rabbitmq-restore.md` |
 | `06c-manual-rabbitmq-restore.md` | 55 | **Manual** | Restore RabbitMQ `*-default-user` secrets, create RabbitMQUser CRs |
-| `07-restore-order-60-dataplane.yaml` | 60 | OpenStackDataPlaneNodeSet | DataPlane resources (optional) |
+| `templates/07-restore-order-60-dataplane.yaml.j2` | 60 | OpenStackDataPlaneNodeSet | DataPlane resources (optional) |
 | *(Post-restore)* | - | **Manual** | Run EDPM deployment to resync credentials (required if credentials were rotated between backup and restore) |
 | *(Final step)* | - | **Manual** | Re-enable InstanceHa (`spec.disabled: False`) after verifying the restored cloud is operational |
 
@@ -100,18 +105,18 @@ The playbook runs all restore steps in order, including:
 
 Override defaults with extra vars:
 ```bash
-# Skip dataplane restore:
+# Skip all confirmation prompts (non-interactive):
 ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
   -e backup_timestamp=20260311-081234 \
-  -e restore_dataplane=false
+  -e auto_ack=true
 
 # With additional RabbitMQ clusters:
 ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
   -e backup_timestamp=20260311-081234 \
   -e '{"rabbitmq_clusters": ["rabbitmq", "rabbitmq-cell1", "rabbitmq-cell2"]}'
 
-# Data Mover restore with WaitForFirstConsumer storage (LVM) — required:
-# See "Data Mover Restore with WaitForFirstConsumer Storage" section below.
+# Data Mover restore with WaitForFirstConsumer storage (LVM),
+# not required on OCP 4.20+ (Velero v1.16+ supports ignoreDelayBinding):
 ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
   -e backup_timestamp=20260311-081234 \
   -e pin_pvcs=true
@@ -119,39 +124,49 @@ ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
 
 ### Manual
 
-Create the resource modifier ConfigMap first, then apply restore CRs in order:
+The templates in `templates/` use Jinja2 variables. For manual restores,
+replace the variables with your values or render them with the playbook.
+
+The following example uses `BACKUP_TIMESTAMP=20260311-081234` as the backup
+timestamp. Adjust the backup names and restore suffixes to match your
+environment.
 
 ```bash
-# 0. Create resource modifier ConfigMap (required for all restores)
-oc apply -f 00-resource-modifiers-configmap.yaml
+# Set your backup timestamp
+BACKUP_TIMESTAMP=20260311-081234
+RESTORE_SUFFIX=$(date +%Y%m%d-%H%M%S)
 
-# 0.5 (Optional - required for LVM/topolvm with Data Mover)
+# 0. Create resource modifier ConfigMap (required for all restores)
+#    See templates/00-resource-modifiers-configmap.yaml.j2 for the full template.
+#    Render with: ansible -m template -a "src=templates/00-resource-modifiers-configmap.yaml.j2 dest=/tmp/00.yaml" localhost
+oc apply -f /tmp/00.yaml
+
+# 0.5 (Optional - required for LVM/topolvm with Data Mover, not needed on OCP 4.20+)
 #     Pin PVCs to their original nodes before restoring.
 #     See "Data Mover Restore with WaitForFirstConsumer Storage" section below.
-#     Skip this step if not using Data Mover or not using WaitForFirstConsumer storage.
 
 # 1. Storage foundation - PVCs
-oc apply -f 01-restore-order-00-pvcs.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-pvcs -n openshift-adp --timeout=15m
+oc apply -f /tmp/01-restore-order-00-pvcs.yaml
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-pvcs-${RESTORE_SUFFIX} -n openshift-adp --timeout=15m
 
 # 1.5 (If step 0.5 was used) Delete dummy Deployments
 # oc delete deployment -n openstack -l app=pvc-pin
 
 # 2. Foundation resources
-oc apply -f 02-restore-order-10-foundation.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-10-foundation -n openshift-adp --timeout=5m
+oc apply -f /tmp/02-restore-order-10-foundation.yaml
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-10-foundation-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
 
 # 3. Infrastructure CRs
-oc apply -f 03-restore-order-20-infrastructure.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-20-infrastructure -n openshift-adp --timeout=5m
+oc apply -f /tmp/03-restore-order-20-infrastructure.yaml
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-20-infra-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
 
 # 4. OpenStackControlPlane (with staging annotation)
-oc apply -f 04-restore-order-30-controlplane.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-30-controlplane -n openshift-adp --timeout=5m
+oc apply -f /tmp/04-restore-order-30-controlplane.yaml
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-30-ctlplane-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
 
 # 5. Backup configuration
-oc apply -f 05-restore-order-40-backup-config.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-40-backup-config -n openshift-adp --timeout=5m
+oc apply -f /tmp/05-restore-order-40-backup-config.yaml
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-40-backup-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
 
 # 6. Manual database restore — REQUIRED
 #    Follow the procedure in 06-manual-database-restore.md:
@@ -165,8 +180,8 @@ oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-40-
 #     - Create RabbitMQUser CRs
 
 # 7. DataPlane (if applicable)
-oc apply -f 07-restore-order-60-dataplane.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-60-dataplane -n openshift-adp --timeout=5m
+oc apply -f /tmp/07-restore-order-60-dataplane.yaml
+oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-60-dataplane-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
 ```
 
 ## Data Mover Restore with WaitForFirstConsumer Storage (LVM)

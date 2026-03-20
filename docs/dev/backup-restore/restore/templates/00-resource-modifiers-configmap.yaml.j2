@@ -1,0 +1,43 @@
+---
+# Resource Modifier ConfigMap for Velero Restores
+#
+# Defines rules applied to resources during restore:
+# 1. Strip kubectl.kubernetes.io/last-applied-configuration from all resources
+# 2. Add deployment-stage=infrastructure-only to OpenStackControlPlane
+# 3. Set spec.disabled=True on InstanceHa CRs
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openstack-restore-resource-modifiers
+  namespace: {{ oadp_namespace }}
+data:
+  resource-modifiers.yaml: |
+    version: v1
+    resourceModifierRules:
+    - conditions:
+        groupResource: "*"
+        namespaces:
+        - {{ openstack_namespace }}
+      mergePatches:
+      - patchData: |
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/last-applied-configuration: null
+    - conditions:
+        groupResource: openstackcontrolplanes.core.openstack.org
+        namespaces:
+        - {{ openstack_namespace }}
+      mergePatches:
+      - patchData: |
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/last-applied-configuration: null
+              core.openstack.org/deployment-stage: "infrastructure-only"
+    - conditions:
+        groupResource: instancehas.instanceha.openstack.org
+        namespaces:
+        - {{ openstack_namespace }}
+      mergePatches:
+      - patchData: |
+          spec:
+            disabled: "True"

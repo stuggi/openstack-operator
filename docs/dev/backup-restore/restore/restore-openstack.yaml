@@ -25,6 +25,11 @@
 #   ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
 #     -e backup_timestamp=20260311-081234
 #
+#   # Skip all confirmation prompts (non-interactive):
+#   ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
+#     -e backup_timestamp=20260311-081234 \
+#     -e auto_ack=true
+#
 #   # Data Mover restore with WaitForFirstConsumer storage (LVM):
 #   ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
 #     -e backup_timestamp=20260311-081234 \
@@ -39,11 +44,12 @@
 #   infra_ready_timeout: Timeout waiting for infrastructure (default: 20m)
 #   ctlplane_ready_timeout: Timeout waiting for full control plane (default: 10m)
 #   strict_restore: Fail on PartiallyFailed restores (default: true)
-#   restore_dataplane: Whether to restore dataplane (default: true)
 #   rabbitmq_clusters: List of RabbitMQ cluster names (default: [rabbitmq, rabbitmq-cell1])
+#   auto_ack: Skip all confirmation prompts between steps (default: false)
 #   pin_pvcs: Create dummy Deployments to pin PVCs to their original nodes during
 #     Data Mover restores with WaitForFirstConsumer storage (e.g., LVM).
 #     Extracts PVC-to-node mapping from PV nodeAffinity in the backup.
+#     Not required on OCP 4.20+ (Velero v1.16+ supports ignoreDelayBinding).
 #     (default: false)
 
 - name: OpenStack Full Restore
@@ -57,10 +63,10 @@
     infra_ready_timeout: 20m
     ctlplane_ready_timeout: 10m
     strict_restore: true
-    restore_dataplane: true
     rabbitmq_clusters:
     - rabbitmq
     - rabbitmq-cell1
+    auto_ack: false
     pin_pvcs: false
 
   tasks:
@@ -83,6 +89,12 @@
     - name: Set restore timestamp
       ansible.builtin.set_fact:
         restore_suffix: "{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
+
+    - name: Create temp directory for rendered templates
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: openstack-restore-
+      register: rendered_dir
 
     # ========================================
     # Pre-flight checks
@@ -121,46 +133,25 @@
     # ========================================
     # Create resource modifier ConfigMap
     # ========================================
+    - name: Render resource modifier ConfigMap
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/00-resource-modifiers-configmap.yaml.j2"
+        dest: "{{ rendered_dir.path }}/00-resource-modifiers-configmap.yaml"
+
+    - name: "Next: Create resource modifier ConfigMap"
+      ansible.builtin.debug:
+        msg: "{{ lookup('file', rendered_dir.path + '/00-resource-modifiers-configmap.yaml') }}"
+      when: not (auto_ack | bool)
+
+    - name: Pause before creating resource modifier ConfigMap
+      ansible.builtin.pause:
+        prompt: >-
+          Press Enter to create the resource modifier ConfigMap, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
+
     - name: Create resource modifier ConfigMap
       ansible.builtin.shell: |
-        cat <<'CMEOF' | oc apply -f -
-        apiVersion: v1
-        kind: ConfigMap
-        metadata:
-          name: openstack-restore-resource-modifiers
-          namespace: {{ oadp_namespace }}
-        data:
-          resource-modifiers.yaml: |
-            version: v1
-            resourceModifierRules:
-            - conditions:
-                groupResource: "*"
-                namespaces:
-                - {{ openstack_namespace }}
-              mergePatches:
-              - patchData: |
-                  metadata:
-                    annotations:
-                      kubectl.kubernetes.io/last-applied-configuration: null
-            - conditions:
-                groupResource: openstackcontrolplanes.core.openstack.org
-                namespaces:
-                - {{ openstack_namespace }}
-              mergePatches:
-              - patchData: |
-                  metadata:
-                    annotations:
-                      kubectl.kubernetes.io/last-applied-configuration: null
-                      core.openstack.org/deployment-stage: "infrastructure-only"
-            - conditions:
-                groupResource: instancehas.instanceha.openstack.org
-                namespaces:
-                - {{ openstack_namespace }}
-              mergePatches:
-              - patchData: |
-                  spec:
-                    disabled: "True"
-        CMEOF
+        oc apply -f {{ rendered_dir.path }}/00-resource-modifiers-configmap.yaml
       changed_when: true
 
     # ========================================
@@ -273,32 +264,26 @@
     # ========================================
     # Step 1: Restore PVCs (Order 00)
     # ========================================
-    - name: "Step 1: Restore PVCs"
+    - name: Render PVC restore
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/01-restore-order-00-pvcs.yaml.j2"
+        dest: "{{ rendered_dir.path }}/01-restore-order-00-pvcs.yaml"
+
+    - name: "Next: Step 1 - Restore PVCs (CSI Snapshots)"
       ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 1: Restore PVCs (CSI Snapshots)"
-          - "========================================"
+        msg: "{{ lookup('file', rendered_dir.path + '/01-restore-order-00-pvcs.yaml') }}"
+      when: not (auto_ack | bool)
+
+    - name: Pause before PVC restore
+      ansible.builtin.pause:
+        prompt: >-
+          Pre-flight checks passed.
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
 
     - name: Create PVC restore
       ansible.builtin.shell: |
-        cat <<EOF | oc apply -f -
-        apiVersion: velero.io/v1
-        kind: Restore
-        metadata:
-          name: openstack-restore-00-pvcs-{{ restore_suffix }}
-          namespace: {{ oadp_namespace }}
-        spec:
-          backupName: {{ pvc_backup_name }}
-          includedNamespaces:
-          - {{ openstack_namespace }}
-          excludedResources:
-          - pods
-          resourceModifier:
-            kind: ConfigMap
-            name: openstack-restore-resource-modifiers
-          restorePVs: true
-        EOF
+        oc apply -f {{ rendered_dir.path }}/01-restore-order-00-pvcs.yaml
       changed_when: true
 
     - name: Wait for PVC restore
@@ -324,42 +309,29 @@
       ansible.builtin.debug:
         msg: "{{ pvc_status.stdout_lines }}"
 
-    - name: Pause after PVC restore for verification
-      ansible.builtin.pause:
-        prompt: >-
-          PVC restore complete. Verify PVCs are Bound above.
-          Press Enter to continue with resource restores, or Ctrl+C then 'A' to abort
-
     # ========================================
     # Step 2: Restore Foundation (Order 10)
     # ========================================
-    - name: "Step 2: Restore foundation resources"
+    - name: Render foundation restore
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/02-restore-order-10-foundation.yaml.j2"
+        dest: "{{ rendered_dir.path }}/02-restore-order-10-foundation.yaml"
+
+    - name: "Next: Step 2 - Restore foundation resources (Secrets, ConfigMaps, NADs)"
       ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 2: Restore Foundation (Secrets, ConfigMaps, NADs)"
-          - "========================================"
+        msg: "{{ lookup('file', rendered_dir.path + '/02-restore-order-10-foundation.yaml') }}"
+      when: not (auto_ack | bool)
+
+    - name: Pause after PVC restore
+      ansible.builtin.pause:
+        prompt: >-
+          Step 1 complete: PVC restore. Verify PVCs are Bound above.
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
 
     - name: Create foundation restore
       ansible.builtin.shell: |
-        cat <<EOF | oc apply -f -
-        apiVersion: velero.io/v1
-        kind: Restore
-        metadata:
-          name: openstack-restore-10-foundation-{{ restore_suffix }}
-          namespace: {{ oadp_namespace }}
-        spec:
-          backupName: {{ resources_backup_name }}
-          includedNamespaces:
-          - {{ openstack_namespace }}
-          labelSelector:
-            matchLabels:
-              backup.openstack.org/restore: "true"
-              backup.openstack.org/restore-order: "10"
-          resourceModifier:
-            kind: ConfigMap
-            name: openstack-restore-resource-modifiers
-        EOF
+        oc apply -f {{ rendered_dir.path }}/02-restore-order-10-foundation.yaml
       changed_when: true
 
     - name: Wait for foundation restore
@@ -372,34 +344,26 @@
     # ========================================
     # Step 3: Restore Infrastructure (Order 20)
     # ========================================
-    - name: "Step 3: Restore infrastructure CRs"
+    - name: Render infrastructure restore
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/03-restore-order-20-infrastructure.yaml.j2"
+        dest: "{{ rendered_dir.path }}/03-restore-order-20-infrastructure.yaml"
+
+    - name: "Next: Step 3 - Restore infrastructure CRs (OpenStackVersion, MariaDBAccount, etc.)"
       ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 3: Restore Infrastructure CRs"
-          - "========================================"
-          - "OpenStackVersion, MariaDBAccount, MariaDBDatabase, etc."
+        msg: "{{ lookup('file', rendered_dir.path + '/03-restore-order-20-infrastructure.yaml') }}"
+      when: not (auto_ack | bool)
+
+    - name: Pause after foundation restore
+      ansible.builtin.pause:
+        prompt: >-
+          Step 2 complete: Foundation resources restored.
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
 
     - name: Create infrastructure restore
       ansible.builtin.shell: |
-        cat <<EOF | oc apply -f -
-        apiVersion: velero.io/v1
-        kind: Restore
-        metadata:
-          name: openstack-restore-20-infra-{{ restore_suffix }}
-          namespace: {{ oadp_namespace }}
-        spec:
-          backupName: {{ resources_backup_name }}
-          includedNamespaces:
-          - {{ openstack_namespace }}
-          labelSelector:
-            matchLabels:
-              backup.openstack.org/restore: "true"
-              backup.openstack.org/restore-order: "20"
-          resourceModifier:
-            kind: ConfigMap
-            name: openstack-restore-resource-modifiers
-        EOF
+        oc apply -f {{ rendered_dir.path }}/03-restore-order-20-infrastructure.yaml
       changed_when: true
 
     - name: Wait for infrastructure restore
@@ -412,35 +376,26 @@
     # ========================================
     # Step 4: Restore ControlPlane (Order 30)
     # ========================================
-    - name: "Step 4: Restore OpenStackControlPlane (staged)"
-      ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 4: Restore OpenStackControlPlane"
-          - "========================================"
-          - "Restoring with deployment-stage=infrastructure-only annotation"
-          - "Only Galera, OVN, RabbitMQ, Memcached will start"
+    - name: Render controlplane restore
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/04-restore-order-30-controlplane.yaml.j2"
+        dest: "{{ rendered_dir.path }}/04-restore-order-30-controlplane.yaml"
 
-    - name: Create controlplane restore with staging annotation
+    - name: "Next: Step 4 - Restore OpenStackControlPlane (staged, infrastructure-only)"
+      ansible.builtin.debug:
+        msg: "{{ lookup('file', rendered_dir.path + '/04-restore-order-30-controlplane.yaml') }}"
+      when: not (auto_ack | bool)
+
+    - name: Pause after infrastructure restore
+      ansible.builtin.pause:
+        prompt: >-
+          Step 3 complete: Infrastructure CRs restored.
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
+
+    - name: Create controlplane restore
       ansible.builtin.shell: |
-        cat <<EOF | oc apply -f -
-        apiVersion: velero.io/v1
-        kind: Restore
-        metadata:
-          name: openstack-restore-30-ctlplane-{{ restore_suffix }}
-          namespace: {{ oadp_namespace }}
-        spec:
-          backupName: {{ resources_backup_name }}
-          includedNamespaces:
-          - {{ openstack_namespace }}
-          labelSelector:
-            matchLabels:
-              backup.openstack.org/restore: "true"
-              backup.openstack.org/restore-order: "30"
-          resourceModifier:
-            kind: ConfigMap
-            name: openstack-restore-resource-modifiers
-        EOF
+        oc apply -f {{ rendered_dir.path }}/04-restore-order-30-controlplane.yaml
       changed_when: true
 
     - name: Wait for controlplane restore
@@ -453,33 +408,26 @@
     # ========================================
     # Step 5: Restore GaleraBackup CRs (Order 40)
     # ========================================
-    - name: "Step 5: Restore GaleraBackup CRs"
+    - name: Render backup config restore
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/05-restore-order-40-backup-config.yaml.j2"
+        dest: "{{ rendered_dir.path }}/05-restore-order-40-backup-config.yaml"
+
+    - name: "Next: Step 5 - Restore GaleraBackup CRs"
       ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 5: Restore GaleraBackup CRs"
-          - "========================================"
+        msg: "{{ lookup('file', rendered_dir.path + '/05-restore-order-40-backup-config.yaml') }}"
+      when: not (auto_ack | bool)
+
+    - name: Pause after controlplane restore
+      ansible.builtin.pause:
+        prompt: >-
+          Step 4 complete: OpenStackControlPlane restored (staged).
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
 
     - name: Create backup config restore
       ansible.builtin.shell: |
-        cat <<EOF | oc apply -f -
-        apiVersion: velero.io/v1
-        kind: Restore
-        metadata:
-          name: openstack-restore-40-backup-{{ restore_suffix }}
-          namespace: {{ oadp_namespace }}
-        spec:
-          backupName: {{ resources_backup_name }}
-          includedNamespaces:
-          - {{ openstack_namespace }}
-          labelSelector:
-            matchLabels:
-              backup.openstack.org/restore: "true"
-              backup.openstack.org/restore-order: "40"
-          resourceModifier:
-            kind: ConfigMap
-            name: openstack-restore-resource-modifiers
-        EOF
+        oc apply -f {{ rendered_dir.path }}/05-restore-order-40-backup-config.yaml
       changed_when: true
 
     - name: Wait for backup config restore
@@ -492,13 +440,13 @@
     # ========================================
     # Step 6: Wait for Infrastructure Ready
     # ========================================
-    - name: "Step 6: Wait for infrastructure"
-      ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 6: Wait for Infrastructure Ready"
-          - "========================================"
-          - "Waiting for Galera, OVN, RabbitMQ, Memcached"
+    - name: Pause after GaleraBackup restore
+      ansible.builtin.pause:
+        prompt: >-
+          Step 5 complete: GaleraBackup CRs restored.
+          Next: Step 6 - Wait for infrastructure ready (Galera, OVN, RabbitMQ, Memcached).
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
 
     - name: Wait for OpenStackControlPlane infrastructure ready
       ansible.builtin.shell: |
@@ -526,22 +474,16 @@
           - "ControlPlane: {{ ctlplane_name.stdout }}"
           - "Galera pod phases: {{ galera_pod_phases.stdout }}"
 
-    - name: Pause after infrastructure ready for verification
-      ansible.builtin.pause:
-        prompt: >-
-          Infrastructure is ready (Galera, OVN, RabbitMQ, Memcached).
-          Press Enter to continue with database restore, or Ctrl+C then 'A' to abort
-
     # ========================================
     # Step 7: Database Restore
     # ========================================
-    - name: "Step 7: Database restore"
-      ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 7: Database Restore"
-          - "========================================"
-          - "Creating GaleraRestore CRs and restoring databases"
+    - name: Pause after infrastructure ready
+      ansible.builtin.pause:
+        prompt: >-
+          Step 6 complete: Infrastructure is ready (Galera, OVN, RabbitMQ, Memcached).
+          Next: Step 7 - Database restore (GaleraRestore).
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
 
     - name: Get GaleraBackup names
       ansible.builtin.shell: |
@@ -604,15 +546,30 @@
     # ========================================
     # Step 8: Restore RabbitMQ Credentials
     # ========================================
-    - name: "Step 8: Restore RabbitMQ credentials"
+    - name: Render resource modifier for temp namespace
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/06b-resource-modifiers-tmp.yaml.j2"
+        dest: "{{ rendered_dir.path }}/06b-resource-modifiers-tmp.yaml"
+
+    - name: Render RabbitMQ secret restore
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/06b-restore-rabbitmq-secrets.yaml.j2"
+        dest: "{{ rendered_dir.path }}/06b-restore-rabbitmq-secrets.yaml"
+
+    - name: "Next: Step 8 - Restore RabbitMQ user credentials"
       ansible.builtin.debug:
         msg:
-          - "========================================"
-          - "Step 8: Restore RabbitMQ User Credentials"
-          - "========================================"
-          - "Restoring old *-default-user secrets from backup to a temp"
-          - "namespace, copying as *-restored-user, then creating"
-          - "RabbitMQUser CRs for EDPM connectivity."
+          - "{{ lookup('file', rendered_dir.path + '/06b-resource-modifiers-tmp.yaml') }}"
+          - "---"
+          - "{{ lookup('file', rendered_dir.path + '/06b-restore-rabbitmq-secrets.yaml') }}"
+      when: not (auto_ack | bool)
+
+    - name: Pause after database restore
+      ansible.builtin.pause:
+        prompt: >-
+          Step 7 complete: Database restore.
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
 
     - name: Delete temp namespace if it exists from a previous run
       ansible.builtin.shell: |
@@ -632,47 +589,12 @@
 
     - name: Create resource modifier to strip finalizers for temp restore
       ansible.builtin.shell: |
-        cat <<'CMEOF' | oc apply -f -
-        apiVersion: v1
-        kind: ConfigMap
-        metadata:
-          name: openstack-restore-tmp-resource-modifiers
-          namespace: {{ oadp_namespace }}
-        data:
-          resource-modifiers.yaml: |
-            version: v1
-            resourceModifierRules:
-            - conditions:
-                groupResource: "*"
-                namespaces:
-                - openstack-restore-tmp
-              mergePatches:
-              - patchData: |
-                  metadata:
-                    finalizers: null
-        CMEOF
+        oc apply -f {{ rendered_dir.path }}/06b-resource-modifiers-tmp.yaml
       changed_when: true
 
     - name: Restore secrets from backup to temp namespace
       ansible.builtin.shell: |
-        cat <<EOF | oc apply -f -
-        apiVersion: velero.io/v1
-        kind: Restore
-        metadata:
-          name: openstack-restore-rabbitmq-secrets-{{ restore_suffix }}
-          namespace: {{ oadp_namespace }}
-        spec:
-          backupName: {{ resources_backup_name }}
-          includedNamespaces:
-          - {{ openstack_namespace }}
-          namespaceMapping:
-            {{ openstack_namespace }}: openstack-restore-tmp
-          includedResources:
-          - secrets
-          resourceModifier:
-            kind: ConfigMap
-            name: openstack-restore-tmp-resource-modifiers
-        EOF
+        oc apply -f {{ rendered_dir.path }}/06b-restore-rabbitmq-secrets.yaml
       changed_when: true
 
     - name: Wait for RabbitMQ secret restore
@@ -744,13 +666,13 @@
     # ========================================
     # Step 9: Resume Full Deployment
     # ========================================
-    - name: "Step 9: Resume deployment"
-      ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 9: Resume Full Deployment"
-          - "========================================"
-          - "Removing deployment-stage annotation"
+    - name: Pause after RabbitMQ restore
+      ansible.builtin.pause:
+        prompt: >-
+          Step 8 complete: RabbitMQ user credentials restored.
+          Next: Step 9 - Resume full deployment (remove staging annotation).
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
 
     - name: Remove deployment-stage annotation
       ansible.builtin.shell: |
@@ -773,36 +695,27 @@
     # ========================================
     # Step 10: Restore DataPlane (Order 60)
     # ========================================
-    - name: "Step 10: Restore DataPlane"
+    - name: Render dataplane restore
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/07-restore-order-60-dataplane.yaml.j2"
+        dest: "{{ rendered_dir.path }}/07-restore-order-60-dataplane.yaml"
+
+    - name: "Next: Step 10 - Restore DataPlane resources"
       ansible.builtin.debug:
-        msg:
-          - "========================================"
-          - "Step 10: Restore DataPlane Resources"
-          - "========================================"
-      when: restore_dataplane | bool
+        msg: "{{ lookup('file', rendered_dir.path + '/07-restore-order-60-dataplane.yaml') }}"
+      when: not (auto_ack | bool)
+
+    - name: Pause after full deployment ready
+      ansible.builtin.pause:
+        prompt: >-
+          Step 9 complete: Full control plane deployment is ready.
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
 
     - name: Create dataplane restore
       ansible.builtin.shell: |
-        cat <<EOF | oc apply -f -
-        apiVersion: velero.io/v1
-        kind: Restore
-        metadata:
-          name: openstack-restore-60-dataplane-{{ restore_suffix }}
-          namespace: {{ oadp_namespace }}
-        spec:
-          backupName: {{ resources_backup_name }}
-          includedNamespaces:
-          - {{ openstack_namespace }}
-          labelSelector:
-            matchLabels:
-              backup.openstack.org/restore: "true"
-              backup.openstack.org/restore-order: "60"
-          resourceModifier:
-            kind: ConfigMap
-            name: openstack-restore-resource-modifiers
-        EOF
+        oc apply -f {{ rendered_dir.path }}/07-restore-order-60-dataplane.yaml
       changed_when: true
-      when: restore_dataplane | bool
 
     - name: Wait for dataplane restore
       ansible.builtin.include_tasks:
@@ -810,12 +723,11 @@
       vars:
         restore_name: "openstack-restore-60-dataplane-{{ restore_suffix }}"
         step_name: "Step 10 (DataPlane restore)"
-      when: restore_dataplane | bool
 
-    - name: Print Step 10 skip
-      ansible.builtin.debug:
-        msg: "DataPlane restore skipped (restore_dataplane=false)"
-      when: not (restore_dataplane | bool)
+    - name: Clean up rendered templates
+      ansible.builtin.file:
+        path: "{{ rendered_dir.path }}"
+        state: absent
 
     # ========================================
     # Summary

@@ -1,0 +1,21 @@
+---
+# Restore Order 00: Storage Foundation - PVCs
+# Restores all PVCs (Glance image storage, GaleraBackup PVCs, etc.)
+# Must be restored first before other resources
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-00-pvcs-{{ restore_suffix }}
+  namespace: {{ oadp_namespace }}
+spec:
+  backupName: {{ pvc_backup_name }}
+  includedNamespaces:
+  - {{ openstack_namespace }}
+  # Exclude pods - Velero includes them as related items for PVCs,
+  # but they fail to restore (missing ServiceAccounts) and aren't needed
+  excludedResources:
+  - pods
+  resourceModifier:
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
+  restorePVs: true

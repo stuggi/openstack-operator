@@ -2,28 +2,19 @@
 # Restore Order 10: Foundation Resources
 # Restores NADs, Secrets, ConfigMaps (user-provided resources without ownerRefs)
 # Must be restored after PVCs and before CRs
-#
-# Prerequisite: Create the resource modifier ConfigMap first:
-#   oc apply -f 00-resource-modifiers-configmap.yaml
 apiVersion: velero.io/v1
 kind: Restore
 metadata:
-  name: openstack-restore-10-foundation
-  namespace: openshift-adp
+  name: openstack-restore-10-foundation-{{ restore_suffix }}
+  namespace: {{ oadp_namespace }}
 spec:
-  backupName: openstack-backup-resources
-
-  # Restore to the same namespace
+  backupName: {{ resources_backup_name }}
   includedNamespaces:
-  - openstack
-
-  # Only restore resources with backup-restore label and order 10
+  - {{ openstack_namespace }}
   labelSelector:
     matchLabels:
       backup.openstack.org/restore: "true"
       backup.openstack.org/restore-order: "10"
-
-  # Remove last-applied-configuration via ConfigMap-based resource modifiers
   resourceModifier:
     kind: ConfigMap
     name: openstack-restore-resource-modifiers

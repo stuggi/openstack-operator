@@ -81,6 +81,21 @@
       - "  oc -n {{ oadp_namespace | default('openshift-adp') }} exec deployment/velero -- ./velero restore logs {{ restore_name }}"
   when: restore_phase.stdout == "PartiallyFailed" and not (strict_restore | default(true) | bool)
 
+- name: "{{ step_name }}: List restored resources"
+  ansible.builtin.shell: |
+    oc get all,pvc,secret,configmap,net-attach-def \
+      -n {{ openstack_namespace | default('openstack') }} \
+      -l velero.io/restore-name={{ restore_name }} \
+      --no-headers 2>/dev/null || true
+  register: restored_resources
+  changed_when: false
+  when: restore_phase.stdout in ["Completed", "PartiallyFailed"]
+
+- name: "{{ step_name }}: Print restored resources"
+  ansible.builtin.debug:
+    msg: "{{ restored_resources.stdout_lines }}"
+  when: restore_phase.stdout in ["Completed", "PartiallyFailed"] and restored_resources.stdout != ""
+
 - name: "{{ step_name }}: Print success"
   ansible.builtin.debug:
     msg: "Restore {{ restore_name }} completed successfully"
