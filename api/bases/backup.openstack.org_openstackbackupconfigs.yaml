@@ -196,12 +196,7 @@ spec:
               secrets:
                 default:
                   enabled: true
-                  excludeLabelKeys:
-                  - service-cert
-                  - osdp-service
-                description: |-
-                  Secrets configuration for backup labeling
-                  Defaults: Excludes service-cert and osdp-service labeled secrets
+                description: Secrets configuration for backup labeling
                 properties:
                   enabled:
                     default: true

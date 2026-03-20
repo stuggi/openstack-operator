@@ -237,80 +237,10 @@ func (r *OpenStackBackupConfigReconciler) labelResource(ctx context.Context, log
 	return r.Update(ctx, obj)
 }
 
-// labelResourceRestoreFalse explicitly sets restore: "false" on a resource to
-// indicate it should not be restored. This makes the exclusion visible.
-// Also removes restore-order since it's meaningless when restore is disabled.
-func (r *OpenStackBackupConfigReconciler) labelResourceRestoreFalse(ctx context.Context, log logr.Logger, obj client.Object) error {
-	labels := obj.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string)
-	}
-
-	// Check if already set correctly
-	_, hasOrder := labels[backup.BackupRestoreOrderLabel]
-	if labels[backup.BackupRestoreLabel] == "false" && !hasOrder {
-		return nil
-	}
-
-	labels[backup.BackupRestoreLabel] = "false"
-	delete(labels, backup.BackupRestoreOrderLabel)
-	obj.SetLabels(labels)
-
-	log.Info("Labeled resource restore=false", "name", obj.GetName())
-	return r.Update(ctx, obj)
-}
-
-// isCertManagerOperatorSecret checks if a secret is managed by cert-manager for an
-// operator-created (non-CA) Certificate. Such secrets do not need the restore label
-// because cert-manager will regenerate them from the restored CA Issuer and Certificate CRs.
-// The secrets are still included in the namespace-wide backup (no label needed for that).
-//
-// Returns true (skip restore label) for:
-//   - Operator-created non-CA cert secrets (Certificate CR has ownerRef, isCA != true)
-//
-// Returns false (set restore label) for:
-//   - Non-cert-manager secrets
-//   - CA certificate secrets (spec.isCA: true) — must be restored to preserve CA identity
-//   - Secrets from user-created Certificates (no ownerRef on Certificate CR)
-func (r *OpenStackBackupConfigReconciler) isCertManagerOperatorSecret(ctx context.Context, log logr.Logger, secret *corev1.Secret) bool {
-	certName, hasCertAnnotation := secret.Annotations["cert-manager.io/certificate-name"]
-	if !hasCertAnnotation {
-		return false
-	}
-
-	// Look up the Certificate CR
-	cert := &certmgrv1.Certificate{}
-	if err := r.Get(ctx, types.NamespacedName{
-		Name:      certName,
-		Namespace: secret.Namespace,
-	}, cert); err != nil {
-		// Certificate not found — could be deleted, treat secret as user-provided
-		log.V(1).Info("Certificate CR not found for secret, treating as user-provided",
-			"secret", secret.Name, "certificate", certName)
-		return false
-	}
-
-	// CA certificates must be restored to preserve the CA identity
-	if cert.Spec.IsCA {
-		log.V(1).Info("Secret is for CA certificate, will be backed up",
-			"secret", secret.Name, "certificate", certName)
-		return false
-	}
-
-	// If the Certificate CR has no ownerRef, it's user-created — restore the secret
-	if len(cert.GetOwnerReferences()) == 0 {
-		return false
-	}
-
-	// Operator-created, non-CA certificate — cert-manager will regenerate
-	log.V(1).Info("Skipping operator-managed cert secret (will be regenerated)",
-		"secret", secret.Name, "certificate", certName)
-	return true
-}
-
 // labelSecrets labels secrets in the target namespace.
-// Secrets managed by cert-manager for operator-created non-CA Certificates get
-// restore: "false" — cert-manager will regenerate them from the restored CA Issuer.
+// Secrets that already have a restore label (set by the controlplane controller
+// for cert-manager secrets) are skipped — the operator knows best whether a cert
+// secret should be restored or regenerated.
 // User annotation overrides take precedence over all default behavior.
 func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
 	secretList := &corev1.SecretList{}
@@ -335,16 +265,13 @@ func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log 
 			continue
 		}
 
-		if !shouldLabelResource(secret, instance.Spec.Secrets) {
+		// Skip secrets that already have a restore label (set by the operator
+		// at creation time, e.g. cert-manager CA/leaf cert secrets)
+		if _, hasRestoreLabel := secret.Labels[backup.BackupRestoreLabel]; hasRestoreLabel {
 			continue
 		}
 
-		// Operator-managed non-CA cert secrets: explicitly set restore=false
-		if r.isCertManagerOperatorSecret(ctx, log, secret) {
-			if err := r.labelResourceRestoreFalse(ctx, log, secret); err != nil {
-				log.Error(err, "Failed to label cert secret restore=false", "name", secret.Name)
-				errs = append(errs, fmt.Errorf("secret %s: %w", secret.Name, err))
-			}
+		if !shouldLabelResource(secret, instance.Spec.Secrets) {
 			continue
 		}
 

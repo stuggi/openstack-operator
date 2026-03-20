@@ -25,7 +25,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 
 	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
-	certmgrmetav1 "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	commonbackup "github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	//revive:disable-next-line:dot-imports
@@ -57,8 +56,7 @@ func CreateBackupConfig(name types.NamespacedName) *backupv1.OpenStackBackupConf
 			// Kubebuilder defaults are only applied via webhooks.
 			// Set them explicitly for envtest.
 			Secrets: backupv1.ResourceBackupConfig{
-				Enabled:          true,
-				ExcludeLabelKeys: []string{"service-cert", "osdp-service"},
+				Enabled: true,
 			},
 			ConfigMaps: backupv1.ResourceBackupConfig{
 				Enabled:      true,
@@ -200,20 +198,20 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 		})
 	})
 
-	When("A secret with an excluded label exists", func() {
+	When("A secret already has a restore label", func() {
 		BeforeEach(func() {
 			backupConfigName = types.NamespacedName{
-				Name:      "test-backup-exclude-label",
+				Name:      "test-backup-existing-restore-label",
 				Namespace: namespace,
 			}
 
-			// Create a secret with the service-cert label (excluded by default)
+			// Create a secret with restore=false (as set by controlplane controller for leaf certs)
 			secret := &k8s_corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cert-secret",
 					Namespace: namespace,
 					Labels: map[string]string{
-						"service-cert": "some-value",
+						commonbackup.BackupRestoreLabel: "false",
 					},
 				},
 				Data: map[string][]byte{
@@ -227,7 +225,7 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 			DeferCleanup(th.DeleteInstance, backupConfig)
 		})
 
-		It("Should not label the excluded secret", func() {
+		It("Should not overwrite the existing restore label", func() {
 			// Wait for reconciliation to complete
 			th.ExpectCondition(
 				backupConfigName,
@@ -236,14 +234,16 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 				k8s_corev1.ConditionTrue,
 			)
 
-			// Verify the excluded secret was NOT labeled
+			// Verify the restore label was preserved as "false"
 			secret := &k8s_corev1.Secret{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
 				Name: "cert-secret", Namespace: namespace,
 			}, secret)).Should(Succeed())
 
 			labels := secret.GetLabels()
-			Expect(labels[commonbackup.BackupRestoreLabel]).To(BeEmpty())
+			Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("false"))
+			// Should NOT have backup or restore-order labels
+			Expect(labels[commonbackup.BackupLabel]).To(BeEmpty())
 		})
 	})
 
@@ -511,46 +511,22 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 		})
 	})
 
-	When("A cert-manager secret for an operator-created CA Certificate exists", func() {
+	When("A CA cert secret already labeled for restore exists", func() {
 		BeforeEach(func() {
 			backupConfigName = types.NamespacedName{
 				Name:      "test-backup-ca-cert-secret",
 				Namespace: namespace,
 			}
 
-			// Create an operator-created CA Certificate (has ownerRef, isCA: true)
-			caCert := &certmgrv1.Certificate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "rootca-internal",
-					Namespace: namespace,
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							APIVersion: "core.openstack.org/v1beta1",
-							Kind:       "OpenStackControlPlane",
-							Name:       "controlplane",
-							UID:        "fake-uid",
-						},
-					},
-				},
-				Spec: certmgrv1.CertificateSpec{
-					IsCA:       true,
-					SecretName: "rootca-internal",
-					IssuerRef: certmgrmetav1.ObjectReference{
-						Name: "selfsigned-issuer",
-						Kind: "Issuer",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, caCert)).Should(Succeed())
-			DeferCleanup(th.DeleteInstance, caCert)
-
-			// Create the secret that cert-manager would create for this CA cert
+			// Create a CA cert secret with restore labels (as set by controlplane controller)
 			caSecret := &k8s_corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "rootca-internal",
 					Namespace: namespace,
-					Annotations: map[string]string{
-						"cert-manager.io/certificate-name": "rootca-internal",
+					Labels: map[string]string{
+						commonbackup.BackupRestoreLabel:      "true",
+						commonbackup.BackupRestoreOrderLabel: "10",
+						commonbackup.BackupLabel:             "true",
 					},
 				},
 				Data: map[string][]byte{
@@ -565,60 +541,41 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 			DeferCleanup(th.DeleteInstance, backupConfig)
 		})
 
-		It("Should label the CA cert secret for restore (preserve CA identity)", func() {
-			Eventually(func(g Gomega) {
-				secret := &k8s_corev1.Secret{}
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
-					Name: "rootca-internal", Namespace: namespace,
-				}, secret)).Should(Succeed())
+		It("Should preserve the existing restore labels set by the controlplane controller", func() {
+			th.ExpectCondition(
+				backupConfigName,
+				ConditionGetterFunc(OpenStackBackupConfigConditionGetter),
+				condition.ReadyCondition,
+				k8s_corev1.ConditionTrue,
+			)
 
-				labels := secret.GetLabels()
-				g.Expect(labels).NotTo(BeNil())
-				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("true"),
-					"CA cert secret must be labeled for restore to preserve CA identity")
-			}, timeout, interval).Should(Succeed())
+			secret := &k8s_corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: "rootca-internal", Namespace: namespace,
+			}, secret)).Should(Succeed())
+
+			labels := secret.GetLabels()
+			Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("true"),
+				"CA cert secret restore label must be preserved")
+			Expect(labels[commonbackup.BackupRestoreOrderLabel]).To(Equal("10"),
+				"CA cert secret restore order must be preserved")
 		})
 	})
 
-	When("A cert-manager secret for an operator-created non-CA Certificate exists", func() {
+	When("A leaf cert secret already labeled restore=false exists", func() {
 		BeforeEach(func() {
 			backupConfigName = types.NamespacedName{
 				Name:      "test-backup-leaf-cert-secret",
 				Namespace: namespace,
 			}
 
-			// Create an operator-created leaf Certificate (has ownerRef, isCA: false)
-			leafCert := &certmgrv1.Certificate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "keystone-internal-svc",
-					Namespace: namespace,
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							APIVersion: "keystone.openstack.org/v1beta1",
-							Kind:       "KeystoneAPI",
-							Name:       "keystone",
-							UID:        "fake-uid-2",
-						},
-					},
-				},
-				Spec: certmgrv1.CertificateSpec{
-					SecretName: "cert-keystone-internal-svc",
-					IssuerRef: certmgrmetav1.ObjectReference{
-						Name: "rootca-internal",
-						Kind: "Issuer",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, leafCert)).Should(Succeed())
-			DeferCleanup(th.DeleteInstance, leafCert)
-
-			// Create the secret that cert-manager would create for this leaf cert
+			// Create a leaf cert secret with restore=false (as set by controlplane controller)
 			leafSecret := &k8s_corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cert-keystone-internal-svc",
 					Namespace: namespace,
-					Annotations: map[string]string{
-						"cert-manager.io/certificate-name": "keystone-internal-svc",
+					Labels: map[string]string{
+						commonbackup.BackupRestoreLabel: "false",
 					},
 				},
 				Data: map[string][]byte{
@@ -633,69 +590,53 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 			DeferCleanup(th.DeleteInstance, backupConfig)
 		})
 
-		It("Should label the operator-created leaf cert secret with restore=false and no restore-order", func() {
-			Eventually(func(g Gomega) {
-				secret := &k8s_corev1.Secret{}
-				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
-					Name: "cert-keystone-internal-svc", Namespace: namespace,
-				}, secret)).Should(Succeed())
+		It("Should not overwrite the restore=false label set by the controlplane controller", func() {
+			th.ExpectCondition(
+				backupConfigName,
+				ConditionGetterFunc(OpenStackBackupConfigConditionGetter),
+				condition.ReadyCondition,
+				k8s_corev1.ConditionTrue,
+			)
 
-				labels := secret.GetLabels()
-				g.Expect(labels).NotTo(BeNil())
-				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("false"),
-					"Operator-created non-CA cert secret should have restore=false")
-				g.Expect(labels).NotTo(HaveKey(commonbackup.BackupRestoreOrderLabel),
-					"restore-order should not be set when restore=false")
-			}, timeout, interval).Should(Succeed())
+			secret := &k8s_corev1.Secret{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{
+				Name: "cert-keystone-internal-svc", Namespace: namespace,
+			}, secret)).Should(Succeed())
+
+			labels := secret.GetLabels()
+			Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("false"),
+				"Leaf cert secret should keep restore=false")
+			Expect(labels).NotTo(HaveKey(commonbackup.BackupRestoreOrderLabel),
+				"restore-order should not be set when restore=false")
 		})
 	})
 
-	When("A cert-manager secret for a user-created Certificate exists", func() {
+	When("A user-provided secret without a restore label exists", func() {
 		BeforeEach(func() {
 			backupConfigName = types.NamespacedName{
 				Name:      "test-backup-user-cert-secret",
 				Namespace: namespace,
 			}
 
-			// Create a user-created Certificate (no ownerRef)
-			userCert := &certmgrv1.Certificate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "my-custom-cert",
-					Namespace: namespace,
-				},
-				Spec: certmgrv1.CertificateSpec{
-					SecretName: "my-custom-cert-tls",
-					IssuerRef: certmgrmetav1.ObjectReference{
-						Name: "my-custom-issuer",
-						Kind: "Issuer",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, userCert)).Should(Succeed())
-			DeferCleanup(th.DeleteInstance, userCert)
-
-			// Create the secret for the user-created certificate
-			userCertSecret := &k8s_corev1.Secret{
+			// Create a user-provided secret (no restore label)
+			userSecret := &k8s_corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "my-custom-cert-tls",
 					Namespace: namespace,
-					Annotations: map[string]string{
-						"cert-manager.io/certificate-name": "my-custom-cert",
-					},
 				},
 				Data: map[string][]byte{
 					"tls.crt": []byte("user-cert"),
 					"tls.key": []byte("user-key"),
 				},
 			}
-			Expect(k8sClient.Create(ctx, userCertSecret)).Should(Succeed())
-			DeferCleanup(th.DeleteInstance, userCertSecret)
+			Expect(k8sClient.Create(ctx, userSecret)).Should(Succeed())
+			DeferCleanup(th.DeleteInstance, userSecret)
 
 			backupConfig := CreateBackupConfig(backupConfigName)
 			DeferCleanup(th.DeleteInstance, backupConfig)
 		})
 
-		It("Should label the user-created cert secret for restore", func() {
+		It("Should label the user-provided secret for restore", func() {
 			Eventually(func(g Gomega) {
 				secret := &k8s_corev1.Secret{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
@@ -705,7 +646,7 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 				labels := secret.GetLabels()
 				g.Expect(labels).NotTo(BeNil())
 				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("true"),
-					"User-created cert secret should be labeled for restore")
+					"User-provided secret should be labeled for restore")
 			}, timeout, interval).Should(Succeed())
 		})
 	})
@@ -845,46 +786,23 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 		})
 	})
 
-	When("An operator-created leaf cert secret has annotation override restore=true", func() {
+	When("A secret with restore=false label has annotation override restore=true", func() {
 		BeforeEach(func() {
 			backupConfigName = types.NamespacedName{
 				Name:      "test-backup-cert-override",
 				Namespace: namespace,
 			}
 
-			// Create an operator-created leaf Certificate
-			leafCert := &certmgrv1.Certificate{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "keystone-override-svc",
-					Namespace: namespace,
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							APIVersion: "keystone.openstack.org/v1beta1",
-							Kind:       "KeystoneAPI",
-							Name:       "keystone",
-							UID:        "fake-uid-3",
-						},
-					},
-				},
-				Spec: certmgrv1.CertificateSpec{
-					SecretName: "cert-keystone-override-svc",
-					IssuerRef: certmgrmetav1.ObjectReference{
-						Name: "rootca-internal",
-						Kind: "Issuer",
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, leafCert)).Should(Succeed())
-			DeferCleanup(th.DeleteInstance, leafCert)
-
-			// Create the secret with annotation override to force restore
+			// Create a secret with restore=false label but annotation override to force restore
 			leafSecret := &k8s_corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "cert-keystone-override-svc",
 					Namespace: namespace,
+					Labels: map[string]string{
+						commonbackup.BackupRestoreLabel: "false",
+					},
 					Annotations: map[string]string{
-						"cert-manager.io/certificate-name": "keystone-override-svc",
-						commonbackup.BackupRestoreLabel:    "true",
+						commonbackup.BackupRestoreLabel: "true",
 					},
 				},
 				Data: map[string][]byte{
@@ -909,7 +827,7 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 				labels := secret.GetLabels()
 				g.Expect(labels).NotTo(BeNil())
 				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("true"),
-					"Annotation override should take precedence over cert-manager leaf secret default")
+					"Annotation override should take precedence over operator-set label")
 				g.Expect(labels[commonbackup.BackupRestoreOrderLabel]).NotTo(BeEmpty(),
 					"restore-order should be set to default when restore=true via annotation")
 			}, timeout, interval).Should(Succeed())

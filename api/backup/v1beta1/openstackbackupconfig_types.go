@@ -29,24 +29,23 @@ type OpenStackBackupConfigSpec struct {
 	// DefaultRestoreOrder is the restore order assigned to user-provided resources
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default="10"
-	DefaultRestoreOrder string `json:"defaultRestoreOrder,omitempty"`
+	DefaultRestoreOrder string `json:"defaultRestoreOrder"`
 
 	// Secrets configuration for backup labeling
-	// Defaults: Excludes service-cert and osdp-service labeled secrets
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default={enabled:true,excludeLabelKeys:{"service-cert","osdp-service"}}
-	Secrets ResourceBackupConfig `json:"secrets,omitempty"`
+	// +kubebuilder:default={enabled:true}
+	Secrets ResourceBackupConfig `json:"secrets"`
 
 	// ConfigMaps configuration for backup labeling
 	// Defaults: Excludes kube-root-ca.crt and openshift-service-ca.crt
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default={enabled:true,excludeNames:{"kube-root-ca.crt","openshift-service-ca.crt"}}
-	ConfigMaps ResourceBackupConfig `json:"configMaps,omitempty"`
+	ConfigMaps ResourceBackupConfig `json:"configMaps"`
 
 	// NetworkAttachmentDefinitions configuration for backup labeling
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default={enabled:true}
-	NetworkAttachmentDefinitions ResourceBackupConfig `json:"networkAttachmentDefinitions,omitempty"`
+	NetworkAttachmentDefinitions ResourceBackupConfig `json:"networkAttachmentDefinitions"`
 
 	// Issuers configuration for backup labeling of cert-manager Issuers.
 	// Only custom (user-provided) Issuers without ownerReferences are labeled.
@@ -56,7 +55,7 @@ type OpenStackBackupConfigSpec struct {
 	// since Issuers reference CA secrets).
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default={enabled:true,restoreOrder:"20"}
-	Issuers ResourceBackupConfig `json:"issuers,omitempty"`
+	Issuers ResourceBackupConfig `json:"issuers"`
 }
 
 // ResourceBackupConfig defines backup labeling rules for a resource type
@@ -64,7 +63,7 @@ type ResourceBackupConfig struct {
 	// Enabled controls whether to label this resource type for backup
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default=true
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled bool `json:"enabled"`
 
 	// RestoreOrder overrides the default restore order for this resource type.
 	// If empty, the global DefaultRestoreOrder is used.

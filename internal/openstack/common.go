@@ -21,6 +21,7 @@ import (
 	ironicv1 "github.com/openstack-k8s-operators/ironic-operator/api/v1beta1"
 	keystonev1 "github.com/openstack-k8s-operators/keystone-operator/api/v1beta1"
 	"github.com/openstack-k8s-operators/lib-common/modules/certmanager"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/clusterdns"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
@@ -331,7 +332,7 @@ func EnsureEndpointConfig(
 						},
 						Ips:         nil,
 						Annotations: ed.Annotations,
-						Labels:      util.MergeMaps(ed.Labels, map[string]string{serviceCertSelector: ""}),
+						Labels:      util.MergeMaps(ed.Labels, map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"}),
 						Usages:      nil,
 					}
 
@@ -381,7 +382,7 @@ func EnsureEndpointConfig(
 					},
 					Ips:         nil,
 					Annotations: ed.Annotations,
-					Labels:      util.MergeMaps(ed.Labels, map[string]string{serviceCertSelector: ""}),
+					Labels:      util.MergeMaps(ed.Labels, map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"}),
 					Usages:      nil,
 				}
 
@@ -638,7 +639,7 @@ func (ed *EndpointDetail) CreateRoute(
 				Hostnames:   []string{*ed.Hostname},
 				Ips:         nil,
 				Annotations: ed.Annotations,
-				Labels:      util.MergeMaps(ed.Labels, map[string]string{serviceCertSelector: ""}),
+				Labels:      util.MergeMaps(ed.Labels, map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"}),
 				Usages:      nil,
 			}
 			if instance.Spec.TLS.Ingress.Cert.Duration != nil {

@@ -234,11 +234,6 @@ spec:
                       If empty, the global DefaultRestoreOrder is used.
                     type: string
                 type: object
-              targetNamespace:
-                default: openstack
-                description: TargetNamespace is the namespace to watch for resources
-                  to label
-                type: string
             type: object
           status:
             description: OpenStackBackupConfigStatus defines the observed state of
