@@ -23,7 +23,7 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 | `templates/06b-restore-rabbitmq-secrets.yaml.j2` | - | Secrets (to temp ns) | Velero Restore CR used by `06c-manual-rabbitmq-restore.md` |
 | `06c-manual-rabbitmq-restore.md` | 55 | **Manual** | Restore RabbitMQ `*-default-user` secrets, create RabbitMQUser CRs |
 | `templates/07-restore-order-60-dataplane.yaml.j2` | 60 | OpenStackDataPlaneNodeSet | DataPlane resources (optional) |
-| *(Post-restore)* | - | **Manual** | Run EDPM deployment to resync credentials (required if credentials were rotated between backup and restore) |
+| `templates/08-edpm-deployment.yaml.j2` | - | OpenStackDataPlaneDeployment | Resync credentials on dataplane nodes (skipped if no NodeSets exist) |
 | *(Final step)* | - | **Manual** | Re-enable InstanceHa (`spec.disabled: False`) after verifying the restored cloud is operational |
 
 ## Prerequisites
@@ -102,6 +102,7 @@ The playbook runs all restore steps in order, including:
 - Removes deployment-stage annotation to resume full deployment
 - Waits for control plane to be ready
 - Optional DataPlane restore
+- EDPM deployment to resync credentials on dataplane nodes
 
 Override defaults with extra vars:
 ```bash
@@ -182,6 +183,14 @@ oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-40-
 # 7. DataPlane (if applicable)
 oc apply -f /tmp/07-restore-order-60-dataplane.yaml
 oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-60-dataplane-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
+
+# 8. EDPM deployment - resync credentials on dataplane nodes
+#    See templates/08-edpm-deployment.yaml.j2 for the full template.
+#    Discovers NodeSets and creates an OpenStackDataPlaneDeployment CR.
+NODESETS=$(oc get openstackdataplanenodeset -n openstack -o jsonpath='{.items[*].metadata.name}')
+if [ -n "$NODESETS" ]; then
+  oc apply -f /tmp/08-edpm-deployment.yaml
+fi
 ```
 
 ## Data Mover Restore with WaitForFirstConsumer Storage (LVM)
