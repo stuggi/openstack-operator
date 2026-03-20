@@ -108,6 +108,76 @@ The OpenStackBackupConfig controller handles resource labeling centrally from th
 4. **Dynamic Discovery**: Uses CRD label cache — adding labels to a new CRD type automatically includes its instances
 5. **User-Provided Detection**: Only labels Secrets/ConfigMaps/NADs without ownerReferences (user-provided)
 
+#### Labeling Flow Example
+
+The following diagram shows how backup/restore labels flow from CRD definitions
+and operator logic to resource instances, using OpenStackControlPlane, a
+user-provided Secret, and a Glance PVC as examples.
+
+```mermaid
+flowchart TD
+    subgraph CRD["CRD Definitions (developer-set via kubebuilder markers)"]
+        CRD_OSCTLPLANE["CRD: openstackcontrolplanes.core.openstack.org<br/><b>labels:</b><br/>backup.openstack.org/restore: 'true'<br/>backup.openstack.org/restore-order: '30'"]
+    end
+
+    subgraph Controller["BackupConfig Controller (openstack-operator)"]
+        CACHE["CRD Label Cache<br/>(built at startup)"]
+        RECONCILE["Reconcile Loop"]
+    end
+
+    subgraph Operator["glance-operator"]
+        PVC_CREATE["PVC creation with<br/>backup.EnsureBackupLabels()"]
+    end
+
+    subgraph Instances["Resource Instances (in openstack namespace)"]
+        OSCTLPLANE["OpenStackControlPlane CR<br/><i>openstack-galera-network-isolation</i><br/><br/><b>labels added by controller:</b><br/>backup.openstack.org/restore: 'true'<br/>backup.openstack.org/restore-order: '30'"]
+        SECRET["Secret<br/><i>my-password (user-provided, no ownerRef)</i><br/><br/><b>labels added by controller:</b><br/>backup.openstack.org/restore: 'true'<br/>backup.openstack.org/restore-order: '10'"]
+        PVC["PVC<br/><i>glance-glance-default-single-0</i><br/><br/><b>labels added by glance-operator:</b><br/>backup.openstack.org/backup: 'true'<br/>backup.openstack.org/restore: 'true'<br/>backup.openstack.org/restore-order: '00'"]
+    end
+
+    CRD_OSCTLPLANE --> CACHE
+    CACHE --> RECONCILE
+    RECONCILE -->|"list CRD instances,<br/>patch labels from CRD"| OSCTLPLANE
+    RECONCILE -->|"list Secrets without ownerRef,<br/>apply default order 10"| SECRET
+    PVC_CREATE -->|"set labels at PVC creation<br/>(backup + restore, order 00)"| PVC
+
+    subgraph Backup["OADP Backup"]
+        BACKUP_RES["Backup CR (resources)<br/>All namespace resources<br/>(no label selector)"]
+        BACKUP_PVC["Backup CR (PVCs)<br/>labelSelector:<br/>backup.openstack.org/backup: 'true'"]
+    end
+
+    OSCTLPLANE -.->|"backed up"| BACKUP_RES
+    SECRET -.->|"backed up"| BACKUP_RES
+    PVC -.->|"backed up"| BACKUP_PVC
+
+    subgraph Restore["OADP Restore (by order)"]
+        RESTORE_00["Restore order 00<br/>→ PVC restored"]
+        RESTORE_10["Restore order 10<br/>→ Secret restored"]
+        RESTORE_30["Restore order 30<br/>→ OSCTLPLANE restored"]
+    end
+
+    BACKUP_PVC -.-> RESTORE_00
+    BACKUP_RES -.-> RESTORE_10
+    BACKUP_RES -.-> RESTORE_30
+
+    style CRD fill:#E8E8FF
+    style Controller fill:#FFF3E0
+    style Operator fill:#E8F5E9
+    style Instances fill:#F5F5F5
+    style Backup fill:#FFF9C4
+    style Restore fill:#E1F5FE
+```
+
+**How it works in this example:**
+
+1. **OpenStackControlPlane CRD** has `restore: "true"` and `restore-order: "30"` labels set by the developer via kubebuilder markers
+2. **BackupConfig controller** builds a CRD label cache at startup, then reconciles:
+   - Lists all OpenStackControlPlane instances → patches restore labels from the CRD onto each instance
+   - Lists all Secrets without ownerReferences → patches default restore labels (order 10)
+3. **glance-operator** creates PVCs with backup labels directly using `backup.EnsureBackupLabels()` (order 00)
+4. **OADP Backup** creates two Backup CRs: one for all resources (no selector), one for labeled PVCs only
+5. **OADP Restore** creates Restore CRs per order: PVCs first (00), then Secrets (10), then ControlPlane (30)
+
 ### Controller vs Webhook Approach
 
 An earlier version of this design proposed using mutating admission webhooks to label resources at creation time. The controller-based approach was chosen instead for these reasons:
@@ -609,6 +679,63 @@ The restore sequence is critical for maintaining dependencies between resources.
   - Order 40: User-created RabbitMQUser CRs restored (no ownerReferences)
   - Order 50 (manual): Create NEW `-restored-user` secrets with old passwords + NEW RabbitMQUser CRs (operator-managed clusters get original credentials)
 - **Customization**: All restore orders can be overridden via annotations on individual resources (see [Customizing Restore Order](#customizing-restore-order-for-core-resources))
+
+### Restore Workflow with Staged Deployment
+
+The following diagram shows the full restore workflow. The key design is
+**staged deployment**: the OpenStackControlPlane is restored with a
+`deployment-stage: infrastructure-only` annotation, so only infrastructure
+services (Galera, OVN, RabbitMQ, Memcached) start. Databases and credentials
+are restored while services are stopped, then the annotation is removed to
+resume full deployment.
+
+```mermaid
+flowchart TD
+    Start([Start Restore]) --> PreReq{Prerequisites Exist?<br/>StorageClass, NNCP, MetalLB}
+    PreReq -->|Missing| RestorePreReq[Restore/Create Prerequisites]
+    RestorePreReq --> PreReq
+    PreReq -->|Ready| RestorePVC[Order 00: Restore PVCs<br/>CSI snapshots for Galera dumps,<br/>Glance images, etc.]
+
+    RestorePVC --> RestoreFoundation[Order 10: Restore Foundation<br/>Secrets, ConfigMaps, NADs]
+    RestoreFoundation --> RestoreInfra[Order 20: Restore Infrastructure<br/>OpenStackVersion, MariaDBAccount,<br/>MariaDBDatabase, NetConfig, InstanceHa]
+    RestoreInfra --> RestoreCtlPlane[Order 30: Restore OpenStackControlPlane<br/>with annotation:<br/>core.openstack.org/deployment-stage:<br/>infrastructure-only]
+
+    RestoreCtlPlane --> WaitInfra{Wait for<br/>InfrastructureReady<br/>condition}
+    WaitInfra -->|Not Ready| WaitInfra
+    WaitInfra -->|Ready| InfraReady[Infrastructure Ready:<br/>Galera, OVN, RabbitMQ, Memcached]
+
+    InfraReady --> RestoreBackupConfig[Order 40: Restore GaleraBackup,<br/>IPSet, DataPlaneService]
+    RestoreBackupConfig --> RestoreDB[Order 50: Database Restore<br/>Create GaleraRestore CRs,<br/>execute restore from dump PVCs]
+    RestoreDB --> RestoreRabbitMQ[Order 50: RabbitMQ Credentials<br/>Restore default-user secrets,<br/>create RabbitMQUser CRs]
+
+    RestoreRabbitMQ --> Resume[Order 50: Resume Deployment<br/>Remove deployment-stage annotation]
+
+    Resume --> WaitServices{Wait for<br/>ControlPlane Ready}
+    WaitServices -->|Not Ready| WaitServices
+    WaitServices -->|Ready| ServicesReady[Services Ready:<br/>Keystone, Nova, Neutron,<br/>Glance, etc.]
+
+    ServicesReady --> RestoreDP[Order 60: Restore DataPlane<br/>OpenStackDataPlaneNodeSet]
+    RestoreDP --> EDPMDeploy[Post-Restore: EDPM Deployment<br/>Resync credentials on<br/>dataplane nodes]
+    EDPMDeploy --> EnableIHA[Post-Restore: Re-enable InstanceHa<br/>spec.disabled: False]
+    EnableIHA --> End([Restore Complete])
+
+    style PreReq fill:#FFA07A
+    style InfraReady fill:#90EE90
+    style ServicesReady fill:#90EE90
+    style RestoreCtlPlane fill:#FFE4B5
+    style Resume fill:#FFE4B5
+    style WaitInfra fill:#87CEEB
+    style WaitServices fill:#87CEEB
+    style EDPMDeploy fill:#E8F5E9
+    style EnableIHA fill:#E8F5E9
+```
+
+**Key Points:**
+- **Staged Deployment**: ControlPlane restored with `deployment-stage: infrastructure-only` annotation in order 30, removed in order 50 after database/RabbitMQ restore
+- **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases and PVCs
+- **EDPM Deployment**: Required after restore to resync all credentials and certificates on dataplane nodes
+- **InstanceHa**: Restored with `spec.disabled: True` to prevent fencing during restore; re-enabled manually after verification
+- See [enhancement-staged-deployment-restore.md](../enhancement-staged-deployment-restore.md) for detailed context on the staged deployment feature
 
 ## CRD Label Mapping
 
