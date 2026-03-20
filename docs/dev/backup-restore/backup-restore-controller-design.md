@@ -238,6 +238,24 @@ cert-manager creates TLS secrets for Certificate CRs, but these secrets do **not
 
 The controller checks the `cert-manager.io/certificate-name` annotation on each secret to look up the corresponding Certificate CR and determine if it should be labeled for restore.
 
+**TODO: Move cert-manager secret labeling to service controllers.** The
+BackupConfig controller's cert-manager lookup logic (checking Certificate CR
+`isCA`, ownerRef filtering) could be replaced by labeling cert-manager secrets
+directly in the controllers that already read them:
+
+- **CA cert secrets**: The OpenStackControlPlane controller already reads CA
+  cert secrets to build the CA bundle. It could add `restore: "true"` labels
+  at that point.
+- **Leaf cert secrets**: Service controllers (keystone, nova, etc.) read their
+  TLS secrets during reconciliation. They could set `restore: "false"` labels
+  there.
+
+This would align with the pattern used for PVCs (glance-operator, swift-operator,
+mariadb-operator) — operators label what they know about at the point where they
+already interact with the resource. The BackupConfig controller's secret handling
+would simplify to: "label Secrets without ownerRefs and without existing backup
+labels" — no cert-manager awareness needed.
+
 **Example: PVC creation with annotation override support**
 
 ```go
@@ -1450,6 +1468,38 @@ status:
 4. **Category-Based Restore**: Selective restore by category
 5. **Better Testing**: Can test individual restore orders
 6. **Kubernetes-Native**: Leverages OADP fully, standard Kubernetes patterns
+
+### Backup Tool Independence
+
+The labeling approach is **backup-tool-agnostic by design**. While the current
+implementation uses OADP/Velero, the contract between operators and the backup
+system is defined entirely through Kubernetes labels:
+
+- `backup.openstack.org/backup: "true"` — include in backup (PVCs)
+- `backup.openstack.org/restore: "true"` — include in restore
+- `backup.openstack.org/restore-order: "00"–"60"` — restore sequence
+
+These are native Kubernetes metadata. Any backup solution that supports
+**label selectors** for filtering resources and **CSI snapshots** for PVCs
+could replace OADP/Velero without changes to any operator code. The restore
+orchestration (apply order 00, wait, apply order 10, wait, ...) is a generic
+pattern that works with any tool capable of label-filtered restores.
+
+The only Velero-specific features used are:
+
+| Feature | Velero-Specific | Generic Alternative |
+|---------|----------------|---------------------|
+| Resource modifiers (strip ownerRefs, add annotations) | `spec.resourceModifier` ConfigMap | Post-restore controller or script applying JSON patches |
+| Data Mover (upload snapshots to S3) | `snapshotMoveData: true` (Kopia) | Any off-cluster PVC backup mechanism |
+| Restore CR with label selector | `spec.labelSelector` | Tool-specific filtering mechanism |
+
+This means:
+- **Operators are decoupled** from the backup tool — they only set labels
+- **The backup tool is swappable** — replace Velero Backup/Restore CRs with
+  equivalent CRs from another tool
+- **The restore playbook** is the only component with Velero-specific API
+  references (Backup/Restore CR creation and status polling), and could be
+  adapted to a different tool by changing only the CR templates
 
 ## Open Questions
 
