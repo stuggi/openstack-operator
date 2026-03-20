@@ -9,8 +9,8 @@
 # 2. Foundation resources (Secrets, ConfigMaps, NADs)
 # 3. Infrastructure CRs (OpenStackVersion, MariaDBAccount, etc.)
 # 4. OpenStackControlPlane (with infrastructure-only staging)
-# 5. GaleraBackup CRs (backup configuration)
-# 6. Wait for infrastructure (Galera, OVN, RabbitMQ) to be ready
+# 5. Wait for infrastructure (Galera, OVN, RabbitMQ) to be ready
+# 6. GaleraBackup CRs (backup configuration)
 # 7. Database restore (create GaleraRestore CRs, exec restore)
 # 8. RabbitMQ credential restore (restore old secrets to temp ns, copy, create RabbitMQUser CRs)
 # 9. Resume full deployment (remove staging annotation)
@@ -420,48 +420,8 @@
         step_name: "Step 4 (ControlPlane restore)"
 
     # ========================================
-    # Step 5: Restore GaleraBackup CRs (Order 40)
+    # Step 5: Wait for Infrastructure Ready
     # ========================================
-    - name: Render backup config restore
-      ansible.builtin.template:
-        src: "{{ playbook_dir }}/templates/05-restore-order-40-backup-config.yaml.j2"
-        dest: "{{ rendered_dir.path }}/05-restore-order-40-backup-config.yaml"
-
-    - name: "Next: Step 5 - Restore GaleraBackup CRs"
-      ansible.builtin.debug:
-        msg: "{{ lookup('file', rendered_dir.path + '/05-restore-order-40-backup-config.yaml').splitlines() }}"
-      when: not (auto_ack | bool)
-
-    - name: Pause after controlplane restore
-      ansible.builtin.pause:
-        prompt: >-
-          Step 4 complete: OpenStackControlPlane restored (staged).
-          Press Enter to continue, or Ctrl+C then 'A' to abort
-      when: not (auto_ack | bool)
-
-    - name: Create backup config restore
-      ansible.builtin.shell: |
-        oc apply -f {{ rendered_dir.path }}/05-restore-order-40-backup-config.yaml
-      changed_when: true
-
-    - name: Wait for backup config restore
-      ansible.builtin.include_tasks:
-        file: wait-for-restore.yaml
-      vars:
-        restore_name: "openstack-restore-40-backup-{{ restore_suffix }}"
-        step_name: "Step 5 (GaleraBackup restore)"
-
-    # ========================================
-    # Step 6: Wait for Infrastructure Ready
-    # ========================================
-    - name: Pause after GaleraBackup restore
-      ansible.builtin.pause:
-        prompt: >-
-          Step 5 complete: GaleraBackup CRs restored.
-          Next: Step 6 - Wait for infrastructure ready (Galera, OVN, RabbitMQ, Memcached).
-          Press Enter to continue, or Ctrl+C then 'A' to abort
-      when: not (auto_ack | bool)
-
     - name: Wait for OpenStackControlPlane infrastructure ready
       ansible.builtin.shell: |
         oc wait openstackcontrolplane -n {{ openstack_namespace }} --all \
@@ -481,7 +441,7 @@
       register: galera_pod_phases
       changed_when: false
 
-    - name: Print Step 6 result
+    - name: Print Step 5 result
       ansible.builtin.debug:
         msg:
           - "Infrastructure is ready"
@@ -489,12 +449,44 @@
           - "Galera pod phases: {{ galera_pod_phases.stdout }}"
 
     # ========================================
-    # Step 7: Database Restore
+    # Step 6: Restore GaleraBackup CRs (Order 40)
     # ========================================
+    - name: Render backup config restore
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/05-restore-order-40-backup-config.yaml.j2"
+        dest: "{{ rendered_dir.path }}/05-restore-order-40-backup-config.yaml"
+
+    - name: "Next: Step 6 - Restore GaleraBackup CRs"
+      ansible.builtin.debug:
+        msg: "{{ lookup('file', rendered_dir.path + '/05-restore-order-40-backup-config.yaml').splitlines() }}"
+      when: not (auto_ack | bool)
+
     - name: Pause after infrastructure ready
       ansible.builtin.pause:
         prompt: >-
-          Step 6 complete: Infrastructure is ready (Galera, OVN, RabbitMQ, Memcached).
+          Step 5 complete: Infrastructure is ready (Galera, OVN, RabbitMQ, Memcached).
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
+
+    - name: Create backup config restore
+      ansible.builtin.shell: |
+        oc apply -f {{ rendered_dir.path }}/05-restore-order-40-backup-config.yaml
+      changed_when: true
+
+    - name: Wait for backup config restore
+      ansible.builtin.include_tasks:
+        file: wait-for-restore.yaml
+      vars:
+        restore_name: "openstack-restore-40-backup-{{ restore_suffix }}"
+        step_name: "Step 6 (GaleraBackup restore)"
+
+    # ========================================
+    # Step 7: Database Restore
+    # ========================================
+    - name: Pause after GaleraBackup restore
+      ansible.builtin.pause:
+        prompt: >-
+          Step 6 complete: GaleraBackup CRs restored.
           Next: Step 7 - Database restore (GaleraRestore).
           Press Enter to continue, or Ctrl+C then 'A' to abort
       when: not (auto_ack | bool)
@@ -673,9 +665,21 @@
       loop: "{{ rabbitmq_clusters }}"
       changed_when: true
 
+    - name: Wait for RabbitMQUser CRs to be ready
+      ansible.builtin.shell: |
+        oc wait rabbitmquser --all -n {{ openstack_namespace }} --for=jsonpath='{.status.conditions[0].status}'=True --timeout=120s
+      changed_when: false
+      failed_when: false
+
+    - name: Get RabbitMQUser status
+      ansible.builtin.shell: |
+        oc get rabbitmquser -n {{ openstack_namespace }}
+      register: rabbitmquser_status
+      changed_when: false
+
     - name: Print Step 8 result
       ansible.builtin.debug:
-        msg: "RabbitMQ user credentials restored"
+        msg: "{{ rabbitmquser_status.stdout_lines }}"
 
     # ========================================
     # Step 9: Resume Full Deployment
@@ -687,6 +691,10 @@
           Next: Step 9 - Resume full deployment (remove staging annotation).
           Press Enter to continue, or Ctrl+C then 'A' to abort
       when: not (auto_ack | bool)
+
+    - name: Print annotation removal command
+      ansible.builtin.debug:
+        msg: "oc annotate openstackcontrolplane {{ ctlplane_name.stdout }} -n {{ openstack_namespace }} core.openstack.org/deployment-stage-"
 
     - name: Remove deployment-stage annotation
       ansible.builtin.shell: |
