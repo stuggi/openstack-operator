@@ -314,7 +314,7 @@ func (r *OpenStackBackupConfigReconciler) isCertManagerOperatorSecret(ctx contex
 // User annotation overrides take precedence over all default behavior.
 func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
 	secretList := &corev1.SecretList{}
-	if err := r.List(ctx, secretList, client.InNamespace(instance.Spec.TargetNamespace)); err != nil {
+	if err := r.List(ctx, secretList, client.InNamespace(instance.Namespace)); err != nil {
 		return 0, err
 	}
 
@@ -362,7 +362,7 @@ func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log 
 // labelConfigMaps labels configmaps in the target namespace
 func (r *OpenStackBackupConfigReconciler) labelConfigMaps(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
 	cmList := &corev1.ConfigMapList{}
-	if err := r.List(ctx, cmList, client.InNamespace(instance.Spec.TargetNamespace)); err != nil {
+	if err := r.List(ctx, cmList, client.InNamespace(instance.Namespace)); err != nil {
 		return 0, err
 	}
 
@@ -398,7 +398,7 @@ func (r *OpenStackBackupConfigReconciler) labelConfigMaps(ctx context.Context, l
 // labelNetworkAttachmentDefinitions labels NADs in the target namespace
 func (r *OpenStackBackupConfigReconciler) labelNetworkAttachmentDefinitions(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
 	nadList := &k8s_networkingv1.NetworkAttachmentDefinitionList{}
-	if err := r.List(ctx, nadList, client.InNamespace(instance.Spec.TargetNamespace)); err != nil {
+	if err := r.List(ctx, nadList, client.InNamespace(instance.Namespace)); err != nil {
 		return 0, err
 	}
 
@@ -436,7 +436,7 @@ func (r *OpenStackBackupConfigReconciler) labelNetworkAttachmentDefinitions(ctx 
 // Operator-created Issuers have ownerRefs and are recreated during reconciliation.
 func (r *OpenStackBackupConfigReconciler) labelIssuers(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
 	issuerList := &certmgrv1.IssuerList{}
-	if err := r.List(ctx, issuerList, client.InNamespace(instance.Spec.TargetNamespace)); err != nil {
+	if err := r.List(ctx, issuerList, client.InNamespace(instance.Namespace)); err != nil {
 		return 0, err
 	}
 
@@ -506,7 +506,7 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 			Kind:    gvk.Kind + "List",
 		})
 
-		if err := r.List(ctx, list, client.InNamespace(instance.Spec.TargetNamespace)); err != nil {
+		if err := r.List(ctx, list, client.InNamespace(instance.Namespace)); err != nil {
 			log.Error(err, "Failed to list CR instances", "crd", crdName)
 			continue
 		}

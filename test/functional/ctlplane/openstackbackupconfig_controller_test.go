@@ -54,7 +54,6 @@ func CreateBackupConfig(name types.NamespacedName) *backupv1.OpenStackBackupConf
 			Namespace: name.Namespace,
 		},
 		Spec: backupv1.OpenStackBackupConfigSpec{
-			TargetNamespace: name.Namespace,
 			// Kubebuilder defaults are only applied via webhooks.
 			// Set them explicitly for envtest.
 			Secrets: backupv1.ResourceBackupConfig{
@@ -95,7 +94,7 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 		It("Should exist and be retrievable", func() {
 			backupConfig := &backupv1.OpenStackBackupConfig{}
 			Expect(k8sClient.Get(ctx, backupConfigName, backupConfig)).Should(Succeed())
-			Expect(backupConfig.Spec.TargetNamespace).To(Equal(namespace))
+			Expect(backupConfig.Namespace).To(Equal(namespace))
 		})
 
 		It("Should initialize all conditions", func() {

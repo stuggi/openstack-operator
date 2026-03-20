@@ -61,9 +61,6 @@ func ReconcileBackupConfig(ctx context.Context, instance *corev1beta1.OpenStackC
 		// deleted, and should be backed up/restored with user customizations intact.
 
 		// Set spec defaults if not already set (CreateOrPatch might be updating existing)
-		if backupConfig.Spec.TargetNamespace == "" {
-			backupConfig.Spec.TargetNamespace = instance.Namespace
-		}
 		if backupConfig.Spec.DefaultRestoreOrder == "" {
 			backupConfig.Spec.DefaultRestoreOrder = "10"
 		}

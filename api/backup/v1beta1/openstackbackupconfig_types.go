@@ -26,11 +26,6 @@ import (
 
 // OpenStackBackupConfigSpec defines the desired state of OpenStackBackupConfig.
 type OpenStackBackupConfigSpec struct {
-	// TargetNamespace is the namespace to watch for resources to label
-	// +kubebuilder:validation:Optional
-	// +kubebuilder:default=openstack
-	TargetNamespace string `json:"targetNamespace,omitempty"`
-
 	// DefaultRestoreOrder is the restore order assigned to user-provided resources
 	// +kubebuilder:validation:Optional
 	// +kubebuilder:default="10"

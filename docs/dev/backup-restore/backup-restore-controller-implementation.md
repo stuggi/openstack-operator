@@ -223,10 +223,6 @@ The OpenStackBackupConfig controller is the central component that labels resour
 ```go
 // OpenStackBackupConfigSpec defines the desired state of OpenStackBackupConfig.
 type OpenStackBackupConfigSpec struct {
-    // TargetNamespace is the namespace to watch for resources to label
-    // +kubebuilder:default=openstack
-    TargetNamespace string `json:"targetNamespace,omitempty"`
-
     // DefaultRestoreOrder is the restore order assigned to user-provided resources
     // +kubebuilder:default="10"
     DefaultRestoreOrder string `json:"defaultRestoreOrder,omitempty"`
@@ -283,7 +279,6 @@ metadata:
   name: backup-config
   namespace: openstack
 spec:
-  targetNamespace: openstack
   defaultRestoreOrder: "10"
   secrets:
     enabled: true
@@ -444,8 +439,7 @@ kind: OpenStackBackupConfig
 metadata:
   name: backup-config
   namespace: openstack
-spec:
-  targetNamespace: openstack
+spec: {}
 EOF
 
 # Check controller status
