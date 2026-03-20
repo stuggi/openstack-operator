@@ -1,0 +1,24 @@
+---
+# OpenStack Resources Backup (excluding PVCs)
+# Backs up all resources in the OpenStack namespace except PVCs and PVs.
+# PVCs are backed up separately with backup-pvcs.yaml.j2 using CSI snapshots.
+#
+# Variables:
+#   backup_name_suffix: Timestamp suffix for backup name
+#   oadp_namespace: OADP namespace (default: openshift-adp)
+#   openstack_namespace: OpenStack namespace (default: openstack)
+#   storage_location: Velero storage location (default: velero-1)
+#   backup_ttl: Backup retention (default: 720h)
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-backup-resources-{{ backup_name_suffix }}
+  namespace: {{ oadp_namespace }}
+spec:
+  includedNamespaces:
+  - {{ openstack_namespace }}
+  excludedResources:
+  - persistentvolumeclaims
+  - persistentvolumes
+  storageLocation: {{ storage_location }}
+  ttl: {{ backup_ttl }}

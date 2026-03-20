@@ -17,8 +17,10 @@
 #
 # Usage:
 #   ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml
-#   # With Data Mover (upload snapshots to S3/MinIO):
-#   ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml -e snapshot_move_data=true
+#   # Without Data Mover (local snapshots only):
+#   ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml -e snapshot_move_data=false
+#   # Skip all confirmation prompts (non-interactive):
+#   ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml -e auto_ack=true
 #
 # Variables:
 #   openstack_namespace: Target namespace (default: openstack)
@@ -28,7 +30,8 @@
 #   oadp_backup_timeout: Timeout for OADP backups (default: 30m)
 #   storage_location: Velero storage location (default: velero-1)
 #   backup_ttl: Backup retention (default: 720h / 30 days)
-#   snapshot_move_data: Upload snapshots to BSL via Data Mover (default: false)
+#   snapshot_move_data: Upload snapshots to BSL via Data Mover (default: true)
+#   auto_ack: Skip all confirmation prompts (default: false)
 
 - name: OpenStack Full Backup
   hosts: localhost
@@ -41,12 +44,20 @@
     oadp_backup_timeout: 30m
     storage_location: velero-1
     backup_ttl: 720h
-    snapshot_move_data: false
+    snapshot_move_data: true
+    auto_ack: false
 
   tasks:
     - name: Set backup timestamp
       ansible.builtin.set_fact:
         backup_name_suffix: "{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
+
+    - name: Create temp directory for rendered templates
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: openstack-backup-
+      register: rendered_dir
+
     # ========================================
     # Step 1: Trigger Galera Database Dumps
     # ========================================
@@ -108,6 +119,7 @@
           - "Step 2: OADP PVC Backup (CSI Snapshots)"
           - "========================================"
           - "PVCs are auto-labeled by operators (glance-operator, mariadb-operator)"
+          - "Data Mover: {{ snapshot_move_data | bool }}"
 
     - name: List PVCs marked for backup
       ansible.builtin.shell: |
@@ -127,27 +139,25 @@
         msg: "WARNING: No PVCs found with backup.openstack.org/backup=true label"
       when: labeled_pvcs.stdout_lines | default([]) | length == 0
 
+    - name: Render PVC backup CR
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/backup-pvcs.yaml.j2"
+        dest: "{{ rendered_dir.path }}/backup-pvcs.yaml"
+
+    - name: "Next: Create PVC backup CR"
+      ansible.builtin.debug:
+        msg: "{{ lookup('file', rendered_dir.path + '/backup-pvcs.yaml') }}"
+
+    - name: Pause before PVC backup
+      ansible.builtin.pause:
+        prompt: >-
+          Step 1 complete: Galera DB dumps. PVCs labeled for backup listed above.
+          Press Enter to create PVC backup, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
+
     - name: Create OADP PVC backup
       ansible.builtin.shell: |
-        cat <<EOF | oc apply -f -
-        apiVersion: velero.io/v1
-        kind: Backup
-        metadata:
-          name: openstack-backup-pvcs-{{ backup_name_suffix }}
-          namespace: {{ oadp_namespace }}
-        spec:
-          includedNamespaces:
-          - {{ openstack_namespace }}
-          labelSelector:
-            matchLabels:
-              backup.openstack.org/backup: "true"
-          snapshotVolumes: true
-          snapshotMoveData: {{ snapshot_move_data | lower }}
-          defaultVolumesToFsBackup: false
-          volumeSnapshotLocations: []
-          storageLocation: {{ storage_location }}
-          ttl: {{ backup_ttl }}
-        EOF
+        oc apply -f {{ rendered_dir.path }}/backup-pvcs.yaml
       changed_when: true
 
     - name: Wait for PVC backup to complete
@@ -180,23 +190,25 @@
           - "========================================"
           - "Backing up all resources except PVCs"
 
+    - name: Render resources backup CR
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/backup-resources.yaml.j2"
+        dest: "{{ rendered_dir.path }}/backup-resources.yaml"
+
+    - name: "Next: Create resources backup CR"
+      ansible.builtin.debug:
+        msg: "{{ lookup('file', rendered_dir.path + '/backup-resources.yaml') }}"
+
+    - name: Pause before resources backup
+      ansible.builtin.pause:
+        prompt: >-
+          Step 2 complete: PVC backup ({{ pvc_backup_status.stdout }}).
+          Press Enter to create resources backup, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool)
+
     - name: Create OADP resources backup
       ansible.builtin.shell: |
-        cat <<EOF | oc apply -f -
-        apiVersion: velero.io/v1
-        kind: Backup
-        metadata:
-          name: openstack-backup-resources-{{ backup_name_suffix }}
-          namespace: {{ oadp_namespace }}
-        spec:
-          includedNamespaces:
-          - {{ openstack_namespace }}
-          excludedResources:
-          - persistentvolumeclaims
-          - persistentvolumes
-          storageLocation: {{ storage_location }}
-          ttl: {{ backup_ttl }}
-        EOF
+        oc apply -f {{ rendered_dir.path }}/backup-resources.yaml
       changed_when: true
 
     - name: Wait for resources backup to complete
@@ -236,3 +248,8 @@
           - "  oc get backup -n {{ oadp_namespace }} | grep {{ backup_name_suffix }}"
           - ""
           - "To restore, see: docs/dev/backup-restore/restore/README.md"
+
+    - name: Cleanup rendered templates
+      ansible.builtin.file:
+        path: "{{ rendered_dir.path }}"
+        state: absent
