@@ -1,0 +1,20 @@
+---
+# Post-Restore EDPM Deployment
+# Resyncs all credentials and certificates on dataplane nodes with
+# the restored control plane state. Required if credentials were
+# rotated between backup and restore.
+#
+# Variables:
+#   restore_suffix: Restore timestamp suffix
+#   openstack_namespace: OpenStack namespace (default: openstack)
+#   nodeset_names_list: List of DataPlaneNodeSet names
+apiVersion: dataplane.openstack.org/v1beta1
+kind: OpenStackDataPlaneDeployment
+metadata:
+  name: edpm-deployment-post-restore-{{ restore_suffix }}
+  namespace: {{ openstack_namespace }}
+spec:
+  nodeSets:
+{% for nodeset in nodeset_names_list %}
+  - {{ nodeset }}
+{% endfor %}

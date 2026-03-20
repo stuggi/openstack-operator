@@ -724,6 +724,60 @@
         restore_name: "openstack-restore-60-dataplane-{{ restore_suffix }}"
         step_name: "Step 10 (DataPlane restore)"
 
+    # ========================================
+    # Step 11: EDPM Deployment (resync credentials)
+    # ========================================
+    - name: Get DataPlaneNodeSet names
+      ansible.builtin.shell: |
+        oc get openstackdataplanenodeset -n {{ openstack_namespace }} -o jsonpath='{.items[*].metadata.name}'
+      register: nodeset_names
+      changed_when: false
+
+    - name: Set nodeset list
+      ansible.builtin.set_fact:
+        nodeset_names_list: "{{ nodeset_names.stdout.split() }}"
+      when: nodeset_names.stdout != ""
+
+    - name: Render EDPM deployment CR
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/08-edpm-deployment.yaml.j2"
+        dest: "{{ rendered_dir.path }}/08-edpm-deployment.yaml"
+      when: nodeset_names.stdout != ""
+
+    - name: "Next: Step 11 - Run EDPM deployment to resync credentials on dataplane nodes"
+      ansible.builtin.debug:
+        msg: "{{ lookup('file', rendered_dir.path + '/08-edpm-deployment.yaml') }}"
+      when: not (auto_ack | bool) and nodeset_names.stdout != ""
+
+    - name: Pause before EDPM deployment
+      ansible.builtin.pause:
+        prompt: >-
+          Step 10 complete: DataPlane resources restored.
+          Next: Step 11 - Run EDPM deployment to resync credentials.
+          Press Enter to continue, or Ctrl+C then 'A' to abort
+      when: not (auto_ack | bool) and nodeset_names.stdout != ""
+
+    - name: Create EDPM deployment
+      ansible.builtin.shell: |
+        oc apply -f {{ rendered_dir.path }}/08-edpm-deployment.yaml
+      changed_when: true
+      when: nodeset_names.stdout != ""
+
+    - name: Print EDPM deployment status
+      ansible.builtin.debug:
+        msg:
+          - "Created OpenStackDataPlaneDeployment: edpm-deployment-post-restore-{{ restore_suffix }}"
+          - ""
+          - "Monitor deployment progress with:"
+          - "  oc get openstackdataplanedeployment -n {{ openstack_namespace }}"
+          - "  oc get openstackdataplanenodeset -n {{ openstack_namespace }}"
+      when: nodeset_names.stdout != ""
+
+    - name: Print EDPM deployment skip
+      ansible.builtin.debug:
+        msg: "No DataPlaneNodeSets found - skipping EDPM deployment"
+      when: nodeset_names.stdout == ""
+
     - name: Clean up rendered templates
       ansible.builtin.file:
         path: "{{ rendered_dir.path }}"
@@ -742,12 +796,9 @@
           - "ControlPlane: {{ ctlplane_name.stdout }}"
           - "Restore suffix: {{ restore_suffix }}"
           - ""
-          - "IMPORTANT: Post-restore steps required:"
+          - "IMPORTANT: Post-restore step required:"
           - ""
-          - "1. Run an EDPM deployment to resync credentials on dataplane nodes"
-          - "   (required if credentials were rotated between backup and restore)"
-          - ""
-          - "2. Re-enable InstanceHa (restored with spec.disabled=True):"
+          - "Re-enable InstanceHa (restored with spec.disabled=True):"
           - "  oc patch instanceha <name> -n {{ openstack_namespace }} --type merge -p '{\"spec\":{\"disabled\":\"False\"}}'"
           - ""
           - "To verify:"
