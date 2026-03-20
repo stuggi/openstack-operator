@@ -320,6 +320,11 @@ func getBackupLabels(annotations map[string]string) map[string]string {
 
 ### OADP Integration
 
+OADP (OpenShift API for Data Protection) is Red Hat's distribution of Velero for
+OpenShift. It requires an S3-compatible object storage backend for backup storage.
+See [Certified backup storage providers](https://docs.redhat.com/en/documentation/openshift_container_platform/4.20/html/backup_and_restore/oadp-application-backup-and-restore#oadp-certified-backup-storage-providers_about-installing-oadp)
+for supported backends (AWS S3, MCG, ODF, Ceph RGW, MinIO, etc.).
+
 #### Split Backup: CRs and PVCs
 
 The backup uses two OADP Backup CRs — one for all namespace resources (CRs, Secrets, ConfigMaps, etc.) and one for PVC snapshots:
@@ -1133,34 +1138,207 @@ Use cases:
 - Interactive pauses between steps (skippable with `auto_ack=true`)
 - See `docs/dev/backup-restore/restore/README.md` for usage
 
-### Phase 4: Golang Restore Controller (Future)
+### Phase 4: Golang Backup/Restore Controllers (Future)
 
-**Goal**: Replace the Ansible restore playbook with a Golang controller that
-creates OADP Restore CRs, handles database/RabbitMQ restore, and manages the
-staged deployment lifecycle — all driven by a single `OpenStackBackupRestore` CR.
+**Goal**: Replace the Ansible playbooks with Golang controllers that orchestrate
+backup and restore — all driven by CRs. The controllers are **backup-tool-agnostic**:
+they use raw templates from a Secret to create backup/restore CRs for whatever
+tool is configured (OADP/Velero, Kasten, etc.), with no tool-specific imports.
+
+#### Generic Template Approach
+
+Each stage references a key in a Secret containing the raw YAML template for the
+backup/restore CR to create. The controller renders the template with variables
+(namespace, timestamp, etc.), creates the `unstructured.Unstructured` object, and
+polls a configurable jsonpath condition for completion.
+
+This keeps the controller decoupled from any backup tool — only the Secret
+templates contain tool-specific API references.
+
+#### OpenStackBackup Controller
+
+Orchestrates the full backup sequence: trigger Galera DB dumps, then create
+backup CRs from templates for each stage.
 
 ```yaml
 apiVersion: backup.openstack.org/v1beta1
-kind: OpenStackBackupRestore
+kind: OpenStackBackup
 metadata:
-  name: restore-20260303
+  name: backup-20260320
   namespace: openstack
 spec:
-  backupName: openstack-backup-20260303-120000
-  automated: true
+  stages:
+  - name: galera-dumps
+    type: GaleraBackup   # built-in: triggers jobs from GaleraBackup cronjobs
+    timeout: 10m
+  - name: pvc-backup
+    type: Template
+    templateRef:
+      name: openstack-backup-templates   # Secret name
+      key: backup-pvcs                    # Key within the Secret
+    completionCondition:
+      jsonpath: '{.status.phase}'
+      value: Completed
+    timeout: 30m
+  - name: resources-backup
+    type: Template
+    templateRef:
+      name: openstack-backup-templates
+      key: backup-resources
+    completionCondition:
+      jsonpath: '{.status.phase}'
+      value: Completed
+    timeout: 30m
+status:
+  phase: InProgress  # Pending, InProgress, Completed, Failed
+  currentStage: pvc-backup
+  conditions:
+  - type: GaleraDumpsComplete
+    status: "True"
+  - type: PvcBackupInProgress
+    status: "True"
+```
+
+The Secret contains the tool-specific templates:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: openstack-backup-templates
+  namespace: openstack
+stringData:
+  backup-pvcs: |
+    apiVersion: velero.io/v1
+    kind: Backup
+    metadata:
+      name: openstack-backup-pvcs-{{ .Timestamp }}
+      namespace: {{ .OADPNamespace }}
+    spec:
+      includedNamespaces:
+      - {{ .Namespace }}
+      labelSelector:
+        matchLabels:
+          backup.openstack.org/backup: "true"
+      snapshotMoveData: true
+      storageLocation: velero-1
+  backup-resources: |
+    apiVersion: velero.io/v1
+    kind: Backup
+    metadata:
+      name: openstack-backup-resources-{{ .Timestamp }}
+      namespace: {{ .OADPNamespace }}
+    spec:
+      includedNamespaces:
+      - {{ .Namespace }}
+      labelSelector:
+        matchLabels:
+          backup.openstack.org/restore: "true"
+      snapshotVolumes: false
+      storageLocation: velero-1
+```
+
+#### OpenStackRestore Controller
+
+Orchestrates the full restore sequence using the same template-based approach,
+plus built-in stages for database restore, RabbitMQ credential restore, and
+staged deployment lifecycle.
+
+```yaml
+apiVersion: backup.openstack.org/v1beta1
+kind: OpenStackRestore
+metadata:
+  name: restore-20260320
+  namespace: openstack
+spec:
+  backupTimestamp: "20260320-110200"
+  templateRef:
+    name: openstack-restore-templates   # Secret with all restore stage templates
   automatedDatabaseRestore: true
   automatedRabbitMQRestore: true
 status:
   phase: InProgress  # Pending, InProgress, Completed, Failed
-  currentRestoreOrder: 20
+  currentStage: order-20-infra
   conditions:
-  - type: Order00Complete
+  - type: Order00PvcsComplete
     status: "True"
-  - type: Order10Complete
+  - type: Order10FoundationComplete
     status: "True"
-  - type: Order20InProgress
+  - type: Order20InfraInProgress
     status: "True"
 ```
+
+#### Scheduled Backups
+
+The `OpenStackBackup` CR supports an optional `schedule` field for recurring
+backups. When set, the controller creates a CronJob that produces new
+`OpenStackBackup` instances on schedule.
+
+```yaml
+apiVersion: backup.openstack.org/v1beta1
+kind: OpenStackBackup
+metadata:
+  name: daily-backup
+  namespace: openstack
+spec:
+  schedule: "0 2 * * *"    # daily at 2am
+  retention: 720h          # auto-cleanup backups older than 30 days
+  templateRef:
+    name: openstack-backup-templates
+  stages:
+  - name: galera-dumps
+    type: GaleraBackup
+    timeout: 10m
+  - name: pvc-backup
+    type: Template
+    templateRef:
+      name: openstack-backup-templates
+      key: backup-pvcs
+    completionCondition:
+      jsonpath: '{.status.phase}'
+      value: Completed
+    timeout: 30m
+  - name: resources-backup
+    type: Template
+    templateRef:
+      name: openstack-backup-templates
+      key: backup-resources
+    completionCondition:
+      jsonpath: '{.status.phase}'
+      value: Completed
+    timeout: 30m
+```
+
+The flow:
+
+1. **Controller sees `schedule` field** → creates a CronJob
+2. **CronJob fires on schedule** → creates a new `OpenStackBackup` CR
+   (e.g., `daily-backup-20260320-020000`) without a `schedule` field
+3. **Controller sees new `OpenStackBackup` CR** → orchestrates the stages:
+   - Triggers Galera dump jobs (built-in `GaleraBackup` type)
+   - Renders backup templates from Secret → creates backup tool CRs
+     (e.g., Velero `Backup`) as `unstructured.Unstructured` objects
+   - Polls `completionCondition` on each created CR until done
+4. **Controller updates status** on the `OpenStackBackup` CR
+5. **Retention**: Controller garbage-collects `OpenStackBackup` CRs older
+   than `retention` period
+
+This follows the same pattern as `GaleraBackup` (which also creates CronJobs
+from a CR spec). Without a `schedule` field, the CR triggers a one-shot backup.
+
+#### Design Principles
+
+- **No backup tool imports**: Controller uses `unstructured.Unstructured` to
+  create CRs from templates — no Velero/OADP Go dependencies
+- **Single Secret per workflow**: All stage templates in one Secret, referenced
+  by key (`templateRef.name` + `templateRef.key`)
+- **Built-in stages**: `GaleraBackup` (trigger DB dump jobs), `GaleraRestore`
+  (create restore CRs, exec restore), `RabbitMQRestore` (credential restore)
+  are built-in since they use our own CRDs
+- **Template variables**: Controller provides `.Namespace`, `.Timestamp`,
+  `.OADPNamespace`, `.BackupName`, etc. for template rendering
+- **Configurable completion**: Each template stage has a `completionCondition`
+  (jsonpath + expected value) so the controller can poll any CR type
 
 ## Benefits
 
@@ -1222,6 +1400,7 @@ This means:
 1. **Restore Order Conflicts**: What if two CRDs have the same restore order?
    - Currently: restored in parallel within the same Velero Restore CR (works fine for independent resources)
 
-2. **Phase 4 Restore Controller**: Should the controller exec into pods for database restore or delegate to Jobs?
+2. **Phase 4 Controllers**: Should database restore exec into pods or delegate to Jobs?
    - Current Ansible approach: execs into GaleraRestore pods
    - Controller approach: could create Jobs or use the same exec pattern
+   - Template Secret: should a default Secret be created by the operator, or provided by the user?
