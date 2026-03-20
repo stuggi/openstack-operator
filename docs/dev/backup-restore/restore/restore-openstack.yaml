@@ -140,7 +140,7 @@
 
     - name: "Next: Create resource modifier ConfigMap"
       ansible.builtin.debug:
-        msg: "{{ lookup('file', rendered_dir.path + '/00-resource-modifiers-configmap.yaml') }}"
+        msg: "{{ lookup('file', rendered_dir.path + '/00-resource-modifiers-configmap.yaml').splitlines() }}"
       when: not (auto_ack | bool)
 
     - name: Pause before creating resource modifier ConfigMap
@@ -271,7 +271,7 @@
 
     - name: "Next: Step 1 - Restore PVCs (CSI Snapshots)"
       ansible.builtin.debug:
-        msg: "{{ lookup('file', rendered_dir.path + '/01-restore-order-00-pvcs.yaml') }}"
+        msg: "{{ lookup('file', rendered_dir.path + '/01-restore-order-00-pvcs.yaml').splitlines() }}"
       when: not (auto_ack | bool)
 
     - name: Pause before PVC restore
@@ -319,7 +319,7 @@
 
     - name: "Next: Step 2 - Restore foundation resources (Secrets, ConfigMaps, NADs)"
       ansible.builtin.debug:
-        msg: "{{ lookup('file', rendered_dir.path + '/02-restore-order-10-foundation.yaml') }}"
+        msg: "{{ lookup('file', rendered_dir.path + '/02-restore-order-10-foundation.yaml').splitlines() }}"
       when: not (auto_ack | bool)
 
     - name: Pause after PVC restore
@@ -351,7 +351,7 @@
 
     - name: "Next: Step 3 - Restore infrastructure CRs (OpenStackVersion, MariaDBAccount, etc.)"
       ansible.builtin.debug:
-        msg: "{{ lookup('file', rendered_dir.path + '/03-restore-order-20-infrastructure.yaml') }}"
+        msg: "{{ lookup('file', rendered_dir.path + '/03-restore-order-20-infrastructure.yaml').splitlines() }}"
       when: not (auto_ack | bool)
 
     - name: Pause after foundation restore
@@ -383,7 +383,7 @@
 
     - name: "Next: Step 4 - Restore OpenStackControlPlane (staged, infrastructure-only)"
       ansible.builtin.debug:
-        msg: "{{ lookup('file', rendered_dir.path + '/04-restore-order-30-controlplane.yaml') }}"
+        msg: "{{ lookup('file', rendered_dir.path + '/04-restore-order-30-controlplane.yaml').splitlines() }}"
       when: not (auto_ack | bool)
 
     - name: Pause after infrastructure restore
@@ -415,7 +415,7 @@
 
     - name: "Next: Step 5 - Restore GaleraBackup CRs"
       ansible.builtin.debug:
-        msg: "{{ lookup('file', rendered_dir.path + '/05-restore-order-40-backup-config.yaml') }}"
+        msg: "{{ lookup('file', rendered_dir.path + '/05-restore-order-40-backup-config.yaml').splitlines() }}"
       when: not (auto_ack | bool)
 
     - name: Pause after controlplane restore
@@ -559,9 +559,9 @@
     - name: "Next: Step 8 - Restore RabbitMQ user credentials"
       ansible.builtin.debug:
         msg:
-          - "{{ lookup('file', rendered_dir.path + '/06b-resource-modifiers-tmp.yaml') }}"
+          - "{{ lookup('file', rendered_dir.path + '/06b-resource-modifiers-tmp.yaml').splitlines() }}"
           - "---"
-          - "{{ lookup('file', rendered_dir.path + '/06b-restore-rabbitmq-secrets.yaml') }}"
+          - "{{ lookup('file', rendered_dir.path + '/06b-restore-rabbitmq-secrets.yaml').splitlines() }}"
       when: not (auto_ack | bool)
 
     - name: Pause after database restore
@@ -702,7 +702,7 @@
 
     - name: "Next: Step 10 - Restore DataPlane resources"
       ansible.builtin.debug:
-        msg: "{{ lookup('file', rendered_dir.path + '/07-restore-order-60-dataplane.yaml') }}"
+        msg: "{{ lookup('file', rendered_dir.path + '/07-restore-order-60-dataplane.yaml').splitlines() }}"
       when: not (auto_ack | bool)
 
     - name: Pause after full deployment ready
@@ -746,7 +746,7 @@
 
     - name: "Next: Step 11 - Run EDPM deployment to resync credentials on dataplane nodes"
       ansible.builtin.debug:
-        msg: "{{ lookup('file', rendered_dir.path + '/08-edpm-deployment.yaml') }}"
+        msg: "{{ lookup('file', rendered_dir.path + '/08-edpm-deployment.yaml').splitlines() }}"
       when: not (auto_ack | bool) and nodeset_names.stdout != ""
 
     - name: Pause before EDPM deployment
