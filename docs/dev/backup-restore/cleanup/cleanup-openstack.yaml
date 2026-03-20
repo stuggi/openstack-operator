@@ -99,7 +99,7 @@
           - OpenStackBackupConfig and OpenStackVersion CRs
           - Galera database PVCs (app=galera)
           - RabbitMQUser CRs and restored-user secrets
-          - Certificate secrets (excluding EDPM/compute/Ceph certs)
+          - Certificate CRs (cert-manager) and TLS secrets (excluding EDPM/compute certs, ceph-conf)
           - CA bundle secrets
           - PVC-pin dummy Deployments (from failed restores)
           {% endif %}
@@ -228,46 +228,35 @@
       failed_when: false
       when: cleanup_ctlplane | bool
 
-    - name: Wait for initial cleanup (30 seconds)
-      ansible.builtin.pause:
-        seconds: 30
-      when: cleanup_ctlplane | bool
-
     - name: Wait for pods to terminate
       ansible.builtin.shell: |
-        oc get pods -n {{ openstack_namespace }} --field-selector='status.phase!=Succeeded' --no-headers 2>/dev/null | wc -l
-      register: pod_count
-      until: pod_count.stdout|int == 0
-      retries: 60
-      delay: 10
+        TIMEOUT=300
+        FORCE_AFTER=60
+        ELAPSED=0
+        FORCED=false
+        while [ $ELAPSED -lt $TIMEOUT ]; do
+          RUNNING=$(oc get pods -n {{ openstack_namespace }} --field-selector='status.phase!=Succeeded' --no-headers 2>/dev/null | wc -l)
+          TERMINATING=$(oc get pods -n {{ openstack_namespace }} --no-headers 2>/dev/null | grep -c Terminating || true)
+          if [ "${RUNNING}" -eq 0 ]; then
+            echo "All pods terminated"
+            exit 0
+          fi
+          echo "  $(date +%H:%M:%S) Pods: ${RUNNING} remaining (${TERMINATING} terminating)" > /dev/tty
+          if [ $ELAPSED -ge $FORCE_AFTER ] && [ "${FORCED}" = "false" ]; then
+            STUCK=$(oc get pods -n {{ openstack_namespace }} --no-headers -o name 2>/dev/null | head -50)
+            if [ -n "${STUCK}" ]; then
+              echo "  $(date +%H:%M:%S) Force deleting stuck pods..." > /dev/tty
+              echo ${STUCK} | xargs oc delete -n {{ openstack_namespace }} --force --grace-period=0 2>/dev/null || true
+              FORCED=true
+            fi
+          fi
+          sleep 5
+          ELAPSED=$((ELAPSED + 5))
+        done
+        echo "WARNING: ${RUNNING} pods still remaining after timeout" >&2
+        exit 0
       changed_when: false
-      failed_when: false
       when: cleanup_ctlplane | bool
-
-    - name: Check for stuck pods
-      ansible.builtin.shell: |
-        oc get pods -n {{ openstack_namespace }} --field-selector='status.phase!=Succeeded' --no-headers -o name 2>/dev/null
-      register: stuck_pods
-      changed_when: false
-      failed_when: false
-      when: cleanup_ctlplane | bool and pod_count.stdout|int > 0
-
-    - name: Force delete stuck pods
-      ansible.builtin.shell: |
-        oc delete {{ stuck_pods.stdout_lines | join(' ') }} -n {{ openstack_namespace }} --force --grace-period=0
-      changed_when: true
-      when: cleanup_ctlplane | bool and pod_count.stdout|int > 0 and stuck_pods.stdout != ""
-
-    - name: Wait after force delete
-      ansible.builtin.shell: |
-        oc get pods -n {{ openstack_namespace }} --field-selector='status.phase!=Succeeded' --no-headers 2>/dev/null | wc -l
-      register: pod_count_final
-      until: pod_count_final.stdout|int == 0
-      retries: 30
-      delay: 5
-      changed_when: false
-      failed_when: false
-      when: cleanup_ctlplane | bool and pod_count.stdout|int > 0 and stuck_pods.stdout != ""
 
     - name: Print pod cleanup status
       ansible.builtin.debug:
@@ -319,9 +308,16 @@
       failed_when: false
       when: cleanup_ctlplane | bool
 
+    - name: Delete Certificate CRs (cert-manager)
+      ansible.builtin.shell: |
+        oc delete certificate --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: cleanup_ctlplane | bool
+
     - name: Delete cert secrets (with compute prefix exclusion)
       ansible.builtin.shell: |
-        for i in $(oc get secret -n {{ openstack_namespace }} -o name | grep cert | grep -v edpm | grep -vE "({{ compute_prefixes.stdout }})" | grep -v ceph); do
+        for i in $(oc get secret -n {{ openstack_namespace }} -o name | grep cert | grep -v edpm | grep -vE "({{ compute_prefixes.stdout }})" | grep -v ceph-conf); do
           oc delete -n {{ openstack_namespace }} $i
         done
       changed_when: true
@@ -330,7 +326,7 @@
 
     - name: Delete cert secrets (fallback without compute prefix)
       ansible.builtin.shell: |
-        for i in $(oc get secret -n {{ openstack_namespace }} -o name | grep cert | grep -v edpm | grep -v ceph); do
+        for i in $(oc get secret -n {{ openstack_namespace }} -o name | grep cert | grep -v edpm | grep -v ceph-conf); do
           oc delete -n {{ openstack_namespace }} $i
         done
       changed_when: true
@@ -341,6 +337,31 @@
       ansible.builtin.shell: |
         oc delete secret -n {{ openstack_namespace }} rootca-internal rootca-libvirt rootca-ovn rootca-public combined-ca-bundle 2>/dev/null || true
       changed_when: true
+      when: cleanup_ctlplane | bool
+
+    - name: Delete remaining user-provided secrets
+      ansible.builtin.shell: |
+        for i in $(oc get secret -n {{ openstack_namespace }} -o name \
+          | grep -v dockercfg \
+          | grep -v service-account-token); do
+          oc delete -n {{ openstack_namespace }} $i
+        done
+      changed_when: true
+      failed_when: false
+      when: cleanup_ctlplane | bool
+
+    - name: Delete ConfigMaps
+      ansible.builtin.shell: |
+        oc delete configmap --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
+      when: cleanup_ctlplane | bool
+
+    - name: Delete DNSData CRs
+      ansible.builtin.shell: |
+        oc delete dnsdata --all -n {{ openstack_namespace }}
+      changed_when: true
+      failed_when: false
       when: cleanup_ctlplane | bool
 
     - name: Print controlplane cleanup status
