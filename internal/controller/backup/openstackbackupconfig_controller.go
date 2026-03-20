@@ -44,8 +44,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -400,7 +403,7 @@ func (r *OpenStackBackupConfigReconciler) labelIssuers(ctx context.Context, log 
 // This labels CRs like OpenStackControlPlane, OpenStackVersion, MariaDBAccount, etc.
 // based on their CRD's backup/restore configuration.
 func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
-	// Build cache lazily on first use (the manager's client cache is ready by reconcile time)
+	// Fallback: build cache if not populated at setup time
 	if len(r.CRDLabelCache) == 0 {
 		cache, err := backup.BuildCRDLabelCache(ctx, r.Client)
 		if err != nil {
@@ -683,14 +686,79 @@ func (r *OpenStackBackupConfigReconciler) Reconcile(ctx context.Context, req ctr
 	return ctrl.Result{}, nil
 }
 
+// backupLabelKeys are the label keys managed by this controller.
+var backupLabelKeys = []string{
+	backup.BackupLabel,
+	backup.BackupRestoreLabel,
+	backup.BackupRestoreOrderLabel,
+	backup.BackupCategoryLabel,
+}
+
+// backupAnnotationKeys are the annotation keys used for overrides.
+var backupAnnotationKeys = []string{
+	backup.BackupRestoreLabel,
+	backup.BackupRestoreOrderLabel,
+}
+
+// needsBackupLabeling returns true if a resource does not yet have backup labels.
+func needsBackupLabeling(labels map[string]string) bool {
+	_, hasBackup := labels[backup.BackupLabel]
+	_, hasRestore := labels[backup.BackupRestoreLabel]
+	return !hasBackup && !hasRestore
+}
+
+// backupAnnotationsChanged returns true if backup-related annotations differ between old and new.
+func backupAnnotationsChanged(oldAnnotations, newAnnotations map[string]string) bool {
+	for _, key := range backupAnnotationKeys {
+		if oldAnnotations[key] != newAnnotations[key] {
+			return true
+		}
+	}
+	return false
+}
+
+// backupLabelsRemoved returns true if any backup labels were present on old but removed from new.
+func backupLabelsRemoved(oldLabels, newLabels map[string]string) bool {
+	for _, key := range backupLabelKeys {
+		if _, hadIt := oldLabels[key]; hadIt {
+			if _, hasIt := newLabels[key]; !hasIt {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// backupResourcePredicate filters events to only reconcile when backup labeling is needed.
+// Triggers on:
+//   - Create: resource has no backup labels yet
+//   - Update: backup annotations changed OR backup labels were removed
+//
+// Ignores deletes and generic events entirely.
+var backupResourcePredicate = predicate.Funcs{
+	CreateFunc: func(e event.CreateEvent) bool {
+		return needsBackupLabeling(e.Object.GetLabels())
+	},
+	UpdateFunc: func(e event.UpdateEvent) bool {
+		return backupAnnotationsChanged(e.ObjectOld.GetAnnotations(), e.ObjectNew.GetAnnotations()) ||
+			backupLabelsRemoved(e.ObjectOld.GetLabels(), e.ObjectNew.GetLabels())
+	},
+	DeleteFunc: func(_ event.DeleteEvent) bool {
+		return false
+	},
+	GenericFunc: func(_ event.GenericEvent) bool {
+		return false
+	},
+}
+
 // SetupWithManager sets up the controller with the Manager.
 func (r *OpenStackBackupConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	Log := ctrl.Log.WithName("backup").WithName("setup")
+
 	// findBackupConfigForResource maps a resource back to the BackupConfig that should process it
-	findBackupConfigForResource := func(ctx context.Context, _ client.Object) []reconcile.Request {
-		// For now, reconcile all BackupConfigs when any resource changes
-		// TODO: optimize to only reconcile the BackupConfig for the resource's namespace
+	findBackupConfigForResource := func(ctx context.Context, obj client.Object) []reconcile.Request {
 		configList := &backupv1beta1.OpenStackBackupConfigList{}
-		if err := mgr.GetClient().List(ctx, configList); err != nil {
+		if err := mgr.GetClient().List(ctx, configList, client.InNamespace(obj.GetNamespace())); err != nil {
 			return []reconcile.Request{}
 		}
 
@@ -706,12 +774,84 @@ func (r *OpenStackBackupConfigReconciler) SetupWithManager(mgr ctrl.Manager) err
 		return requests
 	}
 
-	return ctrl.NewControllerManagedBy(mgr).
+	bldr := ctrl.NewControllerManagedBy(mgr).
 		For(&backupv1beta1.OpenStackBackupConfig{}).
-		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource)).
-		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource)).
-		Watches(&k8s_networkingv1.NetworkAttachmentDefinition{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource)).
-		Watches(&certmgrv1.Issuer{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource)).
-		Named("openstackbackupconfig").
-		Complete(r)
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource), builder.WithPredicates(backupResourcePredicate)).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource), builder.WithPredicates(backupResourcePredicate)).
+		Watches(&k8s_networkingv1.NetworkAttachmentDefinition{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource), builder.WithPredicates(backupResourcePredicate)).
+		Watches(&certmgrv1.Issuer{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource), builder.WithPredicates(backupResourcePredicate))
+
+	// Build CRD label cache and add watches for CRD instance types.
+	// Uses the API reader since the manager's cache is not started yet.
+	apiReader := mgr.GetAPIReader()
+	cache, err := buildCRDLabelCacheFromReader(apiReader)
+	if err != nil {
+		Log.Error(err, "Failed to build CRD label cache, CR instances will not be watched")
+	} else {
+		r.CRDLabelCache = cache
+		for crdName := range cache {
+			gvk, err := getGVKFromCRDUsingReader(apiReader, crdName)
+			if err != nil {
+				Log.Error(err, "Failed to get GVK for CRD, skipping watch", "crd", crdName)
+				continue
+			}
+			obj := &metav1.PartialObjectMetadata{}
+			obj.SetGroupVersionKind(gvk)
+			bldr = bldr.Watches(obj, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource), builder.WithPredicates(backupResourcePredicate))
+			Log.Info("Added watch for CRD instances", "crd", crdName, "gvk", gvk)
+		}
+	}
+
+	return bldr.Named("openstackbackupconfig").Complete(r)
+}
+
+// buildCRDLabelCacheFromReader builds the CRD label cache using a client.Reader.
+// Used at setup time when the manager's cache is not started.
+func buildCRDLabelCacheFromReader(reader client.Reader) (backup.CRDLabelCache, error) {
+	cache := make(backup.CRDLabelCache)
+
+	crdList := &apiextensionsv1.CustomResourceDefinitionList{}
+	if err := reader.List(context.Background(), crdList); err != nil {
+		return nil, err
+	}
+
+	for _, crd := range crdList.Items {
+		labels := crd.GetLabels()
+		if labels == nil || labels[backup.BackupRestoreLabel] != "true" {
+			continue
+		}
+		cache[crd.Name] = backup.BackupConfig{
+			Enabled:      true,
+			RestoreOrder: labels[backup.BackupRestoreOrderLabel],
+			Category:     labels[backup.BackupCategoryLabel],
+		}
+	}
+
+	return cache, nil
+}
+
+// getGVKFromCRDUsingReader looks up a CRD by name using a reader and returns its GVK.
+// Used at setup time when the manager's cache is not started.
+func getGVKFromCRDUsingReader(reader client.Reader, crdName string) (schema.GroupVersionKind, error) {
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := reader.Get(context.Background(), types.NamespacedName{Name: crdName}, crd); err != nil {
+		return schema.GroupVersionKind{}, err
+	}
+
+	var version string
+	for _, v := range crd.Spec.Versions {
+		if v.Storage {
+			version = v.Name
+			break
+		}
+		if v.Served && version == "" {
+			version = v.Name
+		}
+	}
+
+	return schema.GroupVersionKind{
+		Group:   crd.Spec.Group,
+		Version: version,
+		Kind:    crd.Spec.Names.Kind,
+	}, nil
 }
