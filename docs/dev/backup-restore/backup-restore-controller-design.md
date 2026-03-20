@@ -618,60 +618,51 @@ oc get secrets -n openstack -o json | \
        order: .metadata.annotations["backup.openstack.org/restore-order"]}'
 ```
 
-### Configuration via CRD (Future - Phase 4)
+### Configuration via OpenStackBackupConfig CRD
 
-When the Golang controller is implemented, restore order defaults can be configured via CRD:
+The `OpenStackBackupConfig` CRD (`backup.openstack.org/v1beta1`) configures
+how the controller labels resources. Each resource type (Secrets, ConfigMaps,
+NADs, Issuers) has its own section with enable/disable, exclusion rules, and
+a per-type `restoreOrder` override.
 
 ```yaml
-apiVersion: core.openstack.org/v1beta1
+apiVersion: backup.openstack.org/v1beta1
 kind: OpenStackBackupConfig
 metadata:
   name: backup-config
   namespace: openstack
 spec:
-  # Default restore orders for core Kubernetes resources
-  restoreDefaults:
-    secrets:
-      category: "all"
-      order: "10"
-    configmaps:
-      category: "all"
-      order: "10"
-    persistentvolumeclaims:
-      category: "all"
-      order: "00"  # Storage foundation - restored first
-    issuers:  # cert-manager Issuer
-      category: "all"
-      order: "20"
-    networkattachmentdefinitions:
-      category: "all"
-      order: "10"
+  # Default restore order for user-provided resources
+  defaultRestoreOrder: "10"  # default: "10"
 
-  # Custom overrides for specific resources
-  customOrders:
-  - resource:
-      kind: Secret
-      name: openstack-ca-cert
-    category: "all"
-    order: "10"
-  - resource:
-      kind: Secret
-      name: nova-cell1-config
-    category: "controlplane"
-    order: "20"
+  # Per-type configuration
+  secrets:
+    enabled: true
+    excludeLabelKeys:  # Skip secrets with these label keys
+    - service-cert
+    - osdp-service
+    # restoreOrder: "10"  # Override default restore order for secrets
+
+  configMaps:
+    enabled: true
+    excludeNames:  # Skip these specific ConfigMaps
+    - kube-root-ca.crt
+    - openshift-service-ca.crt
+
+  networkAttachmentDefinitions:
+    enabled: true
+
+  issuers:
+    enabled: true
+    # restoreOrder: "20"  # Issuers default to order 20
 ```
 
-**Benefits of CRD-based configuration:**
-- Centralized configuration for all restore order defaults
-- Easy to customize per deployment
-- No need to manually label every resource
-- Can be backed up and restored along with other CRs
-
-**Implementation approach:**
-1. Controller reads OpenStackBackupConfig CR to get default orders
-2. Applies configured defaults instead of hardcoded values
-3. Still respects existing labels (manual overrides take precedence)
-4. Fallback to hardcoded defaults if no config CR exists
+**Key features:**
+- **Per-type enable/disable**: Disable labeling for specific resource types
+- **Exclusion rules**: Skip resources by name (`excludeNames`) or by label key (`excludeLabelKeys`)
+- **Per-type restore order**: Override the default restore order for a specific resource type via `restoreOrder`
+- **Backed up with the deployment**: The OpenStackBackupConfig CR is itself labeled for restore (order 20), so customizations survive backup/restore cycles
+- **Annotation overrides take precedence**: Even with CRD-based defaults, annotations on individual resources override everything (see [Annotation-Based User Overrides](#annotation-based-user-overrides))
 
 ## Restore Order
 
@@ -1112,328 +1103,53 @@ Use cases:
 - Isolated data plane restore (requires ControlPlane secrets already restored)
 - Network topology reconfiguration
 
-## Implementation Phases
+## Implementation Status
 
-### Phase 1: Controller & CRD Annotations
+### Phase 1: Controller & CRD Labels (Done)
 
-**Goal**: Automatic labeling of resources for restore
+- OpenStackBackupConfig controller implemented in openstack-operator
+- CRD labels added to all operator CRDs via kubebuilder markers
+- `backup.EnsureBackupLabels()` helper in lib-common for operator PVC labeling
+- Annotation-based user overrides (`syncAnnotationOverrides`)
+- cert-manager secret filtering (CA vs leaf certs)
+- Envtests covering conditions, labeling, exclusions, cert-manager filtering, annotation overrides
 
-**Changes:**
-1. Add CRD annotations to all operator CRDs
-2. Implement OpenStackBackupConfig controller in openstack-operator
-3. Implement generic helper function in lib-common (respects existing labels)
-4. Test that resources get labeled on reconciliation
+### Phase 2: OADP Backup (Done)
 
-**Backward Compatibility**: Existing Ansible backup/restore continues to work
+- Split backup: two OADP Backup CRs (PVCs with CSI snapshots + everything else)
+- Backup templates in `docs/dev/backup-restore/backup/templates/`
+- Ansible playbook orchestrates Galera DB dumps + OADP backups
+- Data Mover support (`snapshotMoveData: true`, default)
 
-**Features:**
-- Automatic labeling of user-provided resources (no ownerReferences)
-- Respects existing labels (allows manual customization)
-- Default restore order based on resource type
-- Periodic reconciliation handles existing environments and new resources
+### Phase 3: OADP Restore with Ansible Automation (Done)
 
-**Testing:**
-```bash
-# Test 1: Automatic labeling with defaults
-oc create secret generic test-secret --from-literal=foo=bar -n openstack
+- Restore templates in `docs/dev/backup-restore/restore/templates/`
+- Ansible playbook orchestrates the full restore flow:
+  - Ordered OADP restores (00 → 10 → 20 → 30 → 40 → 60)
+  - Automated database restore (GaleraRestore CRs + restore script)
+  - RabbitMQ credential restore (secrets from backup + RabbitMQUser CRs)
+  - Staged deployment (infrastructure-only → full)
+  - EDPM deployment to resync credentials
+- Interactive pauses between steps (skippable with `auto_ack=true`)
+- See `docs/dev/backup-restore/restore/README.md` for usage
 
-# Verify labels were added after controller reconciliation
-oc get secret test-secret -n openstack -o jsonpath='{.metadata.labels}'
-# Should show: backup.openstack.org/restore: "true", backup.openstack.org/restore-order: "10"
+### Phase 4: Golang Restore Controller (Future)
 
-# Test 2: Manual override (pre-label before controller runs)
-oc create secret generic custom-secret \
-  --from-literal=foo=bar \
-  -n openstack \
-  --dry-run=client -o yaml | \
-  oc label -f - --local \
-    backup.openstack.org/restore=true \
-    backup.openstack.org/category=controlplane \
-    backup.openstack.org/restore-order=50 \
-    --dry-run=client -o yaml | \
-  oc apply -f -
+**Goal**: Replace the Ansible restore playbook with a Golang controller that
+creates OADP Restore CRs, handles database/RabbitMQ restore, and manages the
+staged deployment lifecycle — all driven by a single `OpenStackBackupRestore` CR.
 
-# Verify custom labels were preserved
-oc get secret custom-secret -n openstack -o jsonpath='{.metadata.labels}'
-# Should show: backup.openstack.org/restore: "true", backup.openstack.org/restore-order: "50"
-```
-
-### Phase 2: OADP Backup (No Controller)
-
-**Goal**: Single OADP backup instead of manual `oc get` + jq
-
-**Changes:**
-1. Create single OADP Backup CR with label selector
-2. Verify all labeled resources are backed up
-3. Test CSI snapshot integration
-
-**Backward Compatibility**: Ansible restore still works (reads from OADP backup)
-
-**Example:**
-```bash
-# Create backup
-oc apply -f - <<EOF
-apiVersion: velero.io/v1
-kind: Backup
-metadata:
-  name: openstack-backup-$(date +%Y%m%d-%H%M%S)
-  namespace: openshift-adp
-spec:
-  includedNamespaces:
-  - openstack
-  # NO labelSelector - backup everything
-  snapshotVolumes: true
-  defaultVolumesToFsBackup: false
-  storageLocation: velero-1
-  ttl: 720h
-EOF
-
-# Monitor backup
-oc get backup -n openshift-adp -w
-```
-
-### Phase 3: OADP Restore (Manual, No Controller)
-
-**Goal**: Use OADP Restore CRs with label selectors instead of Ansible
-
-**Changes:**
-1. Create OADP Restore CRs for each restore order
-2. Manually create each restore in sequence
-3. Wait for completion between orders
-4. Handle special cases manually (staged deployment, database restore)
-
-**No Controller Required**: User creates OADP Restore CRs manually
-
-**Example Manual Restore:**
-```bash
-# Step 0: Create the resource modifier ConfigMap (required for all restores)
-oc apply -f docs/dev/backup-restore/restore/00-resource-modifiers-configmap.yaml
-
-# Order 00: PVCs (Storage Foundation)
-cat <<EOF | oc apply -f -
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: openstack-restore-order-00
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-20260303-120000
-  labelSelector:
-    matchLabels:
-      backup.openstack.org/restore: "true"
-      backup.openstack.org/restore-order: "00"
-  restorePVs: true  # CSI snapshots
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-EOF
-
-# Wait for completion (CSI snapshot restore may take time)
-oc wait --for=jsonpath='{.status.phase}'=Completed \
-  restore/openstack-restore-order-00 -n openshift-adp --timeout=20m
-
-# Order 10: Foundation Resources (NADs, Secrets, ConfigMaps)
-cat <<EOF | oc apply -f -
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: openstack-restore-order-10
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-20260303-120000
-  labelSelector:
-    matchLabels:
-      backup.openstack.org/restore: "true"
-      backup.openstack.org/restore-order: "10"
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-EOF
-
-# Wait for completion
-oc wait --for=jsonpath='{.status.phase}'=Completed \
-  restore/openstack-restore-order-10 -n openshift-adp --timeout=10m
-
-# Order 20: Infrastructure CRs (MariaDB CRs, OpenStackVersion, etc.)
-cat <<EOF | oc apply -f -
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: openstack-restore-order-20
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-20260303-120000
-  labelSelector:
-    matchLabels:
-      backup.openstack.org/restore: "true"
-      backup.openstack.org/restore-order: "20"
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-EOF
-
-# Wait for completion
-oc wait --for=jsonpath='{.status.phase}'=Completed \
-  restore/openstack-restore-order-20 -n openshift-adp --timeout=10m
-
-# Order 30: ControlPlane (with staged deployment annotation added by ConfigMap)
-cat <<EOF | oc apply -f -
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: openstack-restore-order-30
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-20260303-120000
-  labelSelector:
-    matchLabels:
-      backup.openstack.org/restore: "true"
-      backup.openstack.org/restore-order: "30"
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-EOF
-
-oc wait --for=jsonpath='{.status.phase}'=Completed \
-  restore/openstack-restore-order-30 -n openshift-adp --timeout=10m
-
-# Wait for infrastructure ready (annotation already applied by resource modifier)
-oc wait --for=condition=OpenStackControlPlaneInfrastructureReady \
-  openstackcontrolplane/openstack-galera-network-isolation \
-  -n openstack --timeout=20m
-
-# Order 40: Backup Config & User Resources (while in infra-only mode)
-cat <<EOF | oc apply -f -
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: openstack-restore-order-40
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-20260303-120000
-  labelSelector:
-    matchLabels:
-      backup.openstack.org/restore: "true"
-      backup.openstack.org/restore-order: "40"
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-EOF
-
-oc wait --for=jsonpath='{.status.phase}'=Completed \
-  restore/openstack-restore-order-40 -n openshift-adp --timeout=10m
-
-# Order 50: Manual Steps (while in infra-only mode)
-echo "Order 50: Database & RabbitMQ Restore + Resume Deployment"
-
-# 50.1: Database Restore
-echo "Step 1: Database Restore"
-# Create GaleraRestore CRs (reference backup PVCs from order 00)
-# Execute restore_galera script
-# Clean up GaleraRestore CRs
-# See: docs/dev/backup-restore/scripts/restore-galera.sh
-
-# 50.2: RabbitMQ Credentials Restore
-echo "Step 2: RabbitMQ Credentials"
-# Extract old passwords from backed-up secrets
-# Create new secrets named "*-restored-user" with old passwords
-# Create new RabbitMQUser CRs referencing "-restored-user" secrets
-# See: docs/dev/playbooks/restore-openstack-ctlplane.yaml (lines 1332-1427)
-
-# 50.3: Resume Deployment
-echo "Step 3: Resume Deployment"
-oc annotate openstackcontrolplane openstack-galera-network-isolation \
-  -n openstack core.openstack.org/deployment-stage-
-
-# Operator will now reconcile and start all services
-# Wait for full deployment ready
-oc wait --for=condition=Ready \
-  openstackcontrolplane/openstack-galera-network-isolation \
-  -n openstack --timeout=30m
-
-# Order 60: Data Plane
-cat <<EOF | oc apply -f -
-apiVersion: velero.io/v1
-kind: Restore
-metadata:
-  name: openstack-restore-order-60
-  namespace: openshift-adp
-spec:
-  backupName: openstack-backup-20260303-120000
-  labelSelector:
-    matchLabels:
-      backup.openstack.org/restore: "true"
-      backup.openstack.org/restore-order: "60"
-  resourceModifier:
-    kind: ConfigMap
-    name: openstack-restore-resource-modifiers
-EOF
-
-oc wait --for=jsonpath='{.status.phase}'=Completed \
-  restore/openstack-restore-order-60 -n openshift-adp --timeout=10m
-
-echo "Full restore completed!"
-```
-
-### Phase 4: Golang Controller (Full Automation)
-
-**Goal**: Full automation with controller and CRDs
-
-**New CRDs:**
-
-**OpenStackBackupConfig** - Configure restore order defaults
 ```yaml
-apiVersion: core.openstack.org/v1beta1
-kind: OpenStackBackupConfig
-metadata:
-  name: backup-config
-  namespace: openstack
-spec:
-  restoreDefaults:
-    secrets:
-      category: "all"
-      order: "10"
-    configmaps:
-      category: "all"
-      order: "10"
-    persistentvolumeclaims:
-      category: "all"
-      order: "00"  # Storage foundation - restored first
-    issuers:
-      category: "all"
-      order: "20"
-```
-
-**OpenStackBackupRestore** - Execute backup/restore operations
-```yaml
-apiVersion: core.openstack.org/v1beta1
+apiVersion: backup.openstack.org/v1beta1
 kind: OpenStackBackupRestore
 metadata:
   name: restore-20260303
   namespace: openstack
 spec:
   backupName: openstack-backup-20260303-120000
-  automated: true  # false for manual mode (prompts/pauses)
+  automated: true
   automatedDatabaseRestore: true
   automatedRabbitMQRestore: true
-```
-
-**Controller Logic:**
-1. Watch OpenStackBackupRestore CRs
-2. Create OADP Restore CRs in sequence by restore order (00, 10, 20, 30, 40)
-3. Wait for each OADP Restore completion
-4. Handle special cases:
-   - Order 00: Wait for PVC CSI snapshot restore (may take time)
-   - Order 30: OADP adds staged deployment annotation, wait for infrastructure ready
-   - Order 50 (manual steps - controller executes in sequence):
-     - Create GaleraRestore CRs, execute database restore, clean up
-     - Create RabbitMQUser CRs with old credentials (extract from backed-up secrets, create `-restored-user` secrets/CRs)
-     - Remove staged deployment annotation, wait for CtlPlane ready
-5. Restore order 60 (DataPlane)
-6. Update OpenStackBackupRestore status with progress
-
-**Status Fields:**
-```yaml
 status:
   phase: InProgress  # Pending, InProgress, Completed, Failed
   currentRestoreOrder: 20
@@ -1504,25 +1220,8 @@ This means:
 ## Open Questions
 
 1. **Restore Order Conflicts**: What if two CRDs have the same restore order?
-   - Run in parallel?
-   - Deterministic sub-ordering (e.g., alphabetically by CRD name)?
+   - Currently: restored in parallel within the same Velero Restore CR (works fine for independent resources)
 
-2. **Database Restore Automation**: Should controller exec into pods or require manual intervention?
-   - Automated mode: Controller execs into pods
-   - Manual mode: User runs commands
-
-3. **OpenStackBackupConfig Scope**: Should the config CR be namespace-scoped or cluster-scoped?
-   - Namespace-scoped: Different configs per OpenStack deployment
-   - Cluster-scoped: Single config for all OpenStack deployments
-
-4. **Default vs Custom Order Precedence**: How should the order precedence work?
-   - Current proposal: Manual labels > OpenStackBackupConfig > Hardcoded defaults
-   - Alternative: OpenStackBackupConfig > Manual labels > Hardcoded defaults
-
-## Next Steps
-
-1. Sketch detailed implementation for Phase 1 (controller)
-2. Define exact CRD annotation schema
-3. Implement controller in openstack-operator
-4. Test with sample resources
-5. Document migration path from current Ansible approach
+2. **Phase 4 Restore Controller**: Should the controller exec into pods for database restore or delegate to Jobs?
+   - Current Ansible approach: execs into GaleraRestore pods
+   - Controller approach: could create Jobs or use the same exec pattern
