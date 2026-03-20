@@ -144,10 +144,14 @@ replace k8s.io/component-base => k8s.io/component-base v0.31.14 //allow-merging
 
 replace github.com/cert-manager/cmctl/v2 => github.com/cert-manager/cmctl/v2 v2.1.2-0.20241127223932-88edb96860cf //allow-merging
 
-replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20260313100229-736e79c3d113
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20260319153531-b6972195788d
 
-replace github.com/openstack-k8s-operators/mariadb-operator/api => github.com/stuggi/mariadb-operator/api v0.0.0-20260313101022-801e0e5899e2
+replace github.com/openstack-k8s-operators/mariadb-operator/api => github.com/stuggi/mariadb-operator/api v0.0.0-20260319160834-ec8ef4e42d78
 
-replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20260313101133-118acbab73f2
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20260319161100-d27378aa9783
 
 replace github.com/openstack-k8s-operators/infra-operator/apis => github.com/stuggi/infra-operator/apis v0.0.0-20260313105254-f85e28889d29
+
+replace github.com/openstack-k8s-operators/swift-operator/api => github.com/stuggi/swift-operator/api v0.0.0-20260319154125-3d8c75168895
+
+replace github.com/openstack-k8s-operators/designate-operator/api => github.com/stuggi/designate-operator/api v0.0.0-20260319155829-a1c483845825
