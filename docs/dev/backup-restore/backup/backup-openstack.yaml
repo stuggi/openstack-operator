@@ -48,6 +48,37 @@
     auto_ack: false
 
   tasks:
+    # ========================================
+    # Pre-flight checks
+    # ========================================
+    - name: Verify OADP operator is installed
+      ansible.builtin.shell: |
+        oc get crd backups.velero.io -o name
+      register: oadp_crd_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if OADP is not installed
+      ansible.builtin.fail:
+        msg: |
+          OADP operator is not installed (Velero Backup CRD not found).
+          Install OADP first - see docs/dev/backup-restore/setup-oadp-minio.md
+      when: oadp_crd_check.rc != 0
+
+    - name: Verify VolumeSnapshotClass with Velero label exists
+      ansible.builtin.shell: |
+        oc get volumesnapshotclass -l velero.io/csi-volumesnapshot-class=true -o name
+      register: vsc_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if no VolumeSnapshotClass with Velero label
+      ansible.builtin.fail:
+        msg: |
+          No VolumeSnapshotClass found with label velero.io/csi-volumesnapshot-class=true.
+          Label your VolumeSnapshotClass for Velero CSI snapshots.
+      when: vsc_check.rc != 0 or vsc_check.stdout == ""
+
     - name: Set backup timestamp
       ansible.builtin.set_fact:
         backup_name_suffix: "{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
@@ -146,7 +177,7 @@
 
     - name: "Next: Create PVC backup CR"
       ansible.builtin.debug:
-        msg: "{{ lookup('file', rendered_dir.path + '/backup-pvcs.yaml') }}"
+        msg: "{{ lookup('file', rendered_dir.path + '/backup-pvcs.yaml').splitlines() }}"
 
     - name: Pause before PVC backup
       ansible.builtin.pause:
@@ -197,7 +228,7 @@
 
     - name: "Next: Create resources backup CR"
       ansible.builtin.debug:
-        msg: "{{ lookup('file', rendered_dir.path + '/backup-resources.yaml') }}"
+        msg: "{{ lookup('file', rendered_dir.path + '/backup-resources.yaml').splitlines() }}"
 
     - name: Pause before resources backup
       ansible.builtin.pause:

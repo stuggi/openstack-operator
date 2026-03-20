@@ -99,6 +99,20 @@
     # ========================================
     # Pre-flight checks
     # ========================================
+    - name: Verify OADP operator is installed
+      ansible.builtin.shell: |
+        oc get crd backups.velero.io -o name
+      register: oadp_crd_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if OADP is not installed
+      ansible.builtin.fail:
+        msg: |
+          OADP operator is not installed (Velero Backup CRD not found).
+          Install OADP first - see docs/dev/backup-restore/setup-oadp-minio.md
+      when: oadp_crd_check.rc != 0
+
     - name: Ensure target namespace exists
       ansible.builtin.shell: |
         oc create namespace {{ openstack_namespace }} --dry-run=client -o yaml | oc apply -f -
