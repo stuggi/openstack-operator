@@ -79,6 +79,49 @@
           Label your VolumeSnapshotClass for Velero CSI snapshots.
       when: vsc_check.rc != 0 or vsc_check.stdout == ""
 
+    - name: Verify OpenStackBackupConfig exists
+      ansible.builtin.shell: |
+        oc get openstackbackupconfig -n {{ openstack_namespace }} -o jsonpath='{.items[0].metadata.name}'
+      register: backupconfig_check
+      changed_when: false
+      failed_when: false
+
+    - name: Fail if OpenStackBackupConfig is not deployed
+      ansible.builtin.fail:
+        msg: |
+          No OpenStackBackupConfig CR found in namespace {{ openstack_namespace }}.
+          The BackupConfig controller labels secrets, configmaps, and other resources
+          for backup/restore. Without it, user-provided resources (e.g. osp-secret)
+          will not be restored.
+          Create an OpenStackBackupConfig CR before running backup.
+      when: backupconfig_check.rc != 0 or backupconfig_check.stdout == ""
+
+    - name: Verify resources are labeled for restore
+      ansible.builtin.shell: |
+        SECRET_COUNT=$(oc get secret -n {{ openstack_namespace }} -l backup.openstack.org/restore=true --no-headers 2>/dev/null | wc -l)
+        CM_COUNT=$(oc get configmap -n {{ openstack_namespace }} -l backup.openstack.org/restore=true --no-headers 2>/dev/null | wc -l)
+        echo "Labeled secrets: ${SECRET_COUNT}"
+        echo "Labeled configmaps: ${CM_COUNT}"
+        if [ "${SECRET_COUNT}" -eq 0 ]; then
+          echo "WARNING: No secrets labeled for restore" >&2
+          exit 1
+        fi
+      register: labeled_resources_check
+      changed_when: false
+      failed_when: false
+
+    - name: Display labeled resource counts
+      ansible.builtin.debug:
+        msg: "{{ labeled_resources_check.stdout_lines }}"
+
+    - name: Fail if no resources are labeled
+      ansible.builtin.fail:
+        msg: |
+          No secrets are labeled with backup.openstack.org/restore=true.
+          The OpenStackBackupConfig controller may not have reconciled yet.
+          Check: oc get openstackbackupconfig -n {{ openstack_namespace }} -o yaml
+      when: labeled_resources_check.rc != 0
+
     - name: Set backup timestamp
       ansible.builtin.set_fact:
         backup_name_suffix: "{{ lookup('pipe', 'date +%Y%m%d-%H%M%S') }}"
