@@ -762,7 +762,7 @@ style RestorePVC fill:#E1F5FE
     style ServicesReady fill:#90EE90
 ```
 
-> **Colors:** 🔵 OADP Velero Restore · 🟠 Manual Step · 🔷 Wait Condition · 🟢 Ready Status
+> **Legend:** Light blue = OADP Velero Restore · Light orange = Manual Step · Blue = Wait Condition · Green = Ready Status
 
 **Key Points:**
 - **Staged Deployment**: ControlPlane restored with `deployment-stage: infrastructure-only` annotation in order 30, removed in order 50 after database/RabbitMQ restore
