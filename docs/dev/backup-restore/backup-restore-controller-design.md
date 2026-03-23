@@ -762,6 +762,8 @@ style RestorePVC fill:#E1F5FE
     style ServicesReady fill:#90EE90
 ```
 
+> **Colors:** 🔵 OADP Velero Restore · 🟠 Manual Step · 🔷 Wait Condition · 🟢 Ready Status
+
 **Key Points:**
 - **Staged Deployment**: ControlPlane restored with `deployment-stage: infrastructure-only` annotation in order 30, removed in order 50 after database/RabbitMQ restore
 - **Services Start Clean**: Keystone, Nova, etc. start with already-restored databases and PVCs
