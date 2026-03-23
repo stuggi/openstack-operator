@@ -733,8 +733,14 @@ flowchart TD
     WaitServices -->|Ready| ServicesReady[Services Ready:<br/>Keystone, Nova, Neutron,<br/>Glance, etc.]
 
     ServicesReady --> RestoreDP[Order 60: Restore DataPlane<br/>OpenStackDataPlaneNodeSet]
-    RestoreDP --> EDPMDeploy[Post-Restore: EDPM Deployment<br/>Resync credentials on<br/>dataplane nodes]
-    EDPMDeploy --> EnableIHA[Post-Restore: Re-enable InstanceHa<br/>spec.disabled: False]
+
+    RestoreDP --> EDPMDeploy
+
+    subgraph PostRestore["Post-Restore: Manual Verification & Finalization"]
+        EDPMDeploy[EDPM Deployment<br/>Resync credentials on<br/>dataplane nodes]
+        --> EnableIHA[Re-enable InstanceHa<br/>spec.disabled: False]
+    end
+
     EnableIHA --> End([Restore Complete])
 
     subgraph Legend
