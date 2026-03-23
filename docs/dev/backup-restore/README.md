@@ -99,7 +99,7 @@ for earlier versions.
 
 | Component | Backed Up | NOT Backed Up |
 |-----------|-----------|---------------|
-| ControlPlane | OpenStackControlPlane, OpenStackVersion, NADs, Secrets, ConfigMaps, MariaDBDatabase/Account, GaleraBackup, Topology, BGPConfiguration, DNSData, InstanceHa, Database contents (Galera dumps), PVCs (Glance, GaleraBackup), RabbitMQ user credentials | Individual service CRs (recreated by controller), Certificate CRs (recreated by operators), Running pods, OVN database contents, RabbitMQ queue data (fresh cluster) |
+| ControlPlane | OpenStackControlPlane, OpenStackVersion, NADs, Secrets, ConfigMaps, GaleraBackup, Topology, BGPConfiguration, DNSData, InstanceHa, Database contents (Galera dumps), PVCs (Glance, GaleraBackup), RabbitMQ user credentials | Individual service CRs (recreated by controller), MariaDBDatabase/Account (recreated by operators), Certificate CRs (recreated by operators), Running pods, OVN database contents, RabbitMQ queue data (fresh cluster) |
 | DataPlane | NetConfig, OpenStackDataPlaneNodeSet, OpenStackDataPlaneService, Reservation, IPSet | OpenStackDataPlaneDeployment (not restored to avoid triggering new deployments) |
 
 **ExtraMounts PVCs:** PVCs passed via `extraMounts` (global or per-service)
@@ -118,7 +118,7 @@ for the full table.
 |-------|-----------|-------|
 | 00 | PVCs | Storage foundation (CSI snapshots) |
 | 10 | Secrets, ConfigMaps, NADs | User-provided resources |
-| 20 | OpenStackVersion, MariaDB CRs, NetConfig, Topology, etc. | Infrastructure base |
+| 20 | OpenStackVersion, Issuers, NetConfig, Topology, etc. | Infrastructure base |
 | 30 | OpenStackControlPlane | With `deployment-stage: infrastructure-only` |
 | 40 | GaleraBackup, IPSet, DataPlaneService | Backup config and IP sets |
 | 50 | **Manual**: Database restore | Create GaleraRestore CRs, run restore |

@@ -7,7 +7,7 @@ This document provides implementation details for the controller-based backup/re
 The implementation spans multiple repositories:
 - **lib-common**: Shared backup/restore helper functions, constants, and CRD label cache
 - **openstack-operator**: OpenStackBackupConfig controller, CRD labels for OpenStackControlPlane, DataPlaneNodeSet, OpenStackVersion
-- **mariadb-operator**: CRD labels for MariaDBAccount, MariaDBDatabase, GaleraBackup + PVC labeling
+- **mariadb-operator**: CRD labels for GaleraBackup + PVC labeling
 - **glance-operator**: CRD labels + PVC labeling
 - **infra-operator**: CRD labels for NetConfig, Reservation, IPSet, Topology, BGPConfiguration, DNSData
 
@@ -88,7 +88,7 @@ const (
     // Restore order constants (gaps of 10 allow insertion)
     RestoreOrder00 = "00" // Storage foundation - PVCs
     RestoreOrder10 = "10" // Foundation - NADs, Secrets, ConfigMaps
-    RestoreOrder20 = "20" // Infrastructure - Issuers, MariaDB, NetConfig, Topology, BGPConfiguration, DNSData, OpenStackVersion, OpenStackBackupConfig
+    RestoreOrder20 = "20" // Infrastructure - Issuers, NetConfig, Topology, BGPConfiguration, DNSData, OpenStackVersion, OpenStackBackupConfig
     RestoreOrder30 = "30" // CtlPlane + networking - OpenStackControlPlane, Reservation
     RestoreOrder40 = "40" // Backup config, IP sets, DataPlane services - GaleraBackup, IPSet, DataPlaneService
     RestoreOrder50 = "50" // Manual steps - database/RabbitMQ restore, resume deployment
@@ -160,14 +160,10 @@ After modifying type definitions, run `make generate manifests` to update genera
 
 ### MariaDB Operator CRDs
 
-1. **MariaDBAccount** (`api/v1beta1/mariadbaccount_types.go`)
-   - `backup-restore=true`, `category=controlplane`, `order=20`
-
-2. **MariaDBDatabase** (`api/v1beta1/mariadbdatabase_types.go`)
-   - `backup-restore=true`, `category=controlplane`, `order=20`
-
-3. **GaleraBackup** (`api/v1beta1/galerabackup_types.go`)
+1. **GaleraBackup** (`api/v1beta1/galerabackup_types.go`)
    - `backup-restore=true`, `category=controlplane`, `order=40`
+
+**Not labeled:** MariaDBDatabase and MariaDBAccount CRDs do not have backup/restore labels. These CRs are recreated by service operators during reconciliation (via `EnsureMariaDBAccount`), which also generates new password secrets. Database SQL data is restored separately via the Galera restore process (order 50).
 
 ### Infra Operator CRDs
 
@@ -362,7 +358,7 @@ We use two separate OADP backups:
 |-------|-----------|----------------|-------|
 | 00 | PVCs | OADP Restore CR | Storage foundation, CSI snapshots |
 | 10 | Secrets, ConfigMaps, NADs | OADP Restore CR | User-provided resources |
-| 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase, NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa | OADP Restore CR | Infrastructure base (InstanceHa restored with `spec.disabled: True`) |
+| 20 | OpenStackVersion, OpenStackBackupConfig, Issuers, NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa | OADP Restore CR | Infrastructure base (InstanceHa restored with `spec.disabled: True`) |
 | 30 | OpenStackControlPlane, Reservation | OADP Restore CR | With `deployment-stage: infrastructure-only` annotation |
 | 40 | GaleraBackup, IPSet, DataPlaneService | OADP Restore CR | Backup config, IP sets, custom DataPlane services |
 | 50 | Database + RabbitMQ restore | **Manual/Playbook** | GaleraRestore CRs, RabbitMQ credential restore, remove staged annotation |

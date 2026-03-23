@@ -200,7 +200,7 @@ Resources get labeled for restore through two complementary mechanisms:
 #### 1. Controller Labels CR Instances and User-Provided Resources
 
 The OpenStackBackupConfig controller labels:
-- **CR instances**: Based on CRD labels (e.g., OpenStackControlPlane, NetConfig, MariaDBDatabase)
+- **CR instances**: Based on CRD labels (e.g., OpenStackControlPlane, NetConfig, GaleraBackup)
 - **User-provided Secrets**: Without ownerReferences (SSH keys, passwords, etc.)
 - **CA cert secrets**: cert-manager secrets for CA Certificates (`spec.isCA: true`) — must be restored to preserve CA identity
 - **User-provided ConfigMaps**: Without ownerReferences (custom configurations)
@@ -374,7 +374,7 @@ spec:
 **Backup 1 (CRs) captures:**
 - ✅ **All Secrets** in namespace (user-provided AND operator-managed)
 - ✅ **All ConfigMaps** in namespace (user-provided AND operator-managed)
-- ✅ **All CRs** (OpenStackControlPlane, MariaDBDatabase, DataPlaneNodeSet, etc.)
+- ✅ **All CRs** (OpenStackControlPlane, GaleraBackup, DataPlaneNodeSet, etc.)
 - ✅ **All NetworkAttachmentDefinitions, custom Issuers, etc.**
 - ❌ **Excluded**: PVCs/PVs (handled by Backup 2)
 
@@ -677,7 +677,7 @@ The restore sequence is critical for maintaining dependencies between resources.
 |-------|-----------|-------|
 | 00 | **PVCs** | **Storage Foundation**: CSI snapshots for all storage volumes (Galera backups, Glance images, Cinder volumes, Manila shares)<br>Restored first so backup data is available for database restore in order 50 |
 | 10 | NetworkAttachmentDefinitions<br>Secrets (user-provided)<br>ConfigMaps (user-provided) | **Foundation Resources**: Core resources with no dependencies<br>Includes CA certs, DB passwords, SSH keys |
-| 20 | OpenStackVersion<br>Custom TLS Issuers<br>MariaDBDatabase<br>MariaDBAccount<br>Infrastructure CRs<br>NetConfig<br>InstanceHa | **Version & Infrastructure**: OpenStackVersion restored first (required by ControlPlane)<br>Custom Issuers need CA secrets from order 10; operator-created Issuers are not restored (recreated by reconciliation)<br>MariaDBAccount needs password secrets<br>Infrastructure: Topology, BGPConfiguration, DNSData<br>NetConfig: Network topology (required by Reservation/IPSet)<br>InstanceHa: Restored with `spec.disabled: True` (resource modifier) to prevent fencing; re-enable after verifying EDPM connectivity |
+| 20 | OpenStackVersion<br>Custom TLS Issuers<br>Infrastructure CRs<br>NetConfig<br>InstanceHa | **Version & Infrastructure**: OpenStackVersion restored first (required by ControlPlane)<br>Custom Issuers need CA secrets from order 10; operator-created Issuers are not restored (recreated by reconciliation)<br>Infrastructure: Topology, BGPConfiguration, DNSData<br>NetConfig: Network topology (required by Reservation/IPSet)<br>InstanceHa: Restored with `spec.disabled: True` (resource modifier) to prevent fencing; re-enable after verifying EDPM connectivity |
 | 30 | OpenStackControlPlane<br>Reservation | **Control Plane + Networking**: CtlPlane restored with staged deployment annotation (`deployment-stage: infrastructure-only`)<br>ControlPlane controller will use the already-restored OpenStackVersion from order 20<br>Reservation needs NetConfig from order 20<br>Wait for infrastructure ready before proceeding |
 | 40 | IPSet<br>GaleraBackup<br>RabbitMQUser (user-created)<br>RabbitMQVhost<br>DataPlaneService (user-created) | **IP Sets, Backup Config & User Resources** (while in infra-only mode)<br>IPSet: Requires Reservation from order 30<br>GaleraBackup: Backup configuration CR (needs CtlPlane)<br>RabbitMQUser/Vhost: User-created resources only (no ownerReferences)<br>DataPlaneService: Custom services before NodeSets |
 | 50 | *Database Restore*<br>*RabbitMQ Credentials*<br>*Resume Deployment* | **Manual/Controller** (while in infra-only mode):<br>1. Create GaleraRestore CRs, execute restore from PVCs (order 00), clean up<br>2. Create RabbitMQUser CRs with old credentials (extract from backed-up secrets, create new `-restored-user` secrets/CRs)<br>3. Remove `deployment-stage` annotation → CtlPlane reconciles and starts all services |
@@ -711,7 +711,7 @@ flowchart TD
     PreReq -->|Ready| RestorePVC[Order 00: Restore PVCs<br/>CSI snapshots for Galera dumps,<br/>Glance images, etc.]
 
     RestorePVC --> RestoreFoundation[Order 10: Restore Foundation<br/>Secrets, ConfigMaps, NADs]
-    RestoreFoundation --> RestoreInfra[Order 20: Restore Infrastructure<br/>OpenStackVersion, MariaDBAccount,<br/>MariaDBDatabase, NetConfig, InstanceHa]
+    RestoreFoundation --> RestoreInfra[Order 20: Restore Infrastructure<br/>OpenStackVersion, Issuers,<br/>NetConfig, InstanceHa]
     RestoreInfra --> RestoreCtlPlane[Order 30: Restore OpenStackControlPlane<br/>with annotation:<br/>core.openstack.org/deployment-stage:<br/>infrastructure-only]
 
     RestoreCtlPlane --> WaitInfra{Wait for<br/>InfrastructureReady<br/>condition}
@@ -814,34 +814,9 @@ oc get crd -l backup.openstack.org/restore=true
 
 | CRD | Restore | Category | Order | Notes |
 |-----|---------|----------|-------|-------|
-| MariaDBDatabase | true | controlplane | 20 | Database definitions |
-| MariaDBAccount | true | controlplane | 20 | Database accounts (references password secret) |
 | GaleraBackup | true | controlplane | 40 | Backup configuration (needs CtlPlane from order 30) |
 
-**Important:** mariadb-operator must label password secrets when creating them:
-```go
-// When mariadb-operator creates database password secret
-secret := &corev1.Secret{
-    ObjectMeta: metav1.ObjectMeta{
-        Name:      "nova-api-db-secret",
-        Namespace: namespace,
-        Labels: map[string]string{
-            // CRITICAL: Add restore labels so secret is restored before MariaDBAccount
-            "backup.openstack.org/restore":       "true",
-            "backup.openstack.org/category":      "all",
-            "backup.openstack.org/restore-order": "10",  // Order 10 (before MariaDBAccount)
-        },
-        OwnerReferences: []metav1.OwnerReference{
-            // MariaDBAccount owner
-        },
-    },
-    Data: map[string][]byte{
-        "password": []byte(generatedPassword),
-    },
-}
-```
-
-**Why:** MariaDBAccount CR references password secret (e.g., `spec.secret: nova-api-db-secret`). The secret must be restored in order 10 (before MariaDBAccount in order 40) so the operator can read the original password during reconciliation.
+**Not labeled:** MariaDBDatabase and MariaDBAccount CRDs do not have backup/restore labels. These CRs (and their password secrets) are recreated by service operators during reconciliation via `EnsureMariaDBAccount`, which generates new credentials. Database SQL data is restored separately via the Galera restore process (order 50) using `--content data` to restore only data without grants, allowing operators to recreate users with new passwords.
 
 ### Data Plane CRDs
 
@@ -1077,7 +1052,7 @@ Categories enable selective backup/restore scenarios. The design uses **three ca
 
 **controlplane:**
 - OpenStackControlPlane CR
-- MariaDBDatabase, MariaDBAccount, GaleraBackup
+- GaleraBackup
 - RabbitMQUser, RabbitMQVhost
 - Custom Issuers (cert-manager, user-provided without ownerRef), InstanceHa
 - **All user-provided Secrets and ConfigMaps** (CA certs, passwords, SSH keys, EDPM configs)

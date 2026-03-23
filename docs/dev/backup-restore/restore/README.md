@@ -16,7 +16,7 @@ Restores must be executed in sequence. Wait for each restore to complete before 
 | `templates/00-resource-modifiers-configmap.yaml.j2` | - | ConfigMap | **Prerequisite:** resource modifier rules for all restores |
 | `templates/01-restore-order-00-pvcs.yaml.j2` | 00 | PVCs (Glance images, GaleraBackup) | Storage foundation, restored from CSI snapshots |
 | `templates/02-restore-order-10-foundation.yaml.j2` | 10 | Secrets, ConfigMaps, NADs | User-provided resources without ownerRefs |
-| `templates/03-restore-order-20-infrastructure.yaml.j2` | 20 | OpenStackVersion, OpenStackBackupConfig, MariaDBAccount, MariaDBDatabase, NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa | Infrastructure base (**InstanceHa restored with `spec.disabled: True`**) |
+| `templates/03-restore-order-20-infrastructure.yaml.j2` | 20 | OpenStackVersion, OpenStackBackupConfig, Issuers, NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa | Infrastructure base (**InstanceHa restored with `spec.disabled: True`**) |
 | `templates/04-restore-order-30-controlplane.yaml.j2` | 30 | OpenStackControlPlane, Reservation | **Adds `deployment-stage: infrastructure-only` annotation** |
 | `templates/05-restore-order-40-backup-config.yaml.j2` | 40 | GaleraBackup, IPSet, DataPlaneService | Backup config, IP sets, custom DataPlane services |
 | `06-manual-database-restore.md` | 50 | **Manual** | Create GaleraRestore CRs, restore databases, remove deployment-stage annotation |
@@ -308,7 +308,7 @@ oc get restore -n openshift-adp
 oc get all,pvc,secret,configmap,nad -n openstack
 
 # Check OpenStack CRs
-oc get openstackcontrolplane,openstackversion,mariadbaccount,mariadbdatabase -n openstack
+oc get openstackcontrolplane,openstackversion -n openstack
 ```
 
 ## Troubleshooting

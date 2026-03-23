@@ -7,7 +7,7 @@
 # Restore order:
 # 1. PVCs (CSI snapshots) - storage foundation
 # 2. Foundation resources (Secrets, ConfigMaps, NADs)
-# 3. Infrastructure CRs (OpenStackVersion, MariaDBAccount, etc.)
+# 3. Infrastructure CRs (OpenStackVersion, NetConfig, etc.)
 # 4. OpenStackControlPlane (with infrastructure-only staging)
 # 5. Wait for infrastructure (Galera, OVN, RabbitMQ) to be ready
 # 6. GaleraBackup CRs (backup configuration)
@@ -45,6 +45,10 @@
 #   ctlplane_ready_timeout: Timeout waiting for full control plane (default: 10m)
 #   strict_restore: Fail on PartiallyFailed restores (default: true)
 #   rabbitmq_clusters: List of RabbitMQ cluster names (default: [rabbitmq, rabbitmq-cell1])
+#   restore_content: What to restore from Galera dumps: "data" (default), "grants", or "all"
+#     data   - Restore database data only; operators recreate users/grants with new passwords
+#     grants - Restore user grants only
+#     all    - Restore both data and grants (requires matching DB secrets)
 #   auto_ack: Skip all confirmation prompts between steps (default: false)
 #   pin_pvcs: Create dummy Deployments to pin PVCs to their original nodes during
 #     Data Mover restores with WaitForFirstConsumer storage (e.g., LVM).
@@ -68,6 +72,7 @@
     - rabbitmq-cell1
     auto_ack: false
     pin_pvcs: false
+    restore_content: data
 
   tasks:
     - name: Validate required parameters
@@ -363,7 +368,7 @@
         src: "{{ playbook_dir }}/templates/03-restore-order-20-infrastructure.yaml.j2"
         dest: "{{ rendered_dir.path }}/03-restore-order-20-infrastructure.yaml"
 
-    - name: "Next: Step 3 - Restore infrastructure CRs (OpenStackVersion, MariaDBAccount, etc.)"
+    - name: "Next: Step 3 - Restore infrastructure CRs (OpenStackVersion, NetConfig, etc.)"
       ansible.builtin.debug:
         msg: "{{ lookup('file', rendered_dir.path + '/03-restore-order-20-infrastructure.yaml').splitlines() }}"
       when: not (auto_ack | bool)
@@ -536,7 +541,8 @@
     - name: Execute database restore for each GaleraRestore
       ansible.builtin.shell: |
         RESTORE_NAME="{{ item }}restore"
-        {{ playbook_dir }}/../scripts/restore-galera.sh ${RESTORE_NAME} {{ backup_timestamp }} {{ openstack_namespace }}
+        RESTORE_CONTENT={{ restore_content }} \
+          {{ playbook_dir }}/../scripts/restore-galera.sh ${RESTORE_NAME} {{ backup_timestamp }} {{ openstack_namespace }}
       loop: "{{ galerabackup_list }}"
       changed_when: true
       when: galerabackup_list | length > 0
