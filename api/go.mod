@@ -13,10 +13,10 @@ require (
 	github.com/openstack-k8s-operators/glance-operator/api v0.6.1-0.20260314075608-2c0ea188dc72
 	github.com/openstack-k8s-operators/heat-operator/api v0.6.1-0.20260314075609-1b85a36fcef9
 	github.com/openstack-k8s-operators/horizon-operator/api v0.6.1-0.20260314075038-6794e497bcfc
-	github.com/openstack-k8s-operators/infra-operator/apis v0.6.1-0.20260314122830-5d1715fa2f64
+	github.com/openstack-k8s-operators/infra-operator/apis v0.6.1-0.20260316100655-863ae03d41af
 	github.com/openstack-k8s-operators/ironic-operator/api v0.6.1-0.20260314080422-d98151f45e34
 	github.com/openstack-k8s-operators/keystone-operator/api v0.6.1-0.20260314080138-b41734470581
-	github.com/openstack-k8s-operators/lib-common/modules/common v0.6.1-0.20260310070607-b96da8dd520e
+	github.com/openstack-k8s-operators/lib-common/modules/common v0.6.1-0.20260320125710-3a5f82ff0f18
 	github.com/openstack-k8s-operators/lib-common/modules/storage v0.6.1-0.20260310070607-b96da8dd520e
 	github.com/openstack-k8s-operators/manila-operator/api v0.6.1-0.20260314085148-3542cd0de463
 	github.com/openstack-k8s-operators/mariadb-operator/api v0.6.1-0.20260314091348-5c473d964727
@@ -146,7 +146,7 @@ replace github.com/cert-manager/cmctl/v2 => github.com/cert-manager/cmctl/v2 v2.
 
 replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20260319153531-b6972195788d
 
-replace github.com/openstack-k8s-operators/mariadb-operator/api => github.com/stuggi/mariadb-operator/api v0.0.0-20260319160834-ec8ef4e42d78
+replace github.com/openstack-k8s-operators/mariadb-operator/api => github.com/stuggi/mariadb-operator/api v0.0.0-20260323091819-07fa2e3001c0
 
 replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20260319161100-d27378aa9783
 
