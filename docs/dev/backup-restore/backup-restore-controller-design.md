@@ -743,16 +743,13 @@ flowchart TD
 
     EnableIHA --> End([Restore Complete])
 
-    subgraph Legend
+    subgraph Legend[" "]
         direction LR
-        L1[OADP Velero Restore]
-        L2[Manual Step]
-        L3[Wait Condition]
-        L4[Ready Status]
-        style L1 fill:#E1F5FE
-        style L2 fill:#FFE4B5
-        style L3 fill:#87CEEB
-        style L4 fill:#90EE90
+        L1[OADP Restore] ~~~ L2[Manual] ~~~ L3[Wait] ~~~ L4[Ready]
+        style L1 fill:#E1F5FE,font-size:11px
+        style L2 fill:#FFE4B5,font-size:11px
+        style L3 fill:#87CEEB,font-size:11px
+        style L4 fill:#90EE90,font-size:11px
     end
 
     style RestorePVC fill:#E1F5FE
