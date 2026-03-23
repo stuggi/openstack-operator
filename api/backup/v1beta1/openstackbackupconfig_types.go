@@ -21,8 +21,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
-// NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
+// BackupLabelingPolicy controls whether backup labeling is active for a resource type
+// +kubebuilder:validation:Enum=enabled;disabled
+type BackupLabelingPolicy string
+
+const (
+	// BackupLabelingEnabled enables backup labeling for the resource type
+	BackupLabelingEnabled BackupLabelingPolicy = "enabled"
+	// BackupLabelingDisabled disables backup labeling for the resource type
+	BackupLabelingDisabled BackupLabelingPolicy = "disabled"
+)
 
 // OpenStackBackupConfigSpec defines the desired state of OpenStackBackupConfig.
 type OpenStackBackupConfigSpec struct {
@@ -33,18 +41,18 @@ type OpenStackBackupConfigSpec struct {
 
 	// Secrets configuration for backup labeling
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default={enabled:true}
+	// +kubebuilder:default={labeling:enabled}
 	Secrets ResourceBackupConfig `json:"secrets"`
 
 	// ConfigMaps configuration for backup labeling
 	// Defaults: Excludes kube-root-ca.crt and openshift-service-ca.crt
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default={enabled:true,excludeNames:{"kube-root-ca.crt","openshift-service-ca.crt"}}
+	// +kubebuilder:default={labeling:enabled,excludeNames:{"kube-root-ca.crt","openshift-service-ca.crt"}}
 	ConfigMaps ResourceBackupConfig `json:"configMaps"`
 
 	// NetworkAttachmentDefinitions configuration for backup labeling
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default={enabled:true}
+	// +kubebuilder:default={labeling:enabled}
 	NetworkAttachmentDefinitions ResourceBackupConfig `json:"networkAttachmentDefinitions"`
 
 	// Issuers configuration for backup labeling of cert-manager Issuers.
@@ -54,16 +62,16 @@ type OpenStackBackupConfigSpec struct {
 	// Custom Issuers default to restore order 20 (after secrets at order 10,
 	// since Issuers reference CA secrets).
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default={enabled:true,restoreOrder:"20"}
+	// +kubebuilder:default={labeling:enabled,restoreOrder:"20"}
 	Issuers ResourceBackupConfig `json:"issuers"`
 }
 
 // ResourceBackupConfig defines backup labeling rules for a resource type
 type ResourceBackupConfig struct {
-	// Enabled controls whether to label this resource type for backup
+	// Labeling controls whether to label this resource type for backup
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default=true
-	Enabled bool `json:"enabled"`
+	// +kubebuilder:default=enabled
+	Labeling BackupLabelingPolicy `json:"labeling"`
 
 	// RestoreOrder overrides the default restore order for this resource type.
 	// If empty, the global DefaultRestoreOrder is used.

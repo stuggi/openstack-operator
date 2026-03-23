@@ -56,18 +56,18 @@ func CreateBackupConfig(name types.NamespacedName) *backupv1.OpenStackBackupConf
 			// Kubebuilder defaults are only applied via webhooks.
 			// Set them explicitly for envtest.
 			Secrets: backupv1.ResourceBackupConfig{
-				Enabled: true,
+				Labeling: backupv1.BackupLabelingEnabled,
 			},
 			ConfigMaps: backupv1.ResourceBackupConfig{
-				Enabled:      true,
+				Labeling:     backupv1.BackupLabelingEnabled,
 				ExcludeNames: []string{"kube-root-ca.crt", "openshift-service-ca.crt"},
 			},
 			Issuers: backupv1.ResourceBackupConfig{
-				Enabled:      true,
+				Labeling:     backupv1.BackupLabelingEnabled,
 				RestoreOrder: "20",
 			},
 			NetworkAttachmentDefinitions: backupv1.ResourceBackupConfig{
-				Enabled: true,
+				Labeling: backupv1.BackupLabelingEnabled,
 			},
 		},
 	}

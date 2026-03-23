@@ -66,19 +66,14 @@ spec:
             properties:
               configMaps:
                 default:
-                  enabled: true
                   excludeNames:
                   - kube-root-ca.crt
                   - openshift-service-ca.crt
+                  labeling: enabled
                 description: |-
                   ConfigMaps configuration for backup labeling
                   Defaults: Excludes kube-root-ca.crt and openshift-service-ca.crt
                 properties:
-                  enabled:
-                    default: true
-                    description: Enabled controls whether to label this resource type
-                      for backup
-                    type: boolean
                   excludeLabelKeys:
                     description: |-
                       ExcludeLabelKeys is a list of label keys - resources with any of these labels are excluded
@@ -100,6 +95,14 @@ spec:
                       IncludeLabelSelector allows filtering resources by label selector
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
+                  labeling:
+                    default: enabled
+                    description: Labeling controls whether to label this resource
+                      type for backup
+                    enum:
+                    - enabled
+                    - disabled
+                    type: string
                   restoreOrder:
                     description: |-
                       RestoreOrder overrides the default restore order for this resource type.
@@ -113,7 +116,7 @@ spec:
                 type: string
               issuers:
                 default:
-                  enabled: true
+                  labeling: enabled
                   restoreOrder: "20"
                 description: |-
                   Issuers configuration for backup labeling of cert-manager Issuers.
@@ -123,11 +126,6 @@ spec:
                   Custom Issuers default to restore order 20 (after secrets at order 10,
                   since Issuers reference CA secrets).
                 properties:
-                  enabled:
-                    default: true
-                    description: Enabled controls whether to label this resource type
-                      for backup
-                    type: boolean
                   excludeLabelKeys:
                     description: |-
                       ExcludeLabelKeys is a list of label keys - resources with any of these labels are excluded
@@ -149,6 +147,14 @@ spec:
                       IncludeLabelSelector allows filtering resources by label selector
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
+                  labeling:
+                    default: enabled
+                    description: Labeling controls whether to label this resource
+                      type for backup
+                    enum:
+                    - enabled
+                    - disabled
+                    type: string
                   restoreOrder:
                     description: |-
                       RestoreOrder overrides the default restore order for this resource type.
@@ -157,15 +163,10 @@ spec:
                 type: object
               networkAttachmentDefinitions:
                 default:
-                  enabled: true
+                  labeling: enabled
                 description: NetworkAttachmentDefinitions configuration for backup
                   labeling
                 properties:
-                  enabled:
-                    default: true
-                    description: Enabled controls whether to label this resource type
-                      for backup
-                    type: boolean
                   excludeLabelKeys:
                     description: |-
                       ExcludeLabelKeys is a list of label keys - resources with any of these labels are excluded
@@ -187,6 +188,14 @@ spec:
                       IncludeLabelSelector allows filtering resources by label selector
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
+                  labeling:
+                    default: enabled
+                    description: Labeling controls whether to label this resource
+                      type for backup
+                    enum:
+                    - enabled
+                    - disabled
+                    type: string
                   restoreOrder:
                     description: |-
                       RestoreOrder overrides the default restore order for this resource type.
@@ -195,14 +204,9 @@ spec:
                 type: object
               secrets:
                 default:
-                  enabled: true
+                  labeling: enabled
                 description: Secrets configuration for backup labeling
                 properties:
-                  enabled:
-                    default: true
-                    description: Enabled controls whether to label this resource type
-                      for backup
-                    type: boolean
                   excludeLabelKeys:
                     description: |-
                       ExcludeLabelKeys is a list of label keys - resources with any of these labels are excluded
@@ -224,6 +228,14 @@ spec:
                       IncludeLabelSelector allows filtering resources by label selector
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
+                  labeling:
+                    default: enabled
+                    description: Labeling controls whether to label this resource
+                      type for backup
+                    enum:
+                    - enabled
+                    - disabled
+                    type: string
                   restoreOrder:
                     description: |-
                       RestoreOrder overrides the default restore order for this resource type.
