@@ -8,6 +8,12 @@
 #   ./restore-galera.sh <restore-name> <backup-timestamp> [namespace]
 #   ./restore-galera.sh openstackrestore 20260311-081234
 #   ./restore-galera.sh openstackrestorecell1 20260311-081234 openstack
+#
+# Environment variables:
+#   RESTORE_CONTENT - What to restore: "all" (default), "data", or "grants"
+#     all    - Restore both database data and user grants
+#     data   - Restore database data only (operators recreate users/grants)
+#     grants - Restore user grants only
 
 set -e
 
@@ -16,6 +22,7 @@ RESTORE_NAME="${1}"
 BACKUP_TIMESTAMP="${2}"
 OPENSTACK_NAMESPACE="${3:-openstack}"
 DELETE_CR="${4:-yes}"  # Delete GaleraRestore CR after successful restore (yes/no)
+RESTORE_CONTENT="${RESTORE_CONTENT:-all}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -61,9 +68,13 @@ if [ -z "$RESTORE_NAME" ] || [ -z "$BACKUP_TIMESTAMP" ]; then
     echo "  namespace         - OpenStack namespace (default: openstack)"
     echo "  delete-cr         - Delete GaleraRestore CR after successful restore (default: yes)"
     echo ""
+    echo "Environment variables:"
+    echo "  RESTORE_CONTENT   - What to restore: all (default), data, or grants"
+    echo ""
     echo "Examples:"
     echo "  $0 openstackrestore 20260311-081234"
     echo "  $0 openstackrestorecell1 20260311-081234 openstack"
+    echo "  RESTORE_CONTENT=data $0 openstackrestore 20260311-081234"
     exit 1
 fi
 
@@ -108,19 +119,16 @@ fi
 
 print_success "Restore pod is running"
 
-# Use the specified backup timestamp
+# Build file pattern from timestamp
 print_header "Using Backup Timestamp"
 TIMESTAMP="$BACKUP_TIMESTAMP"
 print_success "Timestamp: $TIMESTAMP"
+print_info "Restore content: $RESTORE_CONTENT"
 
-# Construct restore pattern
-# The restore script expects: /backup/data/*_YYYY-MM-DD_HH-MM-SS.sql.gz
-# This pattern matches both the backup file and the grants file
 RESTORE_PATTERN="/backup/data/*_${TIMESTAMP}.sql.gz"
-
 print_info "Restore pattern: $RESTORE_PATTERN"
 
-# Verify both backup and grants files exist
+# Verify backup files exist
 echo ""
 print_info "Verifying backup files exist..."
 MATCHED_FILES=$(oc exec -n "$OPENSTACK_NAMESPACE" "$POD_NAME" -- sh -c "ls -1 $RESTORE_PATTERN 2>/dev/null" || true)
@@ -137,17 +145,12 @@ echo "$MATCHED_FILES" | while read -r file; do
 done
 
 # Execute restore
-print_header "Executing Database Restore"
-echo "This will restore the database from the specified backup."
-echo "Pattern: $RESTORE_PATTERN"
-echo ""
-
-# Run restore command
+print_header "Executing Database Restore ($RESTORE_CONTENT)"
 print_info "Running restore_galera script..."
 echo ""
 
 oc exec -n "$OPENSTACK_NAMESPACE" "$POD_NAME" -- \
-  /var/lib/backup-scripts/restore_galera --yes "$RESTORE_PATTERN"
+  /var/lib/backup-scripts/restore_galera --yes --content "$RESTORE_CONTENT" $RESTORE_PATTERN
 
 RESTORE_EXIT_CODE=$?
 
