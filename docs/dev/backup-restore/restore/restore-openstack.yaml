@@ -637,34 +637,34 @@
         oc delete namespace openstack-restore-tmp --wait=false
       changed_when: true
 
-    - name: Create RabbitMQUser CRs for restored credentials
+    - name: Check restored RabbitMQ secrets exist
       ansible.builtin.shell: |
-        CLUSTER_NAME="{{ item }}"
-        RESTORED_SECRET_NAME="${CLUSTER_NAME}-restored-user"
-
-        if ! oc get secret "${RESTORED_SECRET_NAME}" -n {{ openstack_namespace }} &>/dev/null; then
-          echo "WARNING: Secret ${RESTORED_SECRET_NAME} not found - skipping"
-          exit 0
+        MISSING=""
+        for CLUSTER in {{ rabbitmq_clusters | join(' ') }}; do
+          SECRET="${CLUSTER}-restored-user"
+          if ! oc get secret "${SECRET}" -n {{ openstack_namespace }} &>/dev/null; then
+            MISSING="${MISSING} ${SECRET}"
+          fi
+        done
+        if [ -n "${MISSING}" ]; then
+          echo "WARNING: Missing restored secrets:${MISSING}" >&2
         fi
+      changed_when: false
+      failed_when: false
 
-        cat <<EOF | oc apply -f -
-        apiVersion: rabbitmq.openstack.org/v1beta1
-        kind: RabbitMQUser
-        metadata:
-          name: ${CLUSTER_NAME}-restored-user
-          namespace: {{ openstack_namespace }}
-        spec:
-          rabbitmqClusterName: ${CLUSTER_NAME}
-          secret: ${RESTORED_SECRET_NAME}
-          tags:
-            - administrator
-          permissions:
-            configure: ".*"
-            read: ".*"
-            write: ".*"
-        EOF
-        echo "Created RabbitMQUser CR for ${CLUSTER_NAME}"
-      loop: "{{ rabbitmq_clusters }}"
+    - name: Render RabbitMQUser CRs
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/06c-rabbitmquser.yaml.j2"
+        dest: "{{ rendered_dir.path }}/06c-rabbitmquser.yaml"
+
+    - name: "Next: Create RabbitMQUser CRs"
+      ansible.builtin.debug:
+        msg: "{{ lookup('file', rendered_dir.path + '/06c-rabbitmquser.yaml').splitlines() }}"
+      when: not (auto_ack | bool)
+
+    - name: Apply RabbitMQUser CRs
+      ansible.builtin.shell: |
+        oc apply -f {{ rendered_dir.path }}/06c-rabbitmquser.yaml
       changed_when: true
 
     - name: Wait for RabbitMQUser CRs to be ready
