@@ -183,6 +183,56 @@ complete.
 **Related:** [OSPRH-26244](https://issues.redhat.com/browse/OSPRH-26244),
 [OSPRH-26246](https://issues.redhat.com/browse/OSPRH-26246)
 
+### Operator Version Must Match
+
+The target cluster must have the **same operator versions** as the source
+cluster. CRD schema changes between operator versions can break restore.
+In particular, the OpenStackVersion webhook validates that `targetVersion`
+matches the currently installed operator version — restoring an
+OpenStackVersion CR from a different operator build will be rejected.
+
+**Workaround:** If you must restore to a cluster with different operator
+versions, temporarily delete the validating webhook before the order 20
+restore and let the operator recreate it after reconciliation:
+```bash
+oc delete validatingwebhookconfiguration vopenstackversion.kb.io --ignore-not-found
+```
+
+### OVN Database State
+
+OVN database contents (network topology, virtual routers, security groups,
+port bindings) are **not backed up**. OVN state is reconstructed by
+Neutron from its database after restore. This may cause brief network
+disruption during reconciliation.
+
+### Running VM State
+
+Nova instance state in the restored database reflects the backup point in
+time. VMs that were started, stopped, or migrated after the backup was
+taken will have stale state in the restored database.
+
+### RabbitMQ Queue Data
+
+RabbitMQ is recreated as a fresh cluster during restore. In-flight messages
+and queue contents are lost. Services reconnect with restored credentials
+after the deployment resumes.
+
+### Namespace Change Not Supported
+
+Restoring to a different namespace is **not supported**. All service
+endpoints use DNS names containing the namespace, and internal
+service-to-service references would break. Database contents also contain
+namespace-specific references.
+
+### Cluster Migration
+
+When restoring to a different OpenShift cluster:
+- **Storage backend** must support the same StorageClasses
+- **TLS certificates** may need regeneration for the new cluster domain
+- **External endpoints** require DNS and load balancer reconfiguration
+- **Registry access** — target cluster must pull images from the same
+  registries
+
 ### DataPlane Deployment History
 
 When restoring DataPlane, the OpenStackDataPlaneDeployment history is lost.
