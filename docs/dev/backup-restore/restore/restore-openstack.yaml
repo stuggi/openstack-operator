@@ -497,57 +497,59 @@
       register: galerabackup_names
       changed_when: false
 
+    - name: Set GaleraBackup list
+      ansible.builtin.set_fact:
+        galerabackup_list: "{{ galerabackup_names.stdout.split() if galerabackup_names.stdout != '' else [] }}"
+
     - name: Print GaleraBackup CRs found
       ansible.builtin.debug:
-        msg: "GaleraBackup CRs: {{ galerabackup_names.stdout.split() if galerabackup_names.stdout != '' else 'none' }}"
+        msg: "GaleraBackup CRs: {{ galerabackup_list if galerabackup_list | length > 0 else 'none' }}"
 
-    - name: Create GaleraRestore CRs
+    - name: Render GaleraRestore CRs
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/06a-galerarestore.yaml.j2"
+        dest: "{{ rendered_dir.path }}/06a-galerarestore.yaml"
+      when: galerabackup_list | length > 0
+
+    - name: "Next: Create GaleraRestore CRs"
+      ansible.builtin.debug:
+        msg: "{{ lookup('file', rendered_dir.path + '/06a-galerarestore.yaml').splitlines() }}"
+      when: not (auto_ack | bool) and galerabackup_list | length > 0
+
+    - name: Apply GaleraRestore CRs
       ansible.builtin.shell: |
-        BACKUP_NAME="{{ item }}"
-        RESTORE_NAME="${BACKUP_NAME}restore"
-        cat <<EOF | oc apply -f -
-        apiVersion: mariadb.openstack.org/v1beta1
-        kind: GaleraRestore
-        metadata:
-          name: ${RESTORE_NAME}
-          namespace: {{ openstack_namespace }}
-        spec:
-          backupSource: ${BACKUP_NAME}
-        EOF
-        echo ${RESTORE_NAME}
-      loop: "{{ galerabackup_names.stdout.split() }}"
-      register: galerarestore_names
+        oc apply -f {{ rendered_dir.path }}/06a-galerarestore.yaml
+      register: galerarestore_apply
       changed_when: true
-      when: galerabackup_names.stdout != ""
+      when: galerabackup_list | length > 0
 
     - name: Wait for GaleraRestore pods to be ready
       ansible.builtin.shell: |
-        RESTORE_NAME="{{ item.stdout_lines[-1] }}"
-        BACKUP_SOURCE=$(oc get galerarestore ${RESTORE_NAME} -n {{ openstack_namespace }} \
-          -o jsonpath='{.spec.backupSource}')
+        RESTORE_NAME="{{ item }}restore"
+        BACKUP_SOURCE="{{ item }}"
         POD_NAME="${BACKUP_SOURCE}-restore-${RESTORE_NAME}"
         oc wait --for=condition=Ready pod/${POD_NAME} -n {{ openstack_namespace }} --timeout=120s
-      loop: "{{ galerarestore_names.results }}"
+      loop: "{{ galerabackup_list }}"
       changed_when: false
-      when: galerabackup_names.stdout != ""
+      when: galerabackup_list | length > 0
 
     - name: Execute database restore for each GaleraRestore
       ansible.builtin.shell: |
-        RESTORE_NAME="{{ item.stdout_lines[-1] }}"
+        RESTORE_NAME="{{ item }}restore"
         {{ playbook_dir }}/../scripts/restore-galera.sh ${RESTORE_NAME} {{ backup_timestamp }} {{ openstack_namespace }}
-      loop: "{{ galerarestore_names.results }}"
+      loop: "{{ galerabackup_list }}"
       changed_when: true
-      when: galerabackup_names.stdout != ""
+      when: galerabackup_list | length > 0
 
     - name: Print Step 7 result
       ansible.builtin.debug:
         msg: "Database restore completed"
-      when: galerabackup_names.stdout != ""
+      when: galerabackup_list | length > 0
 
     - name: Print Step 7 skip
       ansible.builtin.debug:
         msg: "No GaleraBackup CRs found - skipping database restore"
-      when: galerabackup_names.stdout == ""
+      when: galerabackup_list | length == 0
 
     # ========================================
     # Step 8: Restore RabbitMQ Credentials
