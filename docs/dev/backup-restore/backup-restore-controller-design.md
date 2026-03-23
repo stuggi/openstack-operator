@@ -719,10 +719,14 @@ flowchart TD
     WaitInfra -->|Ready| InfraReady[Infrastructure Ready:<br/>Galera, OVN, RabbitMQ, Memcached]
 
     InfraReady --> RestoreBackupConfig[Order 40: Restore GaleraBackup,<br/>IPSet, DataPlaneService]
-    RestoreBackupConfig --> RestoreDB[Order 50: Database Restore<br/>Create GaleraRestore CRs,<br/>execute restore from dump PVCs]
-    RestoreDB --> RestoreRabbitMQ[Order 50: RabbitMQ Credentials<br/>Restore default-user secrets,<br/>create RabbitMQUser CRs]
 
-    RestoreRabbitMQ --> Resume[Order 50: Resume Deployment<br/>Remove deployment-stage annotation]
+    RestoreBackupConfig --> RestoreDB
+
+    subgraph Order50["Order 50: Manual Restore Steps"]
+        RestoreDB[Database Restore<br/>Create GaleraRestore CRs,<br/>execute restore from dump PVCs]
+        --> RestoreRabbitMQ[RabbitMQ Credentials<br/>Restore default-user secrets,<br/>create RabbitMQUser CRs]
+        --> Resume[Resume Deployment<br/>Remove deployment-stage annotation]
+    end
 
     Resume --> WaitServices{Wait for<br/>ControlPlane Ready}
     WaitServices -->|Not Ready| WaitServices
