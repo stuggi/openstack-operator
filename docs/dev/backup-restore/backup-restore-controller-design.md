@@ -733,15 +733,35 @@ flowchart TD
     EDPMDeploy --> EnableIHA[Post-Restore: Re-enable InstanceHa<br/>spec.disabled: False]
     EnableIHA --> End([Restore Complete])
 
-    style PreReq fill:#FFA07A
-    style InfraReady fill:#90EE90
-    style ServicesReady fill:#90EE90
-    style RestoreCtlPlane fill:#FFE4B5
+    subgraph Legend
+        direction LR
+        L1[OADP Velero Restore]
+        L2[Manual Step]
+        L3[Wait Condition]
+        L4[Ready Status]
+        style L1 fill:#E1F5FE
+        style L2 fill:#FFE4B5
+        style L3 fill:#87CEEB
+        style L4 fill:#90EE90
+    end
+
+    style RestorePVC fill:#E1F5FE
+    style RestoreFoundation fill:#E1F5FE
+    style RestoreInfra fill:#E1F5FE
+    style RestoreCtlPlane fill:#E1F5FE
+    style RestoreBackupConfig fill:#E1F5FE
+    style RestoreDP fill:#E1F5FE
+    style RestorePreReq fill:#FFE4B5
+    style RestoreDB fill:#FFE4B5
+    style RestoreRabbitMQ fill:#FFE4B5
     style Resume fill:#FFE4B5
+    style EDPMDeploy fill:#FFE4B5
+    style EnableIHA fill:#FFE4B5
+    style PreReq fill:#FFA07A
     style WaitInfra fill:#87CEEB
     style WaitServices fill:#87CEEB
-    style EDPMDeploy fill:#E8F5E9
-    style EnableIHA fill:#E8F5E9
+    style InfraReady fill:#90EE90
+    style ServicesReady fill:#90EE90
 ```
 
 **Key Points:**
