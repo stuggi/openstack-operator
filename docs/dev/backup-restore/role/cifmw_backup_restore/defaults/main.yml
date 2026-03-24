@@ -28,6 +28,9 @@ cifmw_backup_restore_auto_ack: false
 
 # Backup
 cifmw_backup_restore_galera_backup_timeout: 10m
+cifmw_backup_restore_galera_storage_class: ""
+cifmw_backup_restore_galera_storage_request: 5Gi
+cifmw_backup_restore_galera_transfer_storage_request: 5Gi
 cifmw_backup_restore_oadp_backup_timeout: 30m
 cifmw_backup_restore_storage_location: velero-1
 cifmw_backup_restore_backup_ttl: 720h
