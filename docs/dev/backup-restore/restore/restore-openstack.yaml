@@ -44,7 +44,6 @@
 #   infra_ready_timeout: Timeout waiting for infrastructure (default: 20m)
 #   ctlplane_ready_timeout: Timeout waiting for full control plane (default: 10m)
 #   strict_restore: Fail on PartiallyFailed restores (default: true)
-#   rabbitmq_clusters: List of RabbitMQ cluster names (default: [rabbitmq, rabbitmq-cell1])
 #   restore_content: What to restore from Galera dumps: "data" (default), "grants", or "all"
 #     data   - Restore database data only; operators recreate users/grants with new passwords
 #     grants - Restore user grants only
@@ -67,9 +66,6 @@
     infra_ready_timeout: 20m
     ctlplane_ready_timeout: 10m
     strict_restore: true
-    rabbitmq_clusters:
-    - rabbitmq
-    - rabbitmq-cell1
     auto_ack: false
     pin_pvcs: false
     restore_content: data
@@ -560,6 +556,21 @@
     # ========================================
     # Step 8: Restore RabbitMQ Credentials
     # ========================================
+    - name: Get RabbitMQ cluster names from OpenStackControlPlane
+      ansible.builtin.shell: |
+        oc get openstackcontrolplane -n {{ openstack_namespace }} \
+          -o jsonpath='{.items[0].spec.rabbitmq.templates}' | jq -r 'keys[]'
+      register: rabbitmq_cluster_names
+      changed_when: false
+
+    - name: Set RabbitMQ cluster list
+      ansible.builtin.set_fact:
+        rabbitmq_clusters: "{{ rabbitmq_cluster_names.stdout_lines if rabbitmq_cluster_names.stdout != '' else [] }}"
+
+    - name: Print RabbitMQ clusters found
+      ansible.builtin.debug:
+        msg: "RabbitMQ clusters: {{ rabbitmq_clusters if rabbitmq_clusters | length > 0 else 'none' }}"
+
     - name: Render resource modifier for temp namespace
       ansible.builtin.template:
         src: "{{ playbook_dir }}/templates/06b-resource-modifiers-tmp.yaml.j2"

@@ -28,8 +28,11 @@ oc wait --for=jsonpath='{.status.phase}'=Completed \
 ### 2. Copy old credentials to target namespace
 
 ```bash
-# For each RabbitMQ cluster (adjust cluster names for your deployment)
-for CLUSTER in rabbitmq rabbitmq-cell1; do
+# Get RabbitMQ cluster names from the OpenStackControlPlane CR
+RABBITMQ_CLUSTERS=$(oc get openstackcontrolplane -n openstack \
+  -o jsonpath='{.items[0].spec.rabbitmq.templates}' | jq -r 'keys[]')
+
+for CLUSTER in ${RABBITMQ_CLUSTERS}; do
   if ! oc get secret "${CLUSTER}-default-user" -n openstack-restore-tmp &>/dev/null; then
     echo "Secret ${CLUSTER}-default-user not found in temp namespace - skipping"
     continue
@@ -46,7 +49,7 @@ done
 ### 3. Create RabbitMQUser CRs
 
 ```bash
-for CLUSTER in rabbitmq rabbitmq-cell1; do
+for CLUSTER in ${RABBITMQ_CLUSTERS}; do
   RESTORED_SECRET="${CLUSTER}-restored-user"
 
   if ! oc get secret "${RESTORED_SECRET}" -n openstack &>/dev/null; then
