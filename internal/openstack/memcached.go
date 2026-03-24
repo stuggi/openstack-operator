@@ -10,6 +10,7 @@ import (
 	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	memcachedv1 "github.com/openstack-k8s-operators/infra-operator/apis/memcached/v1beta1"
 	"github.com/openstack-k8s-operators/lib-common/modules/certmanager"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/clusterdns"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
@@ -213,7 +214,7 @@ func reconcileMemcached(
 				fmt.Sprintf("%s.%s.svc.%s", name, instance.Namespace, clusterDomain),
 				fmt.Sprintf("*.%s.%s.svc.%s", name, instance.Namespace, clusterDomain),
 			},
-			Labels: map[string]string{serviceCertSelector: ""},
+			Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
 		}
 		if instance.Spec.TLS.PodLevel.Internal.Cert.Duration != nil {
 			certRequest.Duration = &instance.Spec.TLS.PodLevel.Internal.Cert.Duration.Duration
@@ -245,7 +246,7 @@ func reconcileMemcached(
 					fmt.Sprintf("*.%s.svc", instance.Namespace),
 					fmt.Sprintf("*.%s.svc.%s", instance.Namespace, clusterDomain),
 				},
-				Labels: map[string]string{serviceCertSelector: ""},
+				Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
 				Usages: []certmgrv1.KeyUsage{
 					certmgrv1.UsageKeyEncipherment,
 					certmgrv1.UsageDigitalSignature,

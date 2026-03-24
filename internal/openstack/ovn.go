@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/openstack-k8s-operators/lib-common/modules/certmanager"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/clusterdns"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
@@ -180,7 +181,7 @@ func ReconcileOVNDbClusters(ctx context.Context, instance *corev1beta1.OpenStack
 					certmgrv1.UsageServerAuth,
 					certmgrv1.UsageClientAuth,
 				},
-				Labels: map[string]string{serviceCertSelector: ""},
+				Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
 			}
 			if instance.Spec.TLS.PodLevel.Ovn.Cert.Duration != nil {
 				certRequest.Duration = &instance.Spec.TLS.PodLevel.Ovn.Cert.Duration.Duration
@@ -320,7 +321,7 @@ func ReconcileOVNNorthd(ctx context.Context, instance *corev1beta1.OpenStackCont
 				certmgrv1.UsageServerAuth,
 				certmgrv1.UsageClientAuth,
 			},
-			Labels: map[string]string{serviceCertSelector: ""},
+			Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
 		}
 		if instance.Spec.TLS.PodLevel.Ovn.Cert.Duration != nil {
 			certRequest.Duration = &instance.Spec.TLS.PodLevel.Ovn.Cert.Duration.Duration
@@ -464,7 +465,7 @@ func ReconcileOVNController(ctx context.Context, instance *corev1beta1.OpenStack
 				certmgrv1.UsageServerAuth,
 				certmgrv1.UsageClientAuth,
 			},
-			Labels: map[string]string{serviceCertSelector: ""},
+			Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
 		}
 		if instance.Spec.TLS.PodLevel.Ovn.Cert.Duration != nil {
 			certRequest.Duration = &instance.Spec.TLS.PodLevel.Ovn.Cert.Duration.Duration
@@ -607,7 +608,7 @@ func EnsureOVNMetricsCert(ctx context.Context, instance *corev1beta1.OpenStackCo
 			certmgrv1.UsageServerAuth,
 			certmgrv1.UsageClientAuth,
 		},
-		Labels: map[string]string{serviceCertSelector: ""},
+		Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
 	}
 
 	// Apply certificate duration settings if configured

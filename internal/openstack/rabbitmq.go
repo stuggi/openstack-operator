@@ -10,6 +10,7 @@ import (
 	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	rabbitmqv1 "github.com/openstack-k8s-operators/infra-operator/apis/rabbitmq/v1beta1"
 	"github.com/openstack-k8s-operators/lib-common/modules/certmanager"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/clusterdns"
 	condition "github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
@@ -222,7 +223,7 @@ func reconcileRabbitMQ(
 				certmgrv1.UsageClientAuth,
 				certmgrv1.UsageContentCommitment,
 			},
-			Labels: map[string]string{serviceCertSelector: ""},
+			Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
 		}
 		if instance.Spec.TLS.PodLevel.Internal.Cert.Duration != nil {
 			certRequest.Duration = &instance.Spec.TLS.PodLevel.Internal.Cert.Duration.Duration

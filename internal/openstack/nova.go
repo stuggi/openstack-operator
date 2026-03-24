@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/openstack-k8s-operators/lib-common/modules/certmanager"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/clusterdns"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
@@ -273,7 +274,8 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			nova.Namespace,
 			instance.Spec.Nova.Template.MetadataServiceTemplate.Override.Service.Labels,
 			instance.GetInternalIssuer(),
-			nil)
+			nil,
+			map[string]string{backup.BackupRestoreLabel: "false"})
 		if err != nil && !k8s_errors.IsNotFound(err) {
 			return ctrlResult, err
 		} else if (ctrlResult != ctrl.Result{}) {
@@ -296,7 +298,8 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 				nova.Namespace,
 				cellTemplate.MetadataServiceTemplate.Override.Service.Labels,
 				instance.GetInternalIssuer(),
-				nil)
+				nil,
+				map[string]string{backup.BackupRestoreLabel: "false"})
 			if err != nil && !k8s_errors.IsNotFound(err) {
 				return ctrlResult, err
 			} else if (ctrlResult != ctrl.Result{}) {
@@ -378,7 +381,7 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 							certmgrv1.UsageServerAuth,
 							certmgrv1.UsageClientAuth,
 						},
-						Labels: map[string]string{serviceCertSelector: ""},
+						Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
 					}
 					if instance.Spec.TLS.PodLevel.Libvirt.Cert.Duration != nil {
 						certRequest.Duration = &instance.Spec.TLS.PodLevel.Libvirt.Cert.Duration.Duration

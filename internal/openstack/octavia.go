@@ -22,6 +22,7 @@ import (
 
 	certmgrv1 "github.com/cert-manager/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/openstack-k8s-operators/lib-common/modules/certmanager"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/clusterdns"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
@@ -132,7 +133,7 @@ func ReconcileOctavia(ctx context.Context, instance *corev1beta1.OpenStackContro
 				certmgrv1.UsageDigitalSignature,
 				certmgrv1.UsageClientAuth,
 			},
-			Labels: map[string]string{serviceCertSelector: ""},
+			Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
 		}
 		if instance.Spec.TLS.PodLevel.Ovn.Cert.Duration != nil {
 			certRequest.Duration = &instance.Spec.TLS.PodLevel.Ovn.Cert.Duration.Duration
