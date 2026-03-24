@@ -17,7 +17,7 @@
   gather_facts: false
   vars:
     oadp_namespace: "openshift-adp"
-    oadp_channel: "stable-1.4"
+    oadp_channel: "stable"
     minio_namespace: "minio"
     minio_bucket_name: "velero"
     minio_region: "minio"
