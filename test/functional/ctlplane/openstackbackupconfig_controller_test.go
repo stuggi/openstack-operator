@@ -46,6 +46,10 @@ func OpenStackBackupConfigConditionGetter(name types.NamespacedName) condition.C
 	return instance.Status.Conditions
 }
 
+func backupLabelingPtr(p backupv1.BackupLabelingPolicy) *backupv1.BackupLabelingPolicy {
+	return &p
+}
+
 func CreateBackupConfig(name types.NamespacedName) *backupv1.OpenStackBackupConfig {
 	backupConfig := &backupv1.OpenStackBackupConfig{
 		ObjectMeta: metav1.ObjectMeta{
@@ -56,18 +60,18 @@ func CreateBackupConfig(name types.NamespacedName) *backupv1.OpenStackBackupConf
 			// Kubebuilder defaults are only applied via webhooks.
 			// Set them explicitly for envtest.
 			Secrets: backupv1.ResourceBackupConfig{
-				Labeling: backupv1.BackupLabelingEnabled,
+				Labeling: backupLabelingPtr(backupv1.BackupLabelingEnabled),
 			},
 			ConfigMaps: backupv1.ResourceBackupConfig{
-				Labeling:     backupv1.BackupLabelingEnabled,
+				Labeling:     backupLabelingPtr(backupv1.BackupLabelingEnabled),
 				ExcludeNames: []string{"kube-root-ca.crt", "openshift-service-ca.crt"},
 			},
 			Issuers: backupv1.ResourceBackupConfig{
-				Labeling:     backupv1.BackupLabelingEnabled,
+				Labeling:     backupLabelingPtr(backupv1.BackupLabelingEnabled),
 				RestoreOrder: "20",
 			},
 			NetworkAttachmentDefinitions: backupv1.ResourceBackupConfig{
-				Labeling: backupv1.BackupLabelingEnabled,
+				Labeling: backupLabelingPtr(backupv1.BackupLabelingEnabled),
 			},
 		},
 	}

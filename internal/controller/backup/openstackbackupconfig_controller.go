@@ -88,8 +88,8 @@ func (r *OpenStackBackupConfigReconciler) getGVKFromCRD(ctx context.Context, crd
 
 // shouldLabelResource checks if a resource should be labeled based on ownerReferences and config
 func shouldLabelResource(obj client.Object, config backupv1beta1.ResourceBackupConfig) bool {
-	// Check if labeling is enabled (empty string treated as enabled for backward compatibility)
-	if config.Labeling == backupv1beta1.BackupLabelingDisabled {
+	// Check if labeling is enabled (nil treated as enabled for backward compatibility)
+	if config.Labeling != nil && *config.Labeling == backupv1beta1.BackupLabelingDisabled {
 		return false
 	}
 

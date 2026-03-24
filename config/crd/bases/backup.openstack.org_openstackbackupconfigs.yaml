@@ -96,7 +96,6 @@ spec:
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
                   labeling:
-                    default: enabled
                     description: Labeling controls whether to label this resource
                       type for backup
                     enum:
@@ -148,7 +147,6 @@ spec:
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
                   labeling:
-                    default: enabled
                     description: Labeling controls whether to label this resource
                       type for backup
                     enum:
@@ -189,7 +187,6 @@ spec:
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
                   labeling:
-                    default: enabled
                     description: Labeling controls whether to label this resource
                       type for backup
                     enum:
@@ -229,7 +226,6 @@ spec:
                       Only resources matching this selector will be labeled (in addition to ownerRef check)
                     type: object
                   labeling:
-                    default: enabled
                     description: Labeling controls whether to label this resource
                       type for backup
                     enum:

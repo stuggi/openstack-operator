@@ -70,8 +70,7 @@ type OpenStackBackupConfigSpec struct {
 type ResourceBackupConfig struct {
 	// Labeling controls whether to label this resource type for backup
 	// +kubebuilder:validation:Optional
-	// +kubebuilder:default=enabled
-	Labeling BackupLabelingPolicy `json:"labeling"`
+	Labeling *BackupLabelingPolicy `json:"labeling,omitempty"`
 
 	// RestoreOrder overrides the default restore order for this resource type.
 	// If empty, the global DefaultRestoreOrder is used.
