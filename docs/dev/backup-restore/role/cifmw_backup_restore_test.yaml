@@ -1,0 +1,107 @@
+---
+# End-to-end backup/restore test playbook
+#
+# Runs the full lifecycle:
+# 1. Install dependencies (MinIO + OADP)
+# 2. Create backup
+# 3. Cleanup namespace
+# 4. Restore from backup
+#
+# Each step can be enabled/disabled independently for iterative testing.
+#
+# Prerequisites:
+# - OpenStack control plane deployed and healthy
+# - OpenStackBackupConfig CR created (for backup labeling)
+#
+# Usage:
+#   # Full run:
+#   ansible-playbook cifmw_backup_restore_test.yaml
+#
+#   # Install deps only:
+#   ansible-playbook cifmw_backup_restore_test.yaml \
+#     -e backup=false -e cleanup=false -e restore=false
+#
+#   # Backup only (deps already installed):
+#   ansible-playbook cifmw_backup_restore_test.yaml \
+#     -e install_deps=false -e cleanup=false -e restore=false
+#
+#   # Cleanup + restore (backup already done):
+#   ansible-playbook cifmw_backup_restore_test.yaml \
+#     -e install_deps=false -e backup=false \
+#     -e backup_timestamp=20260323-144546
+#
+#   # Restore only (cleanup already done):
+#   ansible-playbook cifmw_backup_restore_test.yaml \
+#     -e install_deps=false -e backup=false -e cleanup=false \
+#     -e backup_timestamp=20260323-144546
+#
+#   # With PVC pinning (WaitForFirstConsumer storage):
+#   ansible-playbook cifmw_backup_restore_test.yaml \
+#     -e cifmw_backup_restore_pin_pvcs=true
+
+- name: Backup and Restore end-to-end test
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    install_deps: true
+    backup: true
+    cleanup: true
+    restore: true
+    # backup_timestamp: set this when running restore without backup step
+
+  tasks:
+    # ========================================
+    # Step 1: Install dependencies
+    # ========================================
+    - name: Setup MinIO
+      ansible.builtin.include_role:
+        name: deploy_minio
+      when: install_deps | bool
+
+    - name: Setup OADP
+      ansible.builtin.include_role:
+        name: openshift_adp
+      vars:
+        cifmw_openshift_adp_s3_access_key: "{{ cifmw_deploy_minio_access_key }}"
+        cifmw_openshift_adp_s3_secret_key: "{{ cifmw_deploy_minio_secret_key }}"
+      when: install_deps | bool
+
+    # ========================================
+    # Step 2: Create backup
+    # ========================================
+    - name: Create backup
+      ansible.builtin.include_role:
+        name: cifmw_backup_restore
+      vars:
+        cifmw_backup_restore_action: backup
+        cifmw_backup_restore_auto_ack: true
+      when: backup | bool
+
+    - name: Print backup timestamp
+      ansible.builtin.debug:
+        msg: "Backup completed with timestamp: {{ cifmw_backup_restore_backup_name_suffix }}"
+      when: backup | bool
+
+    # ========================================
+    # Step 3: Cleanup namespace
+    # ========================================
+    - name: Cleanup
+      ansible.builtin.include_role:
+        name: cifmw_backup_restore
+      vars:
+        cifmw_backup_restore_action: cleanup
+        cifmw_backup_restore_auto_ack: true
+      when: cleanup | bool
+
+    # ========================================
+    # Step 4: Restore from backup
+    # ========================================
+    - name: Restore
+      ansible.builtin.include_role:
+        name: cifmw_backup_restore
+      vars:
+        cifmw_backup_restore_action: restore
+        cifmw_backup_restore_backup_timestamp: "{{ backup_timestamp | default(cifmw_backup_restore_backup_name_suffix) }}"
+        cifmw_backup_restore_auto_ack: true
+      when: restore | bool

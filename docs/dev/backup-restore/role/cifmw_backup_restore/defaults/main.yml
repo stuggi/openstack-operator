@@ -45,17 +45,3 @@ cifmw_backup_restore_pin_pvcs: false
 # Cleanup
 cifmw_backup_restore_cleanup_ctlplane: true
 cifmw_backup_restore_cleanup_dataplane: true
-
-# MinIO Setup (dev/test only)
-cifmw_backup_restore_minio_namespace: minio
-cifmw_backup_restore_minio_storage_size: 10Gi
-cifmw_backup_restore_minio_storage_class: ""
-cifmw_backup_restore_minio_root_user: minio
-cifmw_backup_restore_minio_root_password: minio123
-cifmw_backup_restore_minio_bucket_name: velero
-
-# OADP Setup
-cifmw_backup_restore_oadp_channel: stable
-cifmw_backup_restore_oadp_enable_node_agent: true
-# cifmw_backup_restore_minio_access_key_id: REQUIRED for setup_oadp
-# cifmw_backup_restore_minio_secret_access_key: REQUIRED for setup_oadp

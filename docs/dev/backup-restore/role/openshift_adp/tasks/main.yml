@@ -14,50 +14,35 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-# OADP Setup with MinIO
+# OADP Setup
 #
 # Installs and configures OADP (OpenShift API for Data Protection)
-# using MinIO as the S3-compatible storage backend.
-# Prerequisites: MinIO must be deployed (run setup_minio first).
+# with an S3-compatible storage backend.
 
-- name: Verify MinIO credentials are provided
+- name: Verify S3 credentials are provided
   ansible.builtin.fail:
     msg: >-
-      cifmw_backup_restore_minio_access_key_id and cifmw_backup_restore_minio_secret_access_key
-      are required. Run setup_minio first to get credentials.
+      cifmw_openshift_adp_s3_access_key and cifmw_openshift_adp_s3_secret_key
+      are required. Deploy an S3 backend first (e.g. deploy_minio role).
   when: >-
-    cifmw_backup_restore_minio_access_key_id is not defined or
-    cifmw_backup_restore_minio_secret_access_key is not defined
+    cifmw_openshift_adp_s3_access_key is not defined or
+    cifmw_openshift_adp_s3_secret_key is not defined
 
 - name: Print setup header
   ansible.builtin.debug:
     msg:
       - "========================================"
-      - "OADP Setup with MinIO"
+      - "OADP Setup"
       - "========================================"
-      - "OADP Namespace: {{ cifmw_backup_restore_oadp_namespace }}"
-      - "OADP Channel: {{ cifmw_backup_restore_oadp_channel }}"
-      - "MinIO Namespace: {{ cifmw_backup_restore_minio_namespace }}"
-      - "MinIO Bucket: {{ cifmw_backup_restore_minio_bucket_name }}"
-      - "Node Agent (Kopia): {{ cifmw_backup_restore_oadp_enable_node_agent }}"
-
-- name: Verify MinIO is running
-  ansible.builtin.shell: |
-    oc get deployment minio -n {{ cifmw_backup_restore_minio_namespace }}
-  register: _minio_check
-  changed_when: false
-  failed_when: false
-
-- name: Fail if MinIO is not running
-  ansible.builtin.fail:
-    msg: >-
-      MinIO deployment not found in namespace {{ cifmw_backup_restore_minio_namespace }}.
-      Run setup_minio first.
-  when: _minio_check.rc != 0
+      - "OADP Namespace: {{ cifmw_openshift_adp_namespace }}"
+      - "OADP Channel: {{ cifmw_openshift_adp_channel }}"
+      - "S3 Namespace: {{ cifmw_openshift_adp_s3_namespace }}"
+      - "S3 Bucket: {{ cifmw_openshift_adp_s3_bucket }}"
+      - "Node Agent (Kopia): {{ cifmw_openshift_adp_enable_node_agent }}"
 
 - name: Create OADP namespace
   ansible.builtin.shell: |
-    oc create namespace {{ cifmw_backup_restore_oadp_namespace }} --dry-run=client -o yaml | oc apply -f -
+    oc create namespace {{ cifmw_openshift_adp_namespace }} --dry-run=client -o yaml | oc apply -f -
   changed_when: true
 
 - name: Create OperatorGroup for OADP
@@ -67,10 +52,10 @@
     kind: OperatorGroup
     metadata:
       name: openshift-adp-operator-group
-      namespace: {{ cifmw_backup_restore_oadp_namespace }}
+      namespace: {{ cifmw_openshift_adp_namespace }}
     spec:
       targetNamespaces:
-      - {{ cifmw_backup_restore_oadp_namespace }}
+      - {{ cifmw_openshift_adp_namespace }}
     EOF
   changed_when: true
 
@@ -81,9 +66,9 @@
     kind: Subscription
     metadata:
       name: redhat-oadp-operator
-      namespace: {{ cifmw_backup_restore_oadp_namespace }}
+      namespace: {{ cifmw_openshift_adp_namespace }}
     spec:
-      channel: {{ cifmw_backup_restore_oadp_channel }}
+      channel: {{ cifmw_openshift_adp_channel }}
       installPlanApproval: Automatic
       name: redhat-oadp-operator
       source: redhat-operators
@@ -93,7 +78,7 @@
 
 - name: Wait for OADP operator to be ready
   ansible.builtin.shell: |
-    oc wait --for=condition=ready --timeout=300s pod -l control-plane=controller-manager -n {{ cifmw_backup_restore_oadp_namespace }}
+    oc wait --for=condition=ready --timeout=300s pod -l control-plane=controller-manager -n {{ cifmw_openshift_adp_namespace }}
   changed_when: false
   register: _operator_wait
   retries: 30
@@ -105,20 +90,20 @@
     TMPFILE=$(mktemp)
     cat > ${TMPFILE} <<EOF
     [default]
-    aws_access_key_id={{ cifmw_backup_restore_minio_access_key_id }}
-    aws_secret_access_key={{ cifmw_backup_restore_minio_secret_access_key }}
+    aws_access_key_id={{ cifmw_openshift_adp_s3_access_key }}
+    aws_secret_access_key={{ cifmw_openshift_adp_s3_secret_key }}
     EOF
     oc create secret generic cloud-credentials \
       --from-file cloud=${TMPFILE} \
-      -n {{ cifmw_backup_restore_oadp_namespace }} \
+      -n {{ cifmw_openshift_adp_namespace }} \
       --dry-run=client -o yaml | oc apply -f -
     rm -f ${TMPFILE}
   changed_when: true
 
-- name: Get MinIO API URL
+- name: Get S3 API URL
   ansible.builtin.shell: |
-    oc get route minio-api -n {{ cifmw_backup_restore_minio_namespace }} -o jsonpath='{.spec.host}'
-  register: _minio_api_url
+    oc get route minio-api -n {{ cifmw_openshift_adp_s3_namespace }} -o jsonpath='{.spec.host}'
+  register: _s3_api_url
   changed_when: false
 
 - name: Create DataProtectionApplication
@@ -128,7 +113,7 @@
     kind: DataProtectionApplication
     metadata:
       name: velero
-      namespace: {{ cifmw_backup_restore_oadp_namespace }}
+      namespace: {{ cifmw_openshift_adp_namespace }}
     spec:
       configuration:
         velero:
@@ -137,20 +122,20 @@
           - aws
           - csi
         nodeAgent:
-          enable: {{ cifmw_backup_restore_oadp_enable_node_agent | lower }}
+          enable: {{ cifmw_openshift_adp_enable_node_agent | lower }}
           uploaderType: kopia
       backupLocations:
       - velero:
           provider: aws
           default: true
           objectStorage:
-            bucket: {{ cifmw_backup_restore_minio_bucket_name }}
-            prefix: rhoso
+            bucket: {{ cifmw_openshift_adp_s3_bucket }}
+            prefix: {{ cifmw_openshift_adp_s3_prefix }}
           config:
-            region: minio
-            s3ForcePathStyle: "true"
-            s3Url: https://{{ _minio_api_url.stdout }}
-            insecureSkipTLSVerify: "true"
+            region: {{ cifmw_openshift_adp_s3_region }}
+            s3ForcePathStyle: "{{ cifmw_openshift_adp_s3_force_path_style | lower }}"
+            s3Url: https://{{ _s3_api_url.stdout }}
+            insecureSkipTLSVerify: "{{ cifmw_openshift_adp_s3_insecure_skip_tls | lower }}"
           credential:
             name: cloud-credentials
             key: cloud
@@ -159,7 +144,7 @@
 
 - name: Wait for Velero pod to be ready
   ansible.builtin.shell: |
-    oc wait --for=condition=ready --timeout=300s pod -l app.kubernetes.io/name=velero -n {{ cifmw_backup_restore_oadp_namespace }}
+    oc wait --for=condition=ready --timeout=300s pod -l app.kubernetes.io/name=velero -n {{ cifmw_openshift_adp_namespace }}
   changed_when: false
   register: _velero_wait
   retries: 30
@@ -168,14 +153,14 @@
 
 - name: Wait for node-agent pods to be ready
   ansible.builtin.shell: |
-    oc wait --for=condition=ready --timeout=300s pod -l app.kubernetes.io/name=node-agent -n {{ cifmw_backup_restore_oadp_namespace }}
+    oc wait --for=condition=ready --timeout=300s pod -l app.kubernetes.io/name=node-agent -n {{ cifmw_openshift_adp_namespace }}
   changed_when: false
   failed_when: false
-  when: cifmw_backup_restore_oadp_enable_node_agent | bool
+  when: cifmw_openshift_adp_enable_node_agent | bool
 
 - name: Get OADP pods
   ansible.builtin.shell: |
-    oc get pods -n {{ cifmw_backup_restore_oadp_namespace }}
+    oc get pods -n {{ cifmw_openshift_adp_namespace }}
   register: _oadp_pods
   changed_when: false
 
@@ -226,7 +211,7 @@
 - name: Wait for BackupStorageLocation to be available
   ansible.builtin.shell: |
     for i in {1..30}; do
-      PHASE=$(oc get backupstoragelocation -n {{ cifmw_backup_restore_oadp_namespace }} -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
+      PHASE=$(oc get backupstoragelocation -n {{ cifmw_openshift_adp_namespace }} -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
       if [ "$PHASE" = "Available" ]; then
         echo "Available"
         exit 0
@@ -241,7 +226,7 @@
 
 - name: Get BackupStorageLocation status
   ansible.builtin.shell: |
-    oc get backupstoragelocation -n {{ cifmw_backup_restore_oadp_namespace }}
+    oc get backupstoragelocation -n {{ cifmw_openshift_adp_namespace }}
   register: _bsl_output
   changed_when: false
 
@@ -252,10 +237,10 @@
 - name: Get troubleshooting info if BSL not available
   ansible.builtin.shell: |
     echo "=== BackupStorageLocation ==="
-    oc get backupstoragelocation -n {{ cifmw_backup_restore_oadp_namespace }} -o yaml
+    oc get backupstoragelocation -n {{ cifmw_openshift_adp_namespace }} -o yaml
     echo ""
     echo "=== Velero Logs (last 50 lines) ==="
-    oc logs -n {{ cifmw_backup_restore_oadp_namespace }} deployment/velero --tail=50
+    oc logs -n {{ cifmw_openshift_adp_namespace }} deployment/velero --tail=50
   register: _bsl_debug
   changed_when: false
   when: _bsl_status.rc != 0
@@ -272,12 +257,10 @@
       - "OADP Setup Complete"
       - "========================================"
       - ""
-      - "OADP Namespace: {{ cifmw_backup_restore_oadp_namespace }}"
-      - "MinIO API: https://{{ _minio_api_url.stdout }}"
-      - "Bucket: {{ cifmw_backup_restore_minio_bucket_name }}"
-      - "BackupStorageLocation: {{ 'Available' if _bsl_status.rc == 0 else 'Not yet available - check manually' }}"
-      - ""
-      - "Next: Run backup with -e cifmw_backup_restore_action=backup"
+      - "OADP Namespace: {{ cifmw_openshift_adp_namespace }}"
+      - "S3 API: https://{{ _s3_api_url.stdout }}"
+      - "Bucket: {{ cifmw_openshift_adp_s3_bucket }}"
+      - "BackupStorageLocation: Available"
   when: _bsl_status.rc == 0
 
 - name: Print warning summary
@@ -290,6 +273,6 @@
       - "BackupStorageLocation is not yet available."
       - ""
       - "Troubleshoot:"
-      - "  oc get backupstoragelocation -n {{ cifmw_backup_restore_oadp_namespace }} -o yaml"
-      - "  oc logs -n {{ cifmw_backup_restore_oadp_namespace }} deployment/velero"
+      - "  oc get backupstoragelocation -n {{ cifmw_openshift_adp_namespace }} -o yaml"
+      - "  oc logs -n {{ cifmw_openshift_adp_namespace }} deployment/velero"
   when: _bsl_status.rc != 0

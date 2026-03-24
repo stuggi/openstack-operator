@@ -14,26 +14,30 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-# MinIO Setup (dev/test only)
+# Deploy MinIO
 #
-# Deploys MinIO as an S3-compatible storage backend for OADP.
+# Deploys MinIO as an S3-compatible storage backend.
 # Creates namespace, PVC, Deployment, Service, Routes, bucket,
-# and a service account for OADP.
+# and optionally a service account.
+#
+# Output facts:
+#   cifmw_deploy_minio_access_key: Service account access key (if created)
+#   cifmw_deploy_minio_secret_key: Service account secret key (if created)
 
 - name: Print setup header
   ansible.builtin.debug:
     msg:
       - "========================================"
-      - "MinIO Setup for OADP (dev/test)"
+      - "MinIO Setup"
       - "========================================"
-      - "Namespace: {{ cifmw_backup_restore_minio_namespace }}"
-      - "Storage Size: {{ cifmw_backup_restore_minio_storage_size }}"
-      - "Storage Class: {{ cifmw_backup_restore_minio_storage_class if cifmw_backup_restore_minio_storage_class else 'default' }}"
-      - "Bucket Name: {{ cifmw_backup_restore_minio_bucket_name }}"
+      - "Namespace: {{ cifmw_deploy_minio_namespace }}"
+      - "Storage Size: {{ cifmw_deploy_minio_storage_size }}"
+      - "Storage Class: {{ cifmw_deploy_minio_storage_class if cifmw_deploy_minio_storage_class else 'default' }}"
+      - "Bucket Name: {{ cifmw_deploy_minio_bucket_name }}"
 
 - name: Create MinIO namespace
   ansible.builtin.shell: |
-    oc create namespace {{ cifmw_backup_restore_minio_namespace }} --dry-run=client -o yaml | oc apply -f -
+    oc create namespace {{ cifmw_deploy_minio_namespace }} --dry-run=client -o yaml | oc apply -f -
   changed_when: true
 
 - name: Create MinIO PVC (with storage class)
@@ -43,17 +47,17 @@
     kind: PersistentVolumeClaim
     metadata:
       name: minio-pvc
-      namespace: {{ cifmw_backup_restore_minio_namespace }}
+      namespace: {{ cifmw_deploy_minio_namespace }}
     spec:
       accessModes:
         - ReadWriteOnce
-      storageClassName: {{ cifmw_backup_restore_minio_storage_class }}
+      storageClassName: {{ cifmw_deploy_minio_storage_class }}
       resources:
         requests:
-          storage: {{ cifmw_backup_restore_minio_storage_size }}
+          storage: {{ cifmw_deploy_minio_storage_size }}
     EOF
   changed_when: true
-  when: cifmw_backup_restore_minio_storage_class != ""
+  when: cifmw_deploy_minio_storage_class != ""
 
 - name: Create MinIO PVC (default storage class)
   ansible.builtin.shell: |
@@ -62,16 +66,16 @@
     kind: PersistentVolumeClaim
     metadata:
       name: minio-pvc
-      namespace: {{ cifmw_backup_restore_minio_namespace }}
+      namespace: {{ cifmw_deploy_minio_namespace }}
     spec:
       accessModes:
         - ReadWriteOnce
       resources:
         requests:
-          storage: {{ cifmw_backup_restore_minio_storage_size }}
+          storage: {{ cifmw_deploy_minio_storage_size }}
     EOF
   changed_when: true
-  when: cifmw_backup_restore_minio_storage_class == ""
+  when: cifmw_deploy_minio_storage_class == ""
 
 - name: Create MinIO credentials secret
   ansible.builtin.shell: |
@@ -80,11 +84,11 @@
     kind: Secret
     metadata:
       name: minio-credentials
-      namespace: {{ cifmw_backup_restore_minio_namespace }}
+      namespace: {{ cifmw_deploy_minio_namespace }}
     type: Opaque
     stringData:
-      MINIO_ROOT_USER: {{ cifmw_backup_restore_minio_root_user }}
-      MINIO_ROOT_PASSWORD: {{ cifmw_backup_restore_minio_root_password }}
+      MINIO_ROOT_USER: {{ cifmw_deploy_minio_root_user }}
+      MINIO_ROOT_PASSWORD: {{ cifmw_deploy_minio_root_password }}
     EOF
   changed_when: true
 
@@ -95,7 +99,7 @@
     kind: Deployment
     metadata:
       name: minio
-      namespace: {{ cifmw_backup_restore_minio_namespace }}
+      namespace: {{ cifmw_deploy_minio_namespace }}
     spec:
       selector:
         matchLabels:
@@ -109,7 +113,7 @@
         spec:
           containers:
           - name: minio
-            image: quay.io/minio/minio:latest
+            image: {{ cifmw_deploy_minio_image }}
             args:
             - server
             - /data
@@ -160,7 +164,7 @@
     kind: Service
     metadata:
       name: minio
-      namespace: {{ cifmw_backup_restore_minio_namespace }}
+      namespace: {{ cifmw_deploy_minio_namespace }}
     spec:
       type: ClusterIP
       ports:
@@ -182,7 +186,7 @@
     kind: Route
     metadata:
       name: minio-console
-      namespace: {{ cifmw_backup_restore_minio_namespace }}
+      namespace: {{ cifmw_deploy_minio_namespace }}
     spec:
       to:
         kind: Service
@@ -202,7 +206,7 @@
     kind: Route
     metadata:
       name: minio-api
-      namespace: {{ cifmw_backup_restore_minio_namespace }}
+      namespace: {{ cifmw_deploy_minio_namespace }}
     spec:
       to:
         kind: Service
@@ -217,13 +221,13 @@
 
 - name: Wait for MinIO deployment to be ready
   ansible.builtin.shell: |
-    oc wait --for=condition=available --timeout=300s deployment/minio -n {{ cifmw_backup_restore_minio_namespace }}
+    oc wait --for=condition=available --timeout=300s deployment/minio -n {{ cifmw_deploy_minio_namespace }}
   changed_when: false
 
 - name: Get MinIO routes
   ansible.builtin.shell: |
-    echo "Console URL: https://$(oc get route minio-console -n {{ cifmw_backup_restore_minio_namespace }} -o jsonpath='{.spec.host}')"
-    echo "API URL: https://$(oc get route minio-api -n {{ cifmw_backup_restore_minio_namespace }} -o jsonpath='{.spec.host}')"
+    echo "Console URL: https://$(oc get route minio-console -n {{ cifmw_deploy_minio_namespace }} -o jsonpath='{.spec.host}')"
+    echo "API URL: https://$(oc get route minio-api -n {{ cifmw_deploy_minio_namespace }} -o jsonpath='{.spec.host}')"
   register: _minio_routes
   changed_when: false
 
@@ -245,52 +249,53 @@
 
 - name: Configure MinIO client
   ansible.builtin.shell: |
-    MINIO_API_URL=$(oc get route minio-api -n {{ cifmw_backup_restore_minio_namespace }} -o jsonpath='{.spec.host}')
-    {{ _mc_path.stdout }} alias set minio https://${MINIO_API_URL} {{ cifmw_backup_restore_minio_root_user }} {{ cifmw_backup_restore_minio_root_password }} --insecure
+    MINIO_API_URL=$(oc get route minio-api -n {{ cifmw_deploy_minio_namespace }} -o jsonpath='{.spec.host}')
+    {{ _mc_path.stdout }} alias set minio https://${MINIO_API_URL} {{ cifmw_deploy_minio_root_user }} {{ cifmw_deploy_minio_root_password }} --insecure
   changed_when: true
 
-- name: Create Velero bucket
+- name: Create bucket
   ansible.builtin.shell: |
-    {{ _mc_path.stdout }} mb minio/{{ cifmw_backup_restore_minio_bucket_name }} --insecure || true
+    {{ _mc_path.stdout }} mb minio/{{ cifmw_deploy_minio_bucket_name }} --insecure || true
   changed_when: true
 
 - name: Verify bucket was created
   ansible.builtin.shell: |
-    {{ _mc_path.stdout }} ls minio --insecure | grep {{ cifmw_backup_restore_minio_bucket_name }}
+    {{ _mc_path.stdout }} ls minio --insecure | grep {{ cifmw_deploy_minio_bucket_name }}
   register: _bucket_check
   changed_when: false
 
-- name: Create MinIO service account for OADP
+- name: Create MinIO service account
   ansible.builtin.shell: |
-    {{ _mc_path.stdout }} admin user svcacct add minio {{ cifmw_backup_restore_minio_root_user }} --insecure
+    {{ _mc_path.stdout }} admin user svcacct add minio {{ cifmw_deploy_minio_root_user }} --insecure
   register: _service_account
   changed_when: true
   failed_when: false
+  when: cifmw_deploy_minio_create_service_account | bool
 
 - name: Parse service account credentials
   ansible.builtin.set_fact:
-    _minio_access_key: "{{ _service_account.stdout | regex_search('Access Key: (.+)', '\\1') | first }}"
-    _minio_secret_key: "{{ _service_account.stdout | regex_search('Secret Key: (.+)', '\\1') | first }}"
-  when: _service_account.rc == 0 and _service_account.stdout != ""
+    cifmw_deploy_minio_access_key: "{{ _service_account.stdout | regex_search('Access Key: (.+)', '\\1') | first }}"
+    cifmw_deploy_minio_secret_key: "{{ _service_account.stdout | regex_search('Secret Key: (.+)', '\\1') | first }}"
+  when:
+    - cifmw_deploy_minio_create_service_account | bool
+    - _service_account.rc == 0
+    - _service_account.stdout != ""
 
 - name: Save service account credentials
   ansible.builtin.copy:
     content: |
-      MinIO Service Account Credentials for OADP
-      ==========================================
+      MinIO Service Account Credentials
+      ==================================
 
-      Access Key: {{ _minio_access_key }}
-      Secret Key: {{ _minio_secret_key }}
-
-      To run OADP setup:
-        -e cifmw_backup_restore_action=setup_oadp
-        -e cifmw_backup_restore_minio_access_key_id={{ _minio_access_key }}
-        -e cifmw_backup_restore_minio_secret_access_key={{ _minio_secret_key }}
-    dest: "/tmp/minio-service-account-{{ cifmw_backup_restore_minio_namespace }}.txt"
+      Access Key: {{ cifmw_deploy_minio_access_key }}
+      Secret Key: {{ cifmw_deploy_minio_secret_key }}
+    dest: "/tmp/minio-service-account-{{ cifmw_deploy_minio_namespace }}.txt"
     mode: "0600"
-  when: _service_account.rc == 0 and _minio_access_key is defined
+  when:
+    - cifmw_deploy_minio_create_service_account | bool
+    - cifmw_deploy_minio_access_key is defined
 
-- name: Print setup complete (with service account)
+- name: Print setup complete
   ansible.builtin.debug:
     msg:
       - "========================================"
@@ -300,35 +305,5 @@
       - "{{ _minio_routes.stdout_lines[0] }}"
       - "{{ _minio_routes.stdout_lines[1] }}"
       - ""
-      - "Bucket: {{ cifmw_backup_restore_minio_bucket_name }}"
-      - ""
-      - "Service Account Credentials:"
-      - "  Access Key: {{ _minio_access_key }}"
-      - "  Secret Key: {{ _minio_secret_key }}"
-      - ""
-      - "Credentials saved to: /tmp/minio-service-account-{{ cifmw_backup_restore_minio_namespace }}.txt"
-      - ""
-      - "Next: Run setup_oadp with:"
-      - "  -e cifmw_backup_restore_action=setup_oadp"
-      - "  -e cifmw_backup_restore_minio_access_key_id={{ _minio_access_key }}"
-      - "  -e cifmw_backup_restore_minio_secret_access_key={{ _minio_secret_key }}"
-  when: _service_account.rc == 0 and _minio_access_key is defined
-
-- name: Print setup complete (without service account)
-  ansible.builtin.debug:
-    msg:
-      - "========================================"
-      - "MinIO Setup Complete"
-      - "========================================"
-      - ""
-      - "{{ _minio_routes.stdout_lines[0] }}"
-      - "{{ _minio_routes.stdout_lines[1] }}"
-      - ""
-      - "Bucket: {{ cifmw_backup_restore_minio_bucket_name }}"
-      - ""
-      - "Service account creation failed. Create one manually:"
-      - "  1. Open MinIO Console"
-      - "  2. Navigate to Identity -> Service Accounts"
-      - "  3. Click 'Create Service Account'"
-      - "  4. Use the credentials for setup_oadp"
-  when: _service_account.rc != 0 or _minio_access_key is not defined
+      - "Bucket: {{ cifmw_deploy_minio_bucket_name }}"
+      - "{{ 'Service Account Access Key: ' + cifmw_deploy_minio_access_key if cifmw_deploy_minio_access_key is defined else 'Service account not created' }}"

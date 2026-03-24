@@ -14,12 +14,14 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-- name: Validate action parameter
-  ansible.builtin.fail:
-    msg: >-
-      cifmw_backup_restore_action must be set to one of: backup, restore, cleanup.
-      Example: -e cifmw_backup_restore_action=backup
-  when: cifmw_backup_restore_action not in ['backup', 'restore', 'cleanup']
+# All variables intended for modification should be placed in this file.
+# All variables within this role should have a prefix of "cifmw_deploy_minio"
 
-- name: Run {{ cifmw_backup_restore_action }}
-  ansible.builtin.include_tasks: "{{ cifmw_backup_restore_action }}.yml"
+cifmw_deploy_minio_namespace: minio
+cifmw_deploy_minio_storage_size: 10Gi
+cifmw_deploy_minio_storage_class: ""
+cifmw_deploy_minio_root_user: minio
+cifmw_deploy_minio_root_password: minio123
+cifmw_deploy_minio_bucket_name: velero
+cifmw_deploy_minio_image: quay.io/minio/minio:latest
+cifmw_deploy_minio_create_service_account: true
