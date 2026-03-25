@@ -22,6 +22,7 @@ cifmw_deploy_minio_storage_size: 10Gi
 cifmw_deploy_minio_storage_class: ""
 cifmw_deploy_minio_root_user: minio
 cifmw_deploy_minio_root_password: minio123
-cifmw_deploy_minio_bucket_name: velero
+cifmw_deploy_minio_buckets:
+  - velero
+  - loki
 cifmw_deploy_minio_image: quay.io/minio/minio:latest
-cifmw_deploy_minio_create_service_account: true

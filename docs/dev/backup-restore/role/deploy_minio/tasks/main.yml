@@ -17,206 +17,27 @@
 # Deploy MinIO
 #
 # Deploys MinIO as an S3-compatible storage backend.
-# Creates namespace, PVC, Deployment, Service, Routes, bucket,
-# and optionally a service account.
+# Creates namespace, PVC, Deployment, Service, Routes.
+# Bucket is created via mkdir in the container command.
 #
 # Output facts:
-#   cifmw_deploy_minio_access_key: Service account access key (if created)
-#   cifmw_deploy_minio_secret_key: Service account secret key (if created)
+#   cifmw_deploy_minio_access_key: Root user (for OADP credentials)
+#   cifmw_deploy_minio_secret_key: Root password (for OADP credentials)
 
-- name: Print setup header
-  ansible.builtin.debug:
-    msg:
-      - "========================================"
-      - "MinIO Setup"
-      - "========================================"
-      - "Namespace: {{ cifmw_deploy_minio_namespace }}"
-      - "Storage Size: {{ cifmw_deploy_minio_storage_size }}"
-      - "Storage Class: {{ cifmw_deploy_minio_storage_class if cifmw_deploy_minio_storage_class else 'default' }}"
-      - "Bucket Name: {{ cifmw_deploy_minio_bucket_name }}"
+- name: Create temp directory for rendered templates
+  ansible.builtin.tempfile:
+    state: directory
+    prefix: deploy-minio-
+  register: _deploy_minio_rendered_dir
 
-- name: Create MinIO namespace
+- name: Render MinIO manifests
+  ansible.builtin.template:
+    src: minio.yaml.j2
+    dest: "{{ _deploy_minio_rendered_dir.path }}/minio.yaml"
+
+- name: Apply MinIO manifests
   ansible.builtin.shell: |
-    oc create namespace {{ cifmw_deploy_minio_namespace }} --dry-run=client -o yaml | oc apply -f -
-  changed_when: true
-
-- name: Create MinIO PVC (with storage class)
-  ansible.builtin.shell: |
-    cat <<EOF | oc apply -f -
-    apiVersion: v1
-    kind: PersistentVolumeClaim
-    metadata:
-      name: minio-pvc
-      namespace: {{ cifmw_deploy_minio_namespace }}
-    spec:
-      accessModes:
-        - ReadWriteOnce
-      storageClassName: {{ cifmw_deploy_minio_storage_class }}
-      resources:
-        requests:
-          storage: {{ cifmw_deploy_minio_storage_size }}
-    EOF
-  changed_when: true
-  when: cifmw_deploy_minio_storage_class != ""
-
-- name: Create MinIO PVC (default storage class)
-  ansible.builtin.shell: |
-    cat <<EOF | oc apply -f -
-    apiVersion: v1
-    kind: PersistentVolumeClaim
-    metadata:
-      name: minio-pvc
-      namespace: {{ cifmw_deploy_minio_namespace }}
-    spec:
-      accessModes:
-        - ReadWriteOnce
-      resources:
-        requests:
-          storage: {{ cifmw_deploy_minio_storage_size }}
-    EOF
-  changed_when: true
-  when: cifmw_deploy_minio_storage_class == ""
-
-- name: Create MinIO credentials secret
-  ansible.builtin.shell: |
-    cat <<EOF | oc apply -f -
-    apiVersion: v1
-    kind: Secret
-    metadata:
-      name: minio-credentials
-      namespace: {{ cifmw_deploy_minio_namespace }}
-    type: Opaque
-    stringData:
-      MINIO_ROOT_USER: {{ cifmw_deploy_minio_root_user }}
-      MINIO_ROOT_PASSWORD: {{ cifmw_deploy_minio_root_password }}
-    EOF
-  changed_when: true
-
-- name: Create MinIO deployment
-  ansible.builtin.shell: |
-    cat <<EOF | oc apply -f -
-    apiVersion: apps/v1
-    kind: Deployment
-    metadata:
-      name: minio
-      namespace: {{ cifmw_deploy_minio_namespace }}
-    spec:
-      selector:
-        matchLabels:
-          app: minio
-      strategy:
-        type: Recreate
-      template:
-        metadata:
-          labels:
-            app: minio
-        spec:
-          containers:
-          - name: minio
-            image: {{ cifmw_deploy_minio_image }}
-            args:
-            - server
-            - /data
-            - --console-address
-            - :9001
-            env:
-            - name: MINIO_ROOT_USER
-              valueFrom:
-                secretKeyRef:
-                  name: minio-credentials
-                  key: MINIO_ROOT_USER
-            - name: MINIO_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: minio-credentials
-                  key: MINIO_ROOT_PASSWORD
-            ports:
-            - containerPort: 9000
-              name: api
-            - containerPort: 9001
-              name: console
-            volumeMounts:
-            - name: data
-              mountPath: /data
-            livenessProbe:
-              httpGet:
-                path: /minio/health/live
-                port: 9000
-              initialDelaySeconds: 30
-              periodSeconds: 20
-            readinessProbe:
-              httpGet:
-                path: /minio/health/ready
-                port: 9000
-              initialDelaySeconds: 30
-              periodSeconds: 20
-          volumes:
-          - name: data
-            persistentVolumeClaim:
-              claimName: minio-pvc
-    EOF
-  changed_when: true
-
-- name: Create MinIO service
-  ansible.builtin.shell: |
-    cat <<EOF | oc apply -f -
-    apiVersion: v1
-    kind: Service
-    metadata:
-      name: minio
-      namespace: {{ cifmw_deploy_minio_namespace }}
-    spec:
-      type: ClusterIP
-      ports:
-      - port: 9000
-        targetPort: 9000
-        name: api
-      - port: 9001
-        targetPort: 9001
-        name: console
-      selector:
-        app: minio
-    EOF
-  changed_when: true
-
-- name: Create MinIO console route
-  ansible.builtin.shell: |
-    cat <<EOF | oc apply -f -
-    apiVersion: route.openshift.io/v1
-    kind: Route
-    metadata:
-      name: minio-console
-      namespace: {{ cifmw_deploy_minio_namespace }}
-    spec:
-      to:
-        kind: Service
-        name: minio
-      port:
-        targetPort: console
-      tls:
-        termination: edge
-        insecureEdgeTerminationPolicy: Redirect
-    EOF
-  changed_when: true
-
-- name: Create MinIO API route
-  ansible.builtin.shell: |
-    cat <<EOF | oc apply -f -
-    apiVersion: route.openshift.io/v1
-    kind: Route
-    metadata:
-      name: minio-api
-      namespace: {{ cifmw_deploy_minio_namespace }}
-    spec:
-      to:
-        kind: Service
-        name: minio
-      port:
-        targetPort: api
-      tls:
-        termination: edge
-        insecureEdgeTerminationPolicy: Redirect
-    EOF
+    oc apply -f {{ _deploy_minio_rendered_dir.path }}/minio.yaml
   changed_when: true
 
 - name: Wait for MinIO deployment to be ready
@@ -224,76 +45,17 @@
     oc wait --for=condition=available --timeout=300s deployment/minio -n {{ cifmw_deploy_minio_namespace }}
   changed_when: false
 
+- name: Export credentials for downstream roles
+  ansible.builtin.set_fact:
+    cifmw_deploy_minio_access_key: "{{ cifmw_deploy_minio_root_user }}"
+    cifmw_deploy_minio_secret_key: "{{ cifmw_deploy_minio_root_password }}"
+
 - name: Get MinIO routes
   ansible.builtin.shell: |
-    echo "Console URL: https://$(oc get route minio-console -n {{ cifmw_deploy_minio_namespace }} -o jsonpath='{.spec.host}')"
-    echo "API URL: https://$(oc get route minio-api -n {{ cifmw_deploy_minio_namespace }} -o jsonpath='{.spec.host}')"
+    echo "Console: https://$(oc get route minio-console -n {{ cifmw_deploy_minio_namespace }} -o jsonpath='{.spec.host}')"
+    echo "API: https://$(oc get route minio-api -n {{ cifmw_deploy_minio_namespace }} -o jsonpath='{.spec.host}')"
   register: _minio_routes
   changed_when: false
-
-- name: Display MinIO routes
-  ansible.builtin.debug:
-    msg: "{{ _minio_routes.stdout_lines }}"
-
-- name: Install MinIO client (mc)
-  ansible.builtin.shell: |
-    if ! command -v mc &> /dev/null; then
-      curl -o /tmp/mc https://dl.min.io/client/mc/release/linux-amd64/mc
-      chmod +x /tmp/mc
-      echo "/tmp/mc"
-    else
-      echo "mc"
-    fi
-  register: _mc_path
-  changed_when: false
-
-- name: Configure MinIO client
-  ansible.builtin.shell: |
-    MINIO_API_URL=$(oc get route minio-api -n {{ cifmw_deploy_minio_namespace }} -o jsonpath='{.spec.host}')
-    {{ _mc_path.stdout }} alias set minio https://${MINIO_API_URL} {{ cifmw_deploy_minio_root_user }} {{ cifmw_deploy_minio_root_password }} --insecure
-  changed_when: true
-
-- name: Create bucket
-  ansible.builtin.shell: |
-    {{ _mc_path.stdout }} mb minio/{{ cifmw_deploy_minio_bucket_name }} --insecure || true
-  changed_when: true
-
-- name: Verify bucket was created
-  ansible.builtin.shell: |
-    {{ _mc_path.stdout }} ls minio --insecure | grep {{ cifmw_deploy_minio_bucket_name }}
-  register: _bucket_check
-  changed_when: false
-
-- name: Create MinIO service account
-  ansible.builtin.shell: |
-    {{ _mc_path.stdout }} admin user svcacct add minio {{ cifmw_deploy_minio_root_user }} --insecure
-  register: _service_account
-  changed_when: true
-  failed_when: false
-  when: cifmw_deploy_minio_create_service_account | bool
-
-- name: Parse service account credentials
-  ansible.builtin.set_fact:
-    cifmw_deploy_minio_access_key: "{{ _service_account.stdout | regex_search('Access Key: (.+)', '\\1') | first }}"
-    cifmw_deploy_minio_secret_key: "{{ _service_account.stdout | regex_search('Secret Key: (.+)', '\\1') | first }}"
-  when:
-    - cifmw_deploy_minio_create_service_account | bool
-    - _service_account.rc == 0
-    - _service_account.stdout != ""
-
-- name: Save service account credentials
-  ansible.builtin.copy:
-    content: |
-      MinIO Service Account Credentials
-      ==================================
-
-      Access Key: {{ cifmw_deploy_minio_access_key }}
-      Secret Key: {{ cifmw_deploy_minio_secret_key }}
-    dest: "/tmp/minio-service-account-{{ cifmw_deploy_minio_namespace }}.txt"
-    mode: "0600"
-  when:
-    - cifmw_deploy_minio_create_service_account | bool
-    - cifmw_deploy_minio_access_key is defined
 
 - name: Print setup complete
   ansible.builtin.debug:
@@ -301,9 +63,11 @@
       - "========================================"
       - "MinIO Setup Complete"
       - "========================================"
-      - ""
       - "{{ _minio_routes.stdout_lines[0] }}"
       - "{{ _minio_routes.stdout_lines[1] }}"
-      - ""
-      - "Bucket: {{ cifmw_deploy_minio_bucket_name }}"
-      - "{{ 'Service Account Access Key: ' + cifmw_deploy_minio_access_key if cifmw_deploy_minio_access_key is defined else 'Service account not created' }}"
+      - "Buckets: {{ cifmw_deploy_minio_buckets | join(', ') }}"
+
+- name: Cleanup rendered templates
+  ansible.builtin.file:
+    path: "{{ _deploy_minio_rendered_dir.path }}"
+    state: absent
