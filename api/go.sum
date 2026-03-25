@@ -183,8 +183,8 @@ github.com/stuggi/glance-operator/api v0.0.0-20260319161100-d27378aa9783 h1:V94x
 github.com/stuggi/glance-operator/api v0.0.0-20260319161100-d27378aa9783/go.mod h1:TLRqdtji6ZhMcwI/uy70t8cKmIDjo/q4bjUUOYbeB+Y=
 github.com/stuggi/infra-operator/apis v0.0.0-20260313105254-f85e28889d29 h1:Z+Qo/USVFiq2TQFRaEHJ1rS6J6Dkd2wiYjxjGd7j9S0=
 github.com/stuggi/infra-operator/apis v0.0.0-20260313105254-f85e28889d29/go.mod h1:XsEbK1LxXg8beKXRf8s1OQanE82hCuGtkO1URg7uezU=
-github.com/stuggi/lib-common/modules/common v0.0.0-20260324154846-c2eb57bed8d7 h1:oExdwaeBQae3Tpsc21QOwjagL30kCBvAoBWfeMEhxG0=
-github.com/stuggi/lib-common/modules/common v0.0.0-20260324154846-c2eb57bed8d7/go.mod h1:I/VBXZLdjk8DUGsEbB+Ha72JBFYYntP7Pm2FpEto9K8=
+github.com/stuggi/lib-common/modules/common v0.0.0-20260325143935-6acc59da6b80 h1:iozxSRTFFtfIt+YE1Yj4klWRK5klznfBIZD2Kym1yK0=
+github.com/stuggi/lib-common/modules/common v0.0.0-20260325143935-6acc59da6b80/go.mod h1:I/VBXZLdjk8DUGsEbB+Ha72JBFYYntP7Pm2FpEto9K8=
 github.com/stuggi/mariadb-operator/api v0.0.0-20260323091819-07fa2e3001c0 h1:vvSKXEVSc12xKF+yWh5HD9ZmEviECoovcNrqqObA160=
 github.com/stuggi/mariadb-operator/api v0.0.0-20260323091819-07fa2e3001c0/go.mod h1:cyeexUkEIgzQ3c1vVVv/DQ3AbnECfDwKdZteKC+sZKY=
 github.com/stuggi/swift-operator/api v0.0.0-20260319154125-3d8c75168895 h1:2thlxyQQ/EUmh+Shczy78nAcsMST8FgeztnlWpz19kM=

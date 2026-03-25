@@ -59,6 +59,7 @@ func CreateBackupConfig(name types.NamespacedName) *backupv1.OpenStackBackupConf
 		Spec: backupv1.OpenStackBackupConfigSpec{
 			// Kubebuilder defaults are only applied via webhooks.
 			// Set them explicitly for envtest.
+			DefaultRestoreOrder: "10",
 			Secrets: backupv1.ResourceBackupConfig{
 				Labeling: backupLabelingPtr(backupv1.BackupLabelingEnabled),
 			},
@@ -680,7 +681,7 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 			DeferCleanup(th.DeleteInstance, backupConfig)
 		})
 
-		It("Should sync the annotation to label restore=false without restore-order", func() {
+		It("Should sync the annotation to label restore=false", func() {
 			Eventually(func(g Gomega) {
 				secret := &k8s_corev1.Secret{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{
@@ -691,8 +692,6 @@ var _ = Describe("OpenStackBackupConfig controller", func() {
 				g.Expect(labels).NotTo(BeNil())
 				g.Expect(labels[commonbackup.BackupRestoreLabel]).To(Equal("false"),
 					"Annotation override restore=false should be synced to label")
-				g.Expect(labels).NotTo(HaveKey(commonbackup.BackupRestoreOrderLabel),
-					"restore-order should not be set when restore=false")
 			}, timeout, interval).Should(Succeed())
 		})
 	})

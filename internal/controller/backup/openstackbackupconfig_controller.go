@@ -21,7 +21,6 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
-	"strings"
 
 	"github.com/go-logr/logr"
 	backupv1beta1 "github.com/openstack-k8s-operators/openstack-operator/api/backup/v1beta1"
@@ -31,7 +30,6 @@ import (
 	"github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
-	"github.com/openstack-k8s-operators/lib-common/modules/common/util"
 
 	"k8s.io/client-go/kubernetes"
 
@@ -137,266 +135,112 @@ func getRestoreOrder(config backupv1beta1.ResourceBackupConfig, defaultOrder str
 	return defaultOrder
 }
 
-// syncAnnotationOverrides checks if a resource has backup-related annotations
-// that act as user overrides. If found, they are synced to labels. This allows
-// users to override the controller's default behavior by setting annotations like:
-//   - backup.openstack.org/restore: "true" (force restore) or "false" (skip restore)
-//   - backup.openstack.org/restore-order: "XX" (custom restore order)
-//
-// When restore is set to "true" but no restore-order annotation is provided,
-// defaultRestoreOrder is used. When restore is "false", restore-order is removed.
-//
-// Returns true if an annotation override was applied (caller should skip default labeling).
-func (r *OpenStackBackupConfigReconciler) syncAnnotationOverrides(ctx context.Context, log logr.Logger, obj client.Object, defaultRestoreOrder string) (bool, error) {
+// hasBackupAnnotations returns true if the resource has any backup-related annotations
+func hasBackupAnnotations(obj client.Object) bool {
 	annotations := obj.GetAnnotations()
 	if annotations == nil {
-		return false, nil
+		return false
 	}
-
-	restoreVal, hasRestore := annotations[backup.BackupRestoreLabel]
-	orderVal, hasOrder := annotations[backup.BackupRestoreOrderLabel]
-
-	if !hasRestore && !hasOrder {
-		return false, nil
-	}
-
-	labels := obj.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string)
-	}
-
-	needsUpdate := false
-
-	if hasRestore {
-		normalizedRestore := strings.ToLower(restoreVal)
-		if labels[backup.BackupRestoreLabel] != normalizedRestore {
-			labels[backup.BackupRestoreLabel] = normalizedRestore
-			needsUpdate = true
-		}
-
-		if normalizedRestore == "true" {
-			// Ensure restore-order is set: use annotation override or default
-			order := defaultRestoreOrder
-			if hasOrder {
-				order = strings.ToLower(orderVal)
-			}
-			if labels[backup.BackupRestoreOrderLabel] != order {
-				labels[backup.BackupRestoreOrderLabel] = order
-				needsUpdate = true
-			}
-		} else {
-			// restore=false: remove restore-order
-			if _, has := labels[backup.BackupRestoreOrderLabel]; has {
-				delete(labels, backup.BackupRestoreOrderLabel)
-				needsUpdate = true
-			}
-		}
-	} else if hasOrder {
-		// Only restore-order annotation without restore annotation:
-		// sync the order and ensure restore=true
-		normalizedOrder := strings.ToLower(orderVal)
-		if labels[backup.BackupRestoreOrderLabel] != normalizedOrder {
-			labels[backup.BackupRestoreOrderLabel] = normalizedOrder
-			needsUpdate = true
-		}
-		if labels[backup.BackupRestoreLabel] != "true" {
-			labels[backup.BackupRestoreLabel] = "true"
-			needsUpdate = true
+	for _, key := range backup.BackupLabelKeys() {
+		if _, has := annotations[key]; has {
+			return true
 		}
 	}
-
-	if needsUpdate {
-		obj.SetLabels(labels)
-		log.Info("Synced annotation overrides to labels", "name", obj.GetName(),
-			"restore", labels[backup.BackupRestoreLabel],
-			"restoreOrder", labels[backup.BackupRestoreOrderLabel])
-		if err := r.Update(ctx, obj); err != nil {
-			return true, err
-		}
-	}
-
-	return true, nil
+	return false
 }
 
-// labelResource adds backup labels to a resource
-func (r *OpenStackBackupConfigReconciler) labelResource(ctx context.Context, log logr.Logger, obj client.Object, restoreOrder string) error {
-	labels := obj.GetLabels()
-	if labels == nil {
-		labels = make(map[string]string)
-	}
-
-	// Check if already labeled
-	if labels[backup.BackupRestoreLabel] == "true" && labels[backup.BackupRestoreOrderLabel] == restoreOrder {
-		return nil
-	}
-
-	// Add restore labels for ordered restore
-	backupLabels := backup.GetRestoreLabels(restoreOrder, "")
-	labels = util.MergeStringMaps(labels, backupLabels)
-	obj.SetLabels(labels)
-
-	log.Info("Labeled resource for backup", "kind", obj.GetObjectKind().GroupVersionKind().Kind, "name", obj.GetName(),
-		"restoreOrder", restoreOrder)
-	return r.Update(ctx, obj)
-}
-
-// labelSecrets labels secrets in the target namespace.
-// Secrets that already have a restore label (set by the controlplane controller
-// for cert-manager secrets) are skipped — the operator knows best whether a cert
-// secret should be restored or regenerated.
-// User annotation overrides take precedence over all default behavior.
-func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
-	secretList := &corev1.SecretList{}
-	if err := r.List(ctx, secretList, client.InNamespace(instance.Namespace)); err != nil {
-		return 0, err
-	}
-
+// labelResourceItems labels a list of resources with backup labels.
+// Resources with ownerReferences are skipped unless they have annotation overrides.
+// Resources that already have a restore label (set by operators at creation time,
+// e.g. cert-manager secrets) are skipped unless they have annotation overrides.
+func (r *OpenStackBackupConfigReconciler) labelResourceItems(
+	ctx context.Context,
+	log logr.Logger,
+	items []client.Object,
+	config backupv1beta1.ResourceBackupConfig,
+	defaultLabels map[string]string,
+) (int, error) {
 	var errs []error
 	count := 0
-	for i := range secretList.Items {
-		secret := &secretList.Items[i]
-
-		// Annotation overrides take precedence — skip default labeling if present
-		overridden, err := r.syncAnnotationOverrides(ctx, log, secret, getRestoreOrder(instance.Spec.Secrets, instance.Spec.DefaultRestoreOrder))
-		if err != nil {
-			log.Error(err, "Failed to sync annotation overrides for secret", "name", secret.Name)
-			errs = append(errs, fmt.Errorf("secret %s: %w", secret.Name, err))
-			continue
-		}
-		if overridden {
-			count++
-			continue
-		}
-
-		// Skip secrets that already have a restore label (set by the operator
-		// at creation time, e.g. cert-manager CA/leaf cert secrets)
-		if _, hasRestoreLabel := secret.Labels[backup.BackupRestoreLabel]; hasRestoreLabel {
-			continue
+	for _, obj := range items {
+		// Annotation overrides bypass all filtering
+		if !hasBackupAnnotations(obj) {
+			// Skip resources that already have a restore label (set by operators or previous reconcile)
+			if restoreVal, hasRestoreLabel := obj.GetLabels()[backup.BackupRestoreLabel]; hasRestoreLabel {
+				if restoreVal == "true" {
+					count++
+				}
+				continue
+			}
+			if !shouldLabelResource(obj, config) {
+				continue
+			}
 		}
 
-		if !shouldLabelResource(secret, instance.Spec.Secrets) {
-			continue
-		}
-
-		if err := r.labelResource(ctx, log, secret, getRestoreOrder(instance.Spec.Secrets, instance.Spec.DefaultRestoreOrder)); err != nil {
-			log.Error(err, "Failed to label secret", "name", secret.Name)
-			errs = append(errs, fmt.Errorf("secret %s: %w", secret.Name, err))
+		if _, err := backup.EnsureBackupLabels(ctx, r.Client, obj, defaultLabels); err != nil {
+			log.Error(err, "Failed to label resource", "name", obj.GetName())
+			errs = append(errs, fmt.Errorf("%s: %w", obj.GetName(), err))
 			continue
 		}
 		count++
 	}
-
 	return count, stderrors.Join(errs...)
+}
+
+// labelSecrets labels secrets in the target namespace
+func (r *OpenStackBackupConfigReconciler) labelSecrets(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
+	list := &corev1.SecretList{}
+	if err := r.List(ctx, list, client.InNamespace(instance.Namespace)); err != nil {
+		return 0, err
+	}
+	items := make([]client.Object, len(list.Items))
+	for i := range list.Items {
+		items[i] = &list.Items[i]
+	}
+	defaultLabels := backup.GetRestoreLabels(getRestoreOrder(instance.Spec.Secrets, instance.Spec.DefaultRestoreOrder), "")
+	return r.labelResourceItems(ctx, log, items, instance.Spec.Secrets, defaultLabels)
 }
 
 // labelConfigMaps labels configmaps in the target namespace
 func (r *OpenStackBackupConfigReconciler) labelConfigMaps(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
-	cmList := &corev1.ConfigMapList{}
-	if err := r.List(ctx, cmList, client.InNamespace(instance.Namespace)); err != nil {
+	list := &corev1.ConfigMapList{}
+	if err := r.List(ctx, list, client.InNamespace(instance.Namespace)); err != nil {
 		return 0, err
 	}
-
-	var errs []error
-	count := 0
-	for i := range cmList.Items {
-		cm := &cmList.Items[i]
-
-		overridden, err := r.syncAnnotationOverrides(ctx, log, cm, getRestoreOrder(instance.Spec.ConfigMaps, instance.Spec.DefaultRestoreOrder))
-		if err != nil {
-			log.Error(err, "Failed to sync annotation overrides for configmap", "name", cm.Name)
-			errs = append(errs, fmt.Errorf("configmap %s: %w", cm.Name, err))
-			continue
-		}
-		if overridden {
-			count++
-			continue
-		}
-
-		if shouldLabelResource(cm, instance.Spec.ConfigMaps) {
-			if err := r.labelResource(ctx, log, cm, getRestoreOrder(instance.Spec.ConfigMaps, instance.Spec.DefaultRestoreOrder)); err != nil {
-				log.Error(err, "Failed to label configmap", "name", cm.Name)
-				errs = append(errs, fmt.Errorf("configmap %s: %w", cm.Name, err))
-				continue
-			}
-			count++
-		}
+	items := make([]client.Object, len(list.Items))
+	for i := range list.Items {
+		items[i] = &list.Items[i]
 	}
-
-	return count, stderrors.Join(errs...)
+	defaultLabels := backup.GetRestoreLabels(getRestoreOrder(instance.Spec.ConfigMaps, instance.Spec.DefaultRestoreOrder), "")
+	return r.labelResourceItems(ctx, log, items, instance.Spec.ConfigMaps, defaultLabels)
 }
 
 // labelNetworkAttachmentDefinitions labels NADs in the target namespace
 func (r *OpenStackBackupConfigReconciler) labelNetworkAttachmentDefinitions(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
-	nadList := &k8s_networkingv1.NetworkAttachmentDefinitionList{}
-	if err := r.List(ctx, nadList, client.InNamespace(instance.Namespace)); err != nil {
+	list := &k8s_networkingv1.NetworkAttachmentDefinitionList{}
+	if err := r.List(ctx, list, client.InNamespace(instance.Namespace)); err != nil {
 		return 0, err
 	}
-
-	var errs []error
-	count := 0
-	for i := range nadList.Items {
-		nad := &nadList.Items[i]
-
-		overridden, err := r.syncAnnotationOverrides(ctx, log, nad, getRestoreOrder(instance.Spec.NetworkAttachmentDefinitions, instance.Spec.DefaultRestoreOrder))
-		if err != nil {
-			log.Error(err, "Failed to sync annotation overrides for NAD", "name", nad.Name)
-			errs = append(errs, fmt.Errorf("network-attachment-definition %s: %w", nad.Name, err))
-			continue
-		}
-		if overridden {
-			count++
-			continue
-		}
-
-		if shouldLabelResource(nad, instance.Spec.NetworkAttachmentDefinitions) {
-			if err := r.labelResource(ctx, log, nad, getRestoreOrder(instance.Spec.NetworkAttachmentDefinitions, instance.Spec.DefaultRestoreOrder)); err != nil {
-				log.Error(err, "Failed to label network-attachment-definition", "name", nad.Name)
-				errs = append(errs, fmt.Errorf("network-attachment-definition %s: %w", nad.Name, err))
-				continue
-			}
-			count++
-		}
+	items := make([]client.Object, len(list.Items))
+	for i := range list.Items {
+		items[i] = &list.Items[i]
 	}
-
-	return count, stderrors.Join(errs...)
+	defaultLabels := backup.GetRestoreLabels(getRestoreOrder(instance.Spec.NetworkAttachmentDefinitions, instance.Spec.DefaultRestoreOrder), "")
+	return r.labelResourceItems(ctx, log, items, instance.Spec.NetworkAttachmentDefinitions, defaultLabels)
 }
 
-// labelIssuers labels cert-manager Issuers in the target namespace.
-// Only custom (user-provided) Issuers without ownerReferences are labeled.
-// Operator-created Issuers have ownerRefs and are recreated during reconciliation.
+// labelIssuers labels cert-manager Issuers in the target namespace
 func (r *OpenStackBackupConfigReconciler) labelIssuers(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
-	issuerList := &certmgrv1.IssuerList{}
-	if err := r.List(ctx, issuerList, client.InNamespace(instance.Namespace)); err != nil {
+	list := &certmgrv1.IssuerList{}
+	if err := r.List(ctx, list, client.InNamespace(instance.Namespace)); err != nil {
 		return 0, err
 	}
-
-	var errs []error
-	count := 0
-	for i := range issuerList.Items {
-		issuer := &issuerList.Items[i]
-
-		overridden, err := r.syncAnnotationOverrides(ctx, log, issuer, getRestoreOrder(instance.Spec.Issuers, instance.Spec.DefaultRestoreOrder))
-		if err != nil {
-			log.Error(err, "Failed to sync annotation overrides for issuer", "name", issuer.Name)
-			errs = append(errs, fmt.Errorf("issuer %s: %w", issuer.Name, err))
-			continue
-		}
-		if overridden {
-			count++
-			continue
-		}
-
-		if shouldLabelResource(issuer, instance.Spec.Issuers) {
-			if err := r.labelResource(ctx, log, issuer, getRestoreOrder(instance.Spec.Issuers, instance.Spec.DefaultRestoreOrder)); err != nil {
-				log.Error(err, "Failed to label issuer", "name", issuer.Name)
-				errs = append(errs, fmt.Errorf("issuer %s: %w", issuer.Name, err))
-				continue
-			}
-			count++
-		}
+	items := make([]client.Object, len(list.Items))
+	for i := range list.Items {
+		items[i] = &list.Items[i]
 	}
-
-	return count, stderrors.Join(errs...)
+	defaultLabels := backup.GetRestoreLabels(getRestoreOrder(instance.Spec.Issuers, instance.Spec.DefaultRestoreOrder), "")
+	return r.labelResourceItems(ctx, log, items, instance.Spec.Issuers, defaultLabels)
 }
 
 // labelCRInstances labels CR instances based on CRD backup-restore labels
@@ -442,45 +286,14 @@ func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, 
 		}
 
 		// Label each CR instance
+		defaultLabels := backup.GetRestoreLabels(backupConfig.RestoreOrder, backupConfig.Category)
 		for i := range list.Items {
 			obj := &list.Items[i]
 
-			// Annotation overrides take precedence over CRD-defined defaults
-			overridden, err := r.syncAnnotationOverrides(ctx, log, obj, backupConfig.RestoreOrder)
-			if err != nil {
-				log.Error(err, "Failed to sync annotation overrides for CR", "kind", gvk.Kind, "name", obj.GetName())
-				continue
-			}
-			if overridden {
-				count++
-				continue
-			}
-
-			labels := obj.GetLabels()
-			if labels == nil {
-				labels = make(map[string]string)
-			}
-
-			// Check if already labeled with correct values
-			if labels[backup.BackupRestoreLabel] == "true" &&
-				labels[backup.BackupRestoreOrderLabel] == backupConfig.RestoreOrder &&
-				(backupConfig.Category == "" || labels[backup.BackupCategoryLabel] == backupConfig.Category) {
-				continue
-			}
-
-			patch := client.MergeFrom(obj.DeepCopy())
-			labels = util.MergeStringMaps(
-				labels,
-				backup.GetRestoreLabels(backupConfig.RestoreOrder, backupConfig.Category),
-			)
-			obj.SetLabels(labels)
-
-			if err := r.Patch(ctx, obj, patch); err != nil {
+			if _, err := backup.EnsureBackupLabels(ctx, r.Client, obj, defaultLabels); err != nil {
 				log.Error(err, "Failed to label CR instance", "kind", gvk.Kind, "name", obj.GetName())
 				continue
 			}
-			log.Info("Labeled CR instance for backup", "kind", gvk.Kind, "name", obj.GetName(),
-				"restoreOrder", backupConfig.RestoreOrder, "category", backupConfig.Category)
 			count++
 		}
 	}
@@ -694,12 +507,6 @@ var backupLabelKeys = []string{
 	backup.BackupCategoryLabel,
 }
 
-// backupAnnotationKeys are the annotation keys used for overrides.
-var backupAnnotationKeys = []string{
-	backup.BackupRestoreLabel,
-	backup.BackupRestoreOrderLabel,
-}
-
 // needsBackupLabeling returns true if a resource does not yet have backup labels.
 func needsBackupLabeling(labels map[string]string) bool {
 	_, hasBackup := labels[backup.BackupLabel]
@@ -709,7 +516,7 @@ func needsBackupLabeling(labels map[string]string) bool {
 
 // backupAnnotationsChanged returns true if backup-related annotations differ between old and new.
 func backupAnnotationsChanged(oldAnnotations, newAnnotations map[string]string) bool {
-	for _, key := range backupAnnotationKeys {
+	for _, key := range backup.BackupLabelKeys() {
 		if oldAnnotations[key] != newAnnotations[key] {
 			return true
 		}
