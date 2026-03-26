@@ -65,8 +65,8 @@ const (
 	// overrides
 	ooAppSelector = "osctlplane-service"
 
-	// serviceCertSelector selector passed to cert-manager to set on the service cert secret
-	serviceCertSelector = "service-cert"
+	// ServiceCertSelector selector passed to cert-manager to set on the service cert secret
+	ServiceCertSelector = "service-cert"
 
 	// caCertSelector selector passed to cert-manager to set on the ca cert secret
 	caCertSelector = "ca-cert"
@@ -80,6 +80,18 @@ const (
 // GetLogger returns a logger object with a prefix of "controller.name" and additional controller context fields
 func GetLogger(ctx context.Context) logr.Logger {
 	return log.FromContext(ctx).WithName("Controllers").WithName("OpenstackControlPlane")
+}
+
+// getCertSecretBackupLabels returns backup labels for a cert secret, respecting
+// annotation overrides. Delegates to backup.GetCertSecretBackupLabels in lib-common.
+func getCertSecretBackupLabels(
+	ctx context.Context,
+	c client.Client,
+	certName string,
+	namespace string,
+	defaultLabels map[string]string,
+) map[string]string {
+	return backup.GetCertSecretBackupLabels(ctx, c, certName, namespace, defaultLabels)
 }
 
 // EnsureDeleted - Delete the object which in turn will clean the sub resources
@@ -332,8 +344,9 @@ func EnsureEndpointConfig(
 						},
 						Ips:         nil,
 						Annotations: ed.Annotations,
-						Labels:      util.MergeMaps(ed.Labels, map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"}),
-						Usages:      nil,
+						Labels: util.MergeMaps(ed.Labels, getCertSecretBackupLabels(ctx, helper.GetClient(), ed.Service.TLS.CertName, instance.Namespace,
+							map[string]string{ServiceCertSelector: "", backup.BackupRestoreLabel: "false"})),
+						Usages: nil,
 					}
 
 					addSubjNames := util.GetStringListFromMap(svc.Annotations, tls.AdditionalSubjectNamesKey)
@@ -382,8 +395,9 @@ func EnsureEndpointConfig(
 					},
 					Ips:         nil,
 					Annotations: ed.Annotations,
-					Labels:      util.MergeMaps(ed.Labels, map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"}),
-					Usages:      nil,
+					Labels: util.MergeMaps(ed.Labels, getCertSecretBackupLabels(ctx, helper.GetClient(), ed.Service.TLS.CertName, instance.Namespace,
+						map[string]string{ServiceCertSelector: "", backup.BackupRestoreLabel: "false"})),
+					Usages: nil,
 				}
 
 				addSubjNames := util.GetStringListFromMap(svc.Annotations, tls.AdditionalSubjectNamesKey)
@@ -639,8 +653,9 @@ func (ed *EndpointDetail) CreateRoute(
 				Hostnames:   []string{*ed.Hostname},
 				Ips:         nil,
 				Annotations: ed.Annotations,
-				Labels:      util.MergeMaps(ed.Labels, map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"}),
-				Usages:      nil,
+				Labels: util.MergeMaps(ed.Labels, getCertSecretBackupLabels(ctx, helper.GetClient(), ed.Route.TLS.CertName, instance.Namespace,
+					map[string]string{ServiceCertSelector: "", backup.BackupRestoreLabel: "false"})),
+				Usages: nil,
 			}
 			if instance.Spec.TLS.Ingress.Cert.Duration != nil {
 				certRequest.Duration = &instance.Spec.TLS.Ingress.Cert.Duration.Duration
@@ -946,7 +961,7 @@ func DeleteCertsAndRoutes(
 
 		// Delete certs by service and route-name
 		for _, cert := range certs.Items {
-			if _, ok := cert.Labels[serviceCertSelector]; ok && strings.Contains(cert.Name, route.Name) {
+			if _, ok := cert.Labels[ServiceCertSelector]; ok && strings.Contains(cert.Name, route.Name) {
 				if object.CheckOwnerRefExist(instance.GetUID(), cert.OwnerReferences) {
 					log.Info("Deleting certificate", ":", cert.Name)
 					err := DeleteCertificate(ctx, helper, instance.Namespace, cert.Name)

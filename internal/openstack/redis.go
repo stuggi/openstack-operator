@@ -216,9 +216,10 @@ func reconcileRedis(
 	tlsCert := ""
 	if instance.Spec.TLS.PodLevel.Enabled {
 		clusterDomain := clusterdns.GetDNSClusterDomain()
+		certName := fmt.Sprintf("%s-svc", redis.Name)
 		certRequest := certmanager.CertificateRequest{
 			IssuerName: instance.GetInternalIssuer(),
-			CertName:   fmt.Sprintf("%s-svc", redis.Name),
+			CertName:   certName,
 			Hostnames: []string{
 				fmt.Sprintf("redis-%s.%s.svc", name, instance.Namespace),
 				fmt.Sprintf("*.redis-%s.%s.svc", name, instance.Namespace),
@@ -234,7 +235,8 @@ func reconcileRedis(
 				"server auth",
 				"client auth",
 			},
-			Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
+			Labels: getCertSecretBackupLabels(ctx, helper.GetClient(), certName, instance.Namespace,
+				map[string]string{ServiceCertSelector: "", backup.BackupRestoreLabel: "false"}),
 		}
 		if instance.Spec.TLS.PodLevel.Internal.Cert.Duration != nil {
 			certRequest.Duration = &instance.Spec.TLS.PodLevel.Internal.Cert.Duration.Duration

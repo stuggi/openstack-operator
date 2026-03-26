@@ -364,9 +364,10 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 					clusterDomain := clusterdns.GetDNSClusterDomain()
 					serviceName := endpointDetails.EndpointDetails[service.EndpointPublic].Service.Spec.Name
 					hostname := fmt.Sprintf("%s.%s.svc", serviceName, instance.Namespace)
+					certName := nova.Name + "-novncproxy-" + cellName + "-vencrypt"
 					certRequest := certmanager.CertificateRequest{
 						IssuerName: instance.GetLibvirtIssuer(),
-						CertName:   nova.Name + "-novncproxy-" + cellName + "-vencrypt",
+						CertName:   certName,
 						CommonName: ptr.To(serviceName), // common name has a max length of 64bytes, therefore just set the short name
 						Hostnames: []string{
 							hostname,
@@ -381,7 +382,8 @@ func ReconcileNova(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 							certmgrv1.UsageServerAuth,
 							certmgrv1.UsageClientAuth,
 						},
-						Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
+						Labels: getCertSecretBackupLabels(ctx, helper.GetClient(), certName, instance.Namespace,
+							map[string]string{ServiceCertSelector: "", backup.BackupRestoreLabel: "false"}),
 					}
 					if instance.Spec.TLS.PodLevel.Libvirt.Cert.Duration != nil {
 						certRequest.Duration = &instance.Spec.TLS.PodLevel.Libvirt.Cert.Duration.Duration

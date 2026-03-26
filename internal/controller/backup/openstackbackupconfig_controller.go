@@ -244,7 +244,7 @@ func (r *OpenStackBackupConfigReconciler) labelIssuers(ctx context.Context, log 
 }
 
 // labelCRInstances labels CR instances based on CRD backup-restore labels
-// This labels CRs like OpenStackControlPlane, OpenStackVersion, MariaDBAccount, etc.
+// This labels CRs like OpenStackControlPlane, OpenStackVersion, NetConfig, etc.
 // based on their CRD's backup/restore configuration.
 func (r *OpenStackBackupConfigReconciler) labelCRInstances(ctx context.Context, log logr.Logger, instance *backupv1beta1.OpenStackBackupConfig) (int, error) {
 	// Fallback: build cache if not populated at setup time
@@ -562,8 +562,8 @@ var backupResourcePredicate = predicate.Funcs{
 func (r *OpenStackBackupConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	Log := ctrl.Log.WithName("backup").WithName("setup")
 
-	// findBackupConfigForResource maps a resource back to the BackupConfig that should process it
-	findBackupConfigForResource := func(ctx context.Context, obj client.Object) []reconcile.Request {
+	// findBackupConfigForSrc maps a resource back to the BackupConfig that should process it
+	findBackupConfigForSrc := func(ctx context.Context, obj client.Object) []reconcile.Request {
 		configList := &backupv1beta1.OpenStackBackupConfigList{}
 		if err := mgr.GetClient().List(ctx, configList, client.InNamespace(obj.GetNamespace())); err != nil {
 			return []reconcile.Request{}
@@ -583,10 +583,10 @@ func (r *OpenStackBackupConfigReconciler) SetupWithManager(mgr ctrl.Manager) err
 
 	bldr := ctrl.NewControllerManagedBy(mgr).
 		For(&backupv1beta1.OpenStackBackupConfig{}).
-		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource), builder.WithPredicates(backupResourcePredicate)).
-		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource), builder.WithPredicates(backupResourcePredicate)).
-		Watches(&k8s_networkingv1.NetworkAttachmentDefinition{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource), builder.WithPredicates(backupResourcePredicate)).
-		Watches(&certmgrv1.Issuer{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource), builder.WithPredicates(backupResourcePredicate))
+		Watches(&corev1.Secret{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForSrc), builder.WithPredicates(backupResourcePredicate)).
+		Watches(&corev1.ConfigMap{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForSrc), builder.WithPredicates(backupResourcePredicate)).
+		Watches(&k8s_networkingv1.NetworkAttachmentDefinition{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForSrc), builder.WithPredicates(backupResourcePredicate)).
+		Watches(&certmgrv1.Issuer{}, handler.EnqueueRequestsFromMapFunc(findBackupConfigForSrc), builder.WithPredicates(backupResourcePredicate))
 
 	// Build CRD label cache and add watches for CRD instance types.
 	// Uses the API reader since the manager's cache is not started yet.
@@ -604,7 +604,7 @@ func (r *OpenStackBackupConfigReconciler) SetupWithManager(mgr ctrl.Manager) err
 			}
 			obj := &metav1.PartialObjectMetadata{}
 			obj.SetGroupVersionKind(gvk)
-			bldr = bldr.Watches(obj, handler.EnqueueRequestsFromMapFunc(findBackupConfigForResource), builder.WithPredicates(backupResourcePredicate))
+			bldr = bldr.Watches(obj, handler.EnqueueRequestsFromMapFunc(findBackupConfigForSrc), builder.WithPredicates(backupResourcePredicate))
 			Log.Info("Added watch for CRD instances", "crd", crdName, "gvk", gvk)
 		}
 	}

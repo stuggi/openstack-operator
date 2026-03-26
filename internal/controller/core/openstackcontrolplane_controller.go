@@ -35,6 +35,7 @@ import (
 	redisv1 "github.com/openstack-k8s-operators/infra-operator/apis/redis/v1beta1"
 	ironicv1 "github.com/openstack-k8s-operators/ironic-operator/api/v1beta1"
 	keystonev1 "github.com/openstack-k8s-operators/keystone-operator/api/v1beta1"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/backup"
 	condition "github.com/openstack-k8s-operators/lib-common/modules/common/condition"
 	common_helper "github.com/openstack-k8s-operators/lib-common/modules/common/helper"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/webhook"
@@ -880,6 +881,11 @@ func (r *OpenStackControlPlaneReconciler) SetupWithManager(
 			handler.EnqueueRequestsFromMapFunc(r.findObjectsForSrc),
 			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.findControlPlaneForSrc),
+			builder.WithPredicates(backup.BackupAnnotationChangedPredicate(openstack.ServiceCertSelector)),
+		).
 		Complete(r)
 }
 
@@ -914,6 +920,26 @@ func (r *OpenStackControlPlaneReconciler) findObjectsForSrc(ctx context.Context,
 		}
 	}
 
+	return requests
+}
+
+// findControlPlaneForSrc maps a source object to the OpenStackControlPlane
+// instances in the same namespace for reconciliation.
+func (r *OpenStackControlPlaneReconciler) findControlPlaneForSrc(ctx context.Context, src client.Object) []reconcile.Request {
+	crList := &corev1beta1.OpenStackControlPlaneList{}
+	if err := r.List(ctx, crList, client.InNamespace(src.GetNamespace())); err != nil {
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(crList.Items))
+	for _, item := range crList.Items {
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Name:      item.GetName(),
+				Namespace: item.GetNamespace(),
+			},
+		})
+	}
 	return requests
 }
 

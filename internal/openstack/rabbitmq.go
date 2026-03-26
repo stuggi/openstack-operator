@@ -208,9 +208,10 @@ func reconcileRabbitMQ(
 
 	tlsCert := ""
 	if instance.Spec.TLS.PodLevel.Enabled {
+		certName := fmt.Sprintf("%s-svc", rabbitmq.Name)
 		certRequest := certmanager.CertificateRequest{
 			IssuerName: instance.GetInternalIssuer(),
-			CertName:   fmt.Sprintf("%s-svc", rabbitmq.Name),
+			CertName:   certName,
 			Hostnames:  hostnames,
 			Subject: &certmgrv1.X509Subject{
 				Organizations: []string{fmt.Sprintf("%s.%s", rabbitmq.Namespace, clusterDomain)},
@@ -223,7 +224,8 @@ func reconcileRabbitMQ(
 				certmgrv1.UsageClientAuth,
 				certmgrv1.UsageContentCommitment,
 			},
-			Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
+			Labels: getCertSecretBackupLabels(ctx, helper.GetClient(), certName, instance.Namespace,
+				map[string]string{ServiceCertSelector: "", backup.BackupRestoreLabel: "false"}),
 		}
 		if instance.Spec.TLS.PodLevel.Internal.Cert.Duration != nil {
 			certRequest.Duration = &instance.Spec.TLS.PodLevel.Internal.Cert.Duration.Duration

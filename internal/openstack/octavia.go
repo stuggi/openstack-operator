@@ -120,9 +120,10 @@ func ReconcileOctavia(ctx context.Context, instance *corev1beta1.OpenStackContro
 
 		serviceName := "octavia"
 		// create ovndb client certificate for octavia
+		certName := fmt.Sprintf("%s-ovndbs", serviceName)
 		certRequest := certmanager.CertificateRequest{
 			IssuerName: instance.GetOvnIssuer(),
-			CertName:   fmt.Sprintf("%s-ovndbs", serviceName),
+			CertName:   certName,
 			Hostnames: []string{
 				fmt.Sprintf("%s.%s.svc", serviceName, instance.Namespace),
 				fmt.Sprintf("%s.%s.svc.%s", serviceName, instance.Namespace, clusterDomain),
@@ -133,7 +134,8 @@ func ReconcileOctavia(ctx context.Context, instance *corev1beta1.OpenStackContro
 				certmgrv1.UsageDigitalSignature,
 				certmgrv1.UsageClientAuth,
 			},
-			Labels: map[string]string{serviceCertSelector: "", backup.BackupRestoreLabel: "false"},
+			Labels: getCertSecretBackupLabels(ctx, helper.GetClient(), certName, instance.Namespace,
+				map[string]string{ServiceCertSelector: "", backup.BackupRestoreLabel: "false"}),
 		}
 		if instance.Spec.TLS.PodLevel.Ovn.Cert.Duration != nil {
 			certRequest.Duration = &instance.Spec.TLS.PodLevel.Ovn.Cert.Duration.Duration

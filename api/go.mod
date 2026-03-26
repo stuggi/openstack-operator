@@ -17,7 +17,7 @@ require (
 	github.com/openstack-k8s-operators/ironic-operator/api v0.6.1-0.20260314080422-d98151f45e34
 	github.com/openstack-k8s-operators/keystone-operator/api v0.6.1-0.20260314080138-b41734470581
 	github.com/openstack-k8s-operators/lib-common/modules/common v0.6.1-0.20260320125710-3a5f82ff0f18
-	github.com/openstack-k8s-operators/lib-common/modules/storage v0.6.1-0.20260310070607-b96da8dd520e
+	github.com/openstack-k8s-operators/lib-common/modules/storage v0.6.1-0.20260320125710-3a5f82ff0f18
 	github.com/openstack-k8s-operators/manila-operator/api v0.6.1-0.20260314085148-3542cd0de463
 	github.com/openstack-k8s-operators/mariadb-operator/api v0.6.1-0.20260314091348-5c473d964727
 	github.com/openstack-k8s-operators/neutron-operator/api v0.6.1-0.20260314103518-fe1a1eae182d
@@ -144,14 +144,14 @@ replace k8s.io/component-base => k8s.io/component-base v0.31.14 //allow-merging
 
 replace github.com/cert-manager/cmctl/v2 => github.com/cert-manager/cmctl/v2 v2.1.2-0.20241127223932-88edb96860cf //allow-merging
 
-replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20260325143935-6acc59da6b80
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20260326081252-c4fb97e10a11
 
-replace github.com/openstack-k8s-operators/mariadb-operator/api => github.com/stuggi/mariadb-operator/api v0.0.0-20260323091819-07fa2e3001c0
+replace github.com/openstack-k8s-operators/mariadb-operator/api => github.com/stuggi/mariadb-operator/api v0.0.0-20260326084111-245c27b120d4
 
-replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20260319161100-d27378aa9783
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20260325170450-449cc931cfcc
 
-replace github.com/openstack-k8s-operators/infra-operator/apis => github.com/stuggi/infra-operator/apis v0.0.0-20260313105254-f85e28889d29
+replace github.com/openstack-k8s-operators/infra-operator/apis => github.com/stuggi/infra-operator/apis v0.0.0-20260325164319-73632a4f5d6a
 
-replace github.com/openstack-k8s-operators/swift-operator/api => github.com/stuggi/swift-operator/api v0.0.0-20260319154125-3d8c75168895
+replace github.com/openstack-k8s-operators/swift-operator/api => github.com/stuggi/swift-operator/api v0.0.0-20260325170451-f1bc1e736688
 
-replace github.com/openstack-k8s-operators/designate-operator/api => github.com/stuggi/designate-operator/api v0.0.0-20260319155829-a1c483845825
+replace github.com/openstack-k8s-operators/designate-operator/api => github.com/stuggi/designate-operator/api v0.0.0-20260325170922-f997f865ce02
