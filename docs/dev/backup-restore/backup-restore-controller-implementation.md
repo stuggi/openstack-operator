@@ -366,7 +366,7 @@ We use two separate OADP backups:
 
 ### Restore CRs
 
-Restore CRs are in `docs/dev/backup-restore/restore/`. Each uses a shared resource modifier ConfigMap (`00-resource-modifiers-configmap.yaml`) that:
+Restore CRs are documented in `docs/dev/backup-restore/restore/README.md`. Each uses a shared resource modifier ConfigMap that:
 - Strips `kubectl.kubernetes.io/last-applied-configuration` annotations
 - Adds `deployment-stage: infrastructure-only` annotation to OpenStackControlPlane
 
@@ -401,17 +401,12 @@ RabbitMQ clusters generate new random credentials on creation, but EDPM nodes st
 4. Create RabbitMQUser CRs to import the old credentials
 5. Clean up the temporary namespace
 
-See `docs/dev/backup-restore/restore/06b-restore-rabbitmq-secrets.yaml` for the manual procedure or the restore playbook (`docs/dev/backup-restore/restore/restore-openstack.yaml`) for automation.
+See `docs/dev/backup-restore/restore/06c-manual-rabbitmq-restore.md` for the manual procedure or the ci-framework `cifmw_backup_restore` role for automation.
 
-### Automated Restore Playbook
+### Automated Restore
 
-The Ansible playbook at `docs/dev/backup-restore/restore/restore-openstack.yaml` orchestrates the full restore flow:
-
-```bash
-ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-  -e pvc_backup_name=openstack-backup-pvcs \
-  -e resources_backup_name=openstack-backup-resources
-```
+The ci-framework `cifmw_backup_restore` role orchestrates the full restore flow.
+See `docs/dev/backup-restore/restore/README.md` for usage.
 
 ## Testing Checklist
 
@@ -462,12 +457,8 @@ oc get volumesnapshot -n openstack
 ### Restore Testing
 
 ```bash
-# Apply restore CRs in order and wait for each
-oc apply -f docs/dev/backup-restore/restore/01-restore-order-00-pvcs.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-pvcs -n openshift-adp --timeout=15m
-
-# Continue with each order...
-# See docs/dev/backup-restore/restore/README.md for full procedure
+# Follow the manual restore procedure in docs/dev/backup-restore/restore/README.md
+# or use the ci-framework cifmw_backup_restore role
 ```
 
 ## Troubleshooting
@@ -509,7 +500,6 @@ oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-
 ## See Also
 
 - Design document: `docs/dev/backup-restore/backup-restore-controller-design.md`
-- Backup CRs: `docs/dev/backup-restore/backup/`
-- Restore CRs: `docs/dev/backup-restore/restore/`
-- Restore playbook: `docs/dev/backup-restore/restore/restore-openstack.yaml`
-- Restore scripts: `docs/dev/backup-restore/scripts/restore-galera.sh`
+- Backup: `docs/dev/backup-restore/backup/README.md`
+- Restore: `docs/dev/backup-restore/restore/README.md`
+- ci-framework playbooks: [ci-framework](https://github.com/openstack-k8s-operators/ci-framework)

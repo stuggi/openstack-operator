@@ -127,27 +127,8 @@ oc delete galerarestore openstackrestore -n openstack
 oc delete galerarestore openstackrestorecell1 -n openstack
 ```
 
-### 8. Remove deployment-stage annotation
-
-Resume full OpenStack deployment by removing the annotation:
-
-```bash
-oc annotate openstackcontrolplane <name> -n openstack core.openstack.org/deployment-stage-
-```
-
-Replace `<name>` with your OpenStackControlPlane CR name.
-
-### 9. Wait for OpenStack services to start
-
-```bash
-oc get pods -n openstack
-oc get openstackcontrolplane -n openstack
-```
-
 ## Next Steps
 
-After database restore and annotation removal, proceed to:
-1. **Order 55**: Restore RabbitMQ credentials (see `06c-manual-rabbitmq-restore.md`)
-2. **Order 60**: Restore DataPlane resources (if applicable)
-3. See [Post-Restore](../README.md#post-restore-credential-rotation-and-edpm-nodes)
-   for EDPM deployment and InstanceHa re-enablement
+After database restore, return to the main restore procedure in
+[README.md](README.md#step-6b-rabbitmq-credential-restore) for
+RabbitMQ credential restore and removing the deployment-stage annotation.

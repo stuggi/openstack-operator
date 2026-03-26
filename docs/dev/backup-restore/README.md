@@ -36,7 +36,7 @@ ansible-playbook playbooks/backup_restore.yaml \
   -e cifmw_backup_restore_run_backup=false \
   -e cifmw_backup_restore_run_cleanup=true \
   -e cifmw_backup_restore_run_restore=true \
-  -e cifmw_backup_restore_backup_timestamp=20260311-081234
+  -e cifmw_backup_restore_backup_name_suffix=20260311-081234
 ```
 
 The restore triggers an EDPM deployment to resync credentials but does

@@ -1117,21 +1117,19 @@ Use cases:
 ### Phase 2: OADP Backup (Done)
 
 - Split backup: two OADP Backup CRs (PVCs with CSI snapshots + everything else)
-- Backup templates in `docs/dev/backup-restore/backup/templates/`
-- Ansible playbook orchestrates Galera DB dumps + OADP backups
+- ci-framework `cifmw_backup_restore` role orchestrates Galera DB dumps + OADP backups
 - Data Mover support (`snapshotMoveData: true`, default)
+- Manual procedure documented in `docs/dev/backup-restore/backup/README.md`
 
 ### Phase 3: OADP Restore with Ansible Automation (Done)
 
-- Restore templates in `docs/dev/backup-restore/restore/templates/`
-- Ansible playbook orchestrates the full restore flow:
+- ci-framework `cifmw_backup_restore` role orchestrates the full restore flow:
   - Ordered OADP restores (00 → 10 → 20 → 30 → 40 → 60)
   - Automated database restore (GaleraRestore CRs + restore script)
   - RabbitMQ credential restore (secrets from backup + RabbitMQUser CRs)
   - Staged deployment (infrastructure-only → full)
   - EDPM deployment to resync credentials
-- Interactive pauses between steps (skippable with `auto_ack=true`)
-- See `docs/dev/backup-restore/restore/README.md` for usage
+- Manual procedure documented in `docs/dev/backup-restore/restore/README.md`
 
 ### Phase 4: Golang Backup/Restore Controllers (Future)
 

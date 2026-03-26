@@ -14,15 +14,59 @@ and creates RabbitMQUser CRs to re-establish the old credentials.
 
 ### 1. Restore secrets to a temporary namespace
 
+First, create a resource modifier ConfigMap that strips finalizers so
+the temp namespace can be deleted cleanly:
+
 ```bash
-# Create temp namespace
 oc create namespace openstack-restore-tmp
 
-# Restore all secrets from backup to temp namespace
-# Edit backupName in 06b-restore-rabbitmq-secrets.yaml first, then:
-oc apply -f 06b-restore-rabbitmq-secrets.yaml
+cat <<'EOF' | oc apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openstack-restore-tmp-resource-modifiers
+  namespace: openshift-adp
+data:
+  resource-modifiers.yaml: |
+    version: v1
+    resourceModifierRules:
+    - conditions:
+        groupResource: "*"
+        namespaces:
+        - openstack-restore-tmp
+      mergePatches:
+      - patchData: |
+          metadata:
+            finalizers: null
+EOF
+```
+
+Then restore all secrets from the backup to the temp namespace. Replace
+`RESOURCES_BACKUP` with your backup name (e.g.,
+`openstack-backup-resources-20260311-081234`):
+
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-rabbitmq-secrets-${RESTORE_SUFFIX}
+  namespace: openshift-adp
+spec:
+  backupName: ${RESOURCES_BACKUP}
+  includedNamespaces:
+  - openstack
+  namespaceMapping:
+    openstack: openstack-restore-tmp
+  includedResources:
+  - secrets
+  resourceModifier:
+    kind: ConfigMap
+    name: openstack-restore-tmp-resource-modifiers
+EOF
+
 oc wait --for=jsonpath='{.status.phase}'=Completed \
-  restore/openstack-restore-rabbitmq-secrets -n openshift-adp --timeout=5m
+  restore/openstack-restore-rabbitmq-secrets-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
 ```
 
 ### 2. Copy old credentials to target namespace
@@ -85,7 +129,6 @@ oc delete namespace openstack-restore-tmp
 
 ## Next Steps
 
-After RabbitMQ credential restore, proceed to:
-1. **Order 60**: Restore DataPlane resources (if applicable)
-2. See [Post-Restore](../README.md#post-restore-credential-rotation-and-edpm-nodes)
-   for EDPM deployment and InstanceHa re-enablement
+After RabbitMQ credential restore, return to the main restore procedure in
+[README.md](README.md#step-6c-remove-deployment-stage-annotation) to
+remove the deployment-stage annotation and resume full deployment.

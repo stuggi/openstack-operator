@@ -1,58 +1,50 @@
 # OpenStack Restore Process
 
-This directory contains restore templates and playbook for restoring OpenStack from backup.
-
-The `templates/` directory contains Jinja2 templates for Velero Restore CRs and
-ConfigMaps. The restore playbook (`restore-openstack.yaml`) renders these
-templates with the appropriate variables and applies them in order, ensuring that
-what gets tested is exactly what gets documented.
+This document describes the OADP Restore CR strategy and manual restore
+procedure for OpenStack environments. The restore playbooks and templates
+are in the [ci-framework](https://github.com/openstack-k8s-operators/ci-framework)
+`cifmw_backup_restore` role.
 
 ## Restore Order
 
-Restores must be executed in sequence. Wait for each restore to complete before starting the next.
+Restores must be executed in sequence. Wait for each restore to complete
+before starting the next.
 
-| Template | Order | Resources | Notes |
-|----------|-------|-----------|-------|
-| `templates/00-resource-modifiers-configmap.yaml.j2` | - | ConfigMap | **Prerequisite:** resource modifier rules for all restores |
-| `templates/01-restore-order-00-pvcs.yaml.j2` | 00 | PVCs (Glance images, GaleraBackup) | Storage foundation, restored from CSI snapshots |
-| `templates/02-restore-order-10-foundation.yaml.j2` | 10 | Secrets, ConfigMaps, NADs | User-provided resources without ownerRefs |
-| `templates/03-restore-order-20-infrastructure.yaml.j2` | 20 | OpenStackVersion, OpenStackBackupConfig, Issuers, NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa | Infrastructure base (**InstanceHa restored with `spec.disabled: True`**) |
-| `templates/04-restore-order-30-controlplane.yaml.j2` | 30 | OpenStackControlPlane, Reservation | **Adds `deployment-stage: infrastructure-only` annotation** |
-| `templates/05-restore-order-40-backup-config.yaml.j2` | 40 | GaleraBackup, IPSet, DataPlaneService | Backup config, IP sets, custom DataPlane services |
-| `06-manual-database-restore.md` | 50 | **Manual** | Create GaleraRestore CRs, restore databases, remove deployment-stage annotation |
-| `templates/06b-restore-rabbitmq-secrets.yaml.j2` | - | Secrets (to temp ns) | Velero Restore CR used by `06c-manual-rabbitmq-restore.md` |
-| `06c-manual-rabbitmq-restore.md` | 55 | **Manual** | Restore RabbitMQ `*-default-user` secrets, create RabbitMQUser CRs |
-| `templates/07-restore-order-60-dataplane.yaml.j2` | 60 | OpenStackDataPlaneNodeSet | DataPlane resources (optional) |
-| `templates/08-edpm-deployment.yaml.j2` | - | OpenStackDataPlaneDeployment | Resync credentials on dataplane nodes (skipped if no NodeSets exist) |
-| *(Final step)* | - | **Manual** | Re-enable InstanceHa (`spec.disabled: False`) after verifying the restored cloud is operational |
+| Order | Resources | Notes |
+|-------|-----------|-------|
+| - | ConfigMap | **Prerequisite:** resource modifier rules for all restores |
+| 00 | PVCs (Glance images, GaleraBackup) | Storage foundation, restored from CSI snapshots |
+| 10 | Secrets, ConfigMaps, NADs | User-provided resources without ownerRefs |
+| 20 | OpenStackVersion, OpenStackBackupConfig, Issuers, NetConfig, Topology, BGPConfiguration, DNSData, InstanceHa | Infrastructure base (**InstanceHa restored with `spec.disabled: True`**) |
+| 30 | OpenStackControlPlane, Reservation | **Restored with `deployment-stage: infrastructure-only` annotation** |
+| 40 | GaleraBackup, IPSet, DataPlaneService | Backup config, IP sets, custom DataPlane services |
+| 50 | **Manual**: Database restore | Create GaleraRestore CRs, restore databases, remove deployment-stage annotation |
+| 55 | **Manual**: RabbitMQ credentials | Restore old secrets from backup, create RabbitMQUser CRs |
+| 60 | OpenStackDataPlaneNodeSet | DataPlane resources (optional) |
+| - | OpenStackDataPlaneDeployment | Resync credentials on dataplane nodes |
+| - | **Manual** | Re-enable InstanceHa (`spec.disabled: False`) after verifying the cloud is operational |
 
 ## Prerequisites
 
 - OADP operator installed and configured
 - Velero BackupStorageLocation (BSL) configured and pointing to the same
   object storage (S3/MinIO) used during backup
-- VolumeSnapshotLocation configured (for CSI snapshot restores)
+- CSI snapshot capability for PVC restores
 - Target namespace exists (or will be created during restore)
 
+### Velero Version
+
 ```bash
-# Check the Velero version bundled with your OADP installation
 VELERO_POD=$(oc get pods -n openshift-adp -l deploy=velero \
   --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')
 oc exec -n openshift-adp ${VELERO_POD} -- /velero version
 ```
 
-**Note:** [Velero v1.16+](https://github.com/vmware-tanzu/velero/releases/tag/v1.16.0)
-(expected in OADP for OCP 4.19+) adds the `ignoreDelayBinding` flag for
-node-agent, which allows Data Mover restores to handle `WaitForFirstConsumer`
-PVCs natively without the dummy pod workaround described below. However, it
-spreads restores evenly across nodes and may not respect StatefulSet
-anti-affinity requirements — the dummy pod approach may still be needed to
-guarantee correct node placement for services like Glance.
-[velero#9343](https://github.com/vmware-tanzu/velero/issues/9343) /
-[velero#9532](https://github.com/vmware-tanzu/velero/pull/9532) adds PV
-topology constraints as pod affinities on data mover pods, which would
-restore PVCs to their original nodes natively — making the dummy pod
-workaround unnecessary. Check v1.18.1 or v1.19 release notes when released.
+OCP 4.20 ships OADP 1.5 with Velero v1.16+, which adds the
+`ignoreDelayBinding` flag for node-agent, improving Data Mover handling
+of `WaitForFirstConsumer` PVCs. On OCP 4.18/4.19 with older OADP
+versions, see [Data Mover with WaitForFirstConsumer](#data-mover-restore-with-waitforfirstconsumer-storage-lvm)
+for workarounds.
 
 ### Discovering Backups
 
@@ -61,41 +53,33 @@ data are stored in the BackupStorageLocation (S3/MinIO). This enables restore
 even on a completely new cluster — Velero automatically syncs and discovers
 existing backups from the object storage.
 
-On a new cluster (or after deleting local Velero backup objects):
-
 ```bash
 # 1. Verify BSL is available and syncing
 oc get backupstoragelocation -n openshift-adp
 
 # 2. Wait for Velero to sync (default: every 1 minute)
-#    Backups will appear automatically
 oc get backup -n openshift-adp
 
 # 3. Find the backup names to use for restore
 oc get backup -n openshift-adp -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,CREATED:.metadata.creationTimestamp
 ```
 
-Pass the backup timestamp to the restore playbook:
-```bash
-ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-  -e backup_timestamp=20260313-122645
-```
+## Quick Start (ci-framework)
 
-## Quick Start
-
-### Automated (Recommended)
-
-Use the restore playbook to orchestrate the full restore flow. Pass the
-`backup_timestamp` used during backup — it derives all backup names and is
-passed to the Galera restore script to select the correct database dump.
+Use the ci-framework restore playbook (see [top-level README](../README.md)):
 
 ```bash
-ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-  -e backup_timestamp=20260311-081234
+# Cleanup + restore (backup already done):
+ansible-playbook playbooks/backup_restore.yaml \
+  -e cifmw_backup_restore_install_deps=false \
+  -e cifmw_backup_restore_run_backup=false \
+  -e cifmw_backup_restore_run_cleanup=true \
+  -e cifmw_backup_restore_run_restore=true \
+  -e cifmw_backup_restore_backup_name_suffix=20260311-081234
 ```
 
 The playbook runs all restore steps in order, including:
-- Ordered OADP restores (PVCs → Foundation → Infrastructure → ControlPlane → GaleraBackup)
+- Ordered OADP restores (PVCs > Foundation > Infrastructure > ControlPlane > GaleraBackup)
 - Waits for infrastructure to be ready (Galera, OVN, RabbitMQ)
 - Automated database restore (creates GaleraRestore CRs, runs restore script)
 - RabbitMQ credential restore (restores old secrets from backup, creates RabbitMQUser CRs)
@@ -104,100 +88,315 @@ The playbook runs all restore steps in order, including:
 - Optional DataPlane restore
 - EDPM deployment to resync credentials on dataplane nodes
 
-Override defaults with extra vars:
-```bash
-# Skip all confirmation prompts (non-interactive):
-ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-  -e backup_timestamp=20260311-081234 \
-  -e auto_ack=true
+## Manual Restore Procedure
 
-# With additional RabbitMQ clusters:
-ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-  -e backup_timestamp=20260311-081234 \
-  -e '{"rabbitmq_clusters": ["rabbitmq", "rabbitmq-cell1", "rabbitmq-cell2"]}'
+If you are not using the ci-framework playbooks, follow these steps manually.
 
-# Data Mover restore with WaitForFirstConsumer storage (LVM),
-# not required on OCP 4.20+ (Velero v1.16+ supports ignoreDelayBinding):
-ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-  -e backup_timestamp=20260311-081234 \
-  -e pin_pvcs=true
-```
-
-### Manual
-
-The templates in `templates/` use Jinja2 variables. For manual restores,
-replace the variables with your values or render them with the playbook.
-
-The following example uses `BACKUP_TIMESTAMP=20260311-081234` as the backup
-timestamp. Adjust the backup names and restore suffixes to match your
-environment.
+Set variables used throughout:
 
 ```bash
-# Set your backup timestamp
 BACKUP_TIMESTAMP=20260311-081234
 RESTORE_SUFFIX=$(date +%Y%m%d-%H%M%S)
+PVC_BACKUP=openstack-backup-pvcs-${BACKUP_TIMESTAMP}
+RESOURCES_BACKUP=openstack-backup-resources-${BACKUP_TIMESTAMP}
+```
 
-# 0. Create resource modifier ConfigMap (required for all restores)
-#    See templates/00-resource-modifiers-configmap.yaml.j2 for the full template.
-#    Render with: ansible -m template -a "src=templates/00-resource-modifiers-configmap.yaml.j2 dest=/tmp/00.yaml" localhost
-oc apply -f /tmp/00.yaml
+### Step 0: Create Resource Modifier ConfigMap
 
-# 0.5 (Optional - required for LVM/topolvm with Data Mover, not needed on OCP 4.20+)
-#     Pin PVCs to their original nodes before restoring.
-#     See "Data Mover Restore with WaitForFirstConsumer Storage" section below.
+This ConfigMap is referenced by all Restore CRs. It strips
+`last-applied-configuration` annotations, adds the `deployment-stage`
+annotation to the ControlPlane CR, and disables InstanceHa during restore.
 
-# 1. Storage foundation - PVCs
-oc apply -f /tmp/01-restore-order-00-pvcs.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-00-pvcs-${RESTORE_SUFFIX} -n openshift-adp --timeout=15m
+```bash
+cat <<'EOF' | oc apply -f -
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openstack-restore-resource-modifiers
+  namespace: openshift-adp
+data:
+  resource-modifiers.yaml: |
+    version: v1
+    resourceModifierRules:
+    - conditions:
+        groupResource: "*"
+        namespaces:
+        - openstack
+      mergePatches:
+      - patchData: |
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/last-applied-configuration: null
+    - conditions:
+        groupResource: openstackcontrolplanes.core.openstack.org
+        namespaces:
+        - openstack
+      mergePatches:
+      - patchData: |
+          metadata:
+            annotations:
+              kubectl.kubernetes.io/last-applied-configuration: null
+              core.openstack.org/deployment-stage: "infrastructure-only"
+    - conditions:
+        groupResource: instancehas.instanceha.openstack.org
+        namespaces:
+        - openstack
+      mergePatches:
+      - patchData: |
+          spec:
+            disabled: "True"
+EOF
+```
 
-# 1.5 (If step 0.5 was used) Delete dummy Deployments
-# oc delete deployment -n openstack -l app=pvc-pin
+### Step 0.5: Pin PVCs (optional, LVM with Data Mover only)
 
-# 2. Foundation resources
-oc apply -f /tmp/02-restore-order-10-foundation.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-10-foundation-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
+**Required for LVM/topolvm environments using Data Mover on OCP < 4.20.**
+See [Data Mover with WaitForFirstConsumer](#data-mover-restore-with-waitforfirstconsumer-storage-lvm)
+below.
 
-# 3. Infrastructure CRs
-oc apply -f /tmp/03-restore-order-20-infrastructure.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-20-infra-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
+### Step 1: Restore PVCs (Order 00)
 
-# 4. OpenStackControlPlane (with staging annotation)
-oc apply -f /tmp/04-restore-order-30-controlplane.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-30-ctlplane-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-00-pvcs-${RESTORE_SUFFIX}
+  namespace: openshift-adp
+spec:
+  backupName: ${PVC_BACKUP}
+  includedNamespaces:
+  - openstack
+  excludedResources:
+  - pods
+  resourceModifier:
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
+  restorePVs: true
+EOF
 
-# 5. Backup configuration
-oc apply -f /tmp/05-restore-order-40-backup-config.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-40-backup-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  restore/openstack-restore-00-pvcs-${RESTORE_SUFFIX} -n openshift-adp --timeout=15m
+```
 
-# 6. Manual database restore — REQUIRED
-#    Follow the procedure in 06-manual-database-restore.md:
-#    - Create GaleraRestore CRs, wait for restore pods
-#    - Execute restore_galera inside each pod
-#    - Remove deployment-stage annotation, wait for services
+If step 0.5 was used, delete dummy Deployments now:
+```bash
+oc delete deployment -n openstack -l app=pvc-pin
+```
 
-# 6.5 Manual RabbitMQ credential restore — REQUIRED
-#     Follow the procedure in 06c-manual-rabbitmq-restore.md:
-#     - Restore *-default-user secrets from backup
-#     - Create RabbitMQUser CRs
+### Step 2: Restore Foundation Resources (Order 10)
 
-# 7. DataPlane (if applicable)
-oc apply -f /tmp/07-restore-order-60-dataplane.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed restore/openstack-restore-60-dataplane-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-10-foundation-${RESTORE_SUFFIX}
+  namespace: openshift-adp
+spec:
+  backupName: ${RESOURCES_BACKUP}
+  includedNamespaces:
+  - openstack
+  labelSelector:
+    matchLabels:
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "10"
+  resourceModifier:
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
+EOF
 
-# 8. EDPM deployment - resync credentials on dataplane nodes
-#    See templates/08-edpm-deployment.yaml.j2 for the full template.
-#    Discovers NodeSets and creates an OpenStackDataPlaneDeployment CR.
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  restore/openstack-restore-10-foundation-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
+```
+
+### Step 3: Restore Infrastructure CRs (Order 20)
+
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-20-infra-${RESTORE_SUFFIX}
+  namespace: openshift-adp
+spec:
+  backupName: ${RESOURCES_BACKUP}
+  includedNamespaces:
+  - openstack
+  labelSelector:
+    matchLabels:
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "20"
+  resourceModifier:
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
+EOF
+
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  restore/openstack-restore-20-infra-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
+```
+
+### Step 4: Restore OpenStackControlPlane (Order 30)
+
+The resource modifier adds `deployment-stage: infrastructure-only` so
+services don't start until databases are restored.
+
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-30-ctlplane-${RESTORE_SUFFIX}
+  namespace: openshift-adp
+spec:
+  backupName: ${RESOURCES_BACKUP}
+  includedNamespaces:
+  - openstack
+  labelSelector:
+    matchLabels:
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "30"
+  resourceModifier:
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
+EOF
+
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  restore/openstack-restore-30-ctlplane-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
+```
+
+### Step 5: Restore Backup Config (Order 40)
+
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-40-backup-${RESTORE_SUFFIX}
+  namespace: openshift-adp
+spec:
+  backupName: ${RESOURCES_BACKUP}
+  includedNamespaces:
+  - openstack
+  labelSelector:
+    matchLabels:
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "40"
+  resourceModifier:
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
+EOF
+
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  restore/openstack-restore-40-backup-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
+```
+
+### Step 6: Manual Steps (Order 50+)
+
+These steps require manual intervention and must be performed in order.
+
+#### Step 6a: Database Restore
+
+Follow the detailed procedure in
+[06-manual-database-restore.md](06-manual-database-restore.md).
+
+Summary:
+1. Create GaleraRestore CRs for each GaleraBackup
+2. Wait for restore pods
+3. Execute `restore_galera` inside each pod
+4. Delete GaleraRestore CRs
+
+#### Step 6b: RabbitMQ Credential Restore
+
+Follow the detailed procedure in
+[06c-manual-rabbitmq-restore.md](06c-manual-rabbitmq-restore.md).
+
+Summary:
+1. Restore secrets to a temporary namespace
+2. Copy old `*-default-user` credentials to target namespace
+3. Create RabbitMQUser CRs
+4. Delete temporary namespace
+
+#### Step 6c: Remove deployment-stage Annotation
+
+After database and RabbitMQ credentials are restored, remove the
+`deployment-stage` annotation to resume full OpenStack deployment.
+**This is critical** — without it, services remain in infrastructure-only
+mode and will not start.
+
+```bash
+oc patch openstackcontrolplane \
+  $(oc get openstackcontrolplane -n openstack -o jsonpath='{.items[0].metadata.name}') \
+  -n openstack --type json \
+  -p '[{"op": "remove", "path": "/metadata/annotations/core.openstack.org~1deployment-stage"}]'
+```
+
+Wait for all OpenStack services to start:
+
+```bash
+oc wait openstackcontrolplane -n openstack --for=condition=Ready --timeout=30m \
+  $(oc get openstackcontrolplane -n openstack -o jsonpath='{.items[0].metadata.name}')
+```
+
+### Step 7: Restore DataPlane (Order 60, optional)
+
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Restore
+metadata:
+  name: openstack-restore-60-dataplane-${RESTORE_SUFFIX}
+  namespace: openshift-adp
+spec:
+  backupName: ${RESOURCES_BACKUP}
+  includedNamespaces:
+  - openstack
+  labelSelector:
+    matchLabels:
+      backup.openstack.org/restore: "true"
+      backup.openstack.org/restore-order: "60"
+  resourceModifier:
+    kind: ConfigMap
+    name: openstack-restore-resource-modifiers
+EOF
+
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  restore/openstack-restore-60-dataplane-${RESTORE_SUFFIX} -n openshift-adp --timeout=5m
+```
+
+### Step 8: EDPM Deployment
+
+Resync credentials on dataplane nodes:
+
+```bash
 NODESETS=$(oc get openstackdataplanenodeset -n openstack -o jsonpath='{.items[*].metadata.name}')
 if [ -n "$NODESETS" ]; then
-  oc apply -f /tmp/08-edpm-deployment.yaml
+  cat <<EOF | oc apply -f -
+apiVersion: dataplane.openstack.org/v1beta1
+kind: OpenStackDataPlaneDeployment
+metadata:
+  name: edpm-deployment-post-restore
+  namespace: openstack
+spec:
+  nodeSets:
+$(for ns in ${NODESETS}; do echo "  - ${ns}"; done)
+EOF
 fi
+```
+
+### Step 9: Re-enable InstanceHa
+
+After verifying the restored cloud is fully operational:
+
+```bash
+oc patch instanceha <name> -n openstack --type merge -p '{"spec":{"disabled":"False"}}'
 ```
 
 ## Data Mover Restore with WaitForFirstConsumer Storage (LVM)
 
-**Required for LVM/topolvm environments using Data Mover.** Skip if not using
-Data Mover (`snapshotMoveData: true`) or if your StorageClass uses
-`volumeBindingMode: Immediate`.
+**Required for LVM/topolvm environments using Data Mover on OCP < 4.20.**
+Skip if not using Data Mover (`snapshotMoveData: true`) or if your
+StorageClass uses `volumeBindingMode: Immediate`.
 
 When using the OADP Data Mover with a StorageClass that has
 `volumeBindingMode: WaitForFirstConsumer` (e.g., LVM/topolvm), the PVC restore
@@ -230,21 +429,13 @@ for f in /tmp/backup/resources/persistentvolumes/cluster/*.json; do
 done
 # Example output:
 #   glance-glance-default-single-0:master-0
-#   glance-glance-default-single-1:master-1
-#   glance-glance-default-single-2:master-2
 #   mysql-db-openstack-galera-0:master-0
-#   mysql-db-openstack-galera-1:master-1
-#   mysql-db-openstack-galera-2:master-2
 
-# 3. Create dummy Deployments BEFORE the PVC restore.
+# 3. Create dummy Deployments BEFORE the PVC restore (step 1).
 #    IMPORTANT: Use nodeSelector (not nodeName) — see above.
 for pvc_node in \
   "glance-glance-default-single-0:master-0" \
-  "glance-glance-default-single-1:master-1" \
-  "glance-glance-default-single-2:master-2" \
-  "mysql-db-openstack-galera-0:master-0" \
-  "mysql-db-openstack-galera-1:master-1" \
-  "mysql-db-openstack-galera-2:master-2"; do
+  "mysql-db-openstack-galera-0:master-0"; do
 
   pvc="${pvc_node%%:*}"
   node="${pvc_node##*:}"
@@ -286,7 +477,7 @@ spec:
 EOF
 done
 
-# 4. Continue with the PVC restore (step 1 in the manual procedure)
+# 4. Continue with the PVC restore (step 1)
 # 5. After PVC restore completes, delete dummy Deployments:
 oc delete deployment -n openstack -l app=pvc-pin
 ```
@@ -347,6 +538,7 @@ oc logs <backup-source>-restore-<restore-name> -n openstack
 
 ## See Also
 
-- Backup CRs: `docs/dev/backup-restore/backup/`
-- Implementation guide: `docs/dev/backup-restore/backup-restore-controller-implementation.md`
-- Restore scripts: [`scripts/restore-galera.sh`](../scripts/restore-galera.sh)
+- Backup: [`../backup/README.md`](../backup/README.md)
+- Manual database restore: [`06-manual-database-restore.md`](06-manual-database-restore.md)
+- Manual RabbitMQ restore: [`06c-manual-rabbitmq-restore.md`](06c-manual-rabbitmq-restore.md)
+- Design document: [`../backup-restore-controller-design.md`](../backup-restore-controller-design.md)
