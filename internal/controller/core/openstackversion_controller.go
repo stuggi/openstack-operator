@@ -282,7 +282,18 @@ func (r *OpenStackVersionReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		// minor update for Dataplane OVN
 		// Only check OVN when enabled to avoid hanging on a removed condition
 		if controlPlane.Spec.Ovn.Enabled {
-			if !openstack.DataplaneNodesetsOVNControllerImagesMatch(instance, dataplaneNodesets) {
+			// First check if any deployment that manages OvnControllerImage is
+			// still running. This prevents a race condition where the OVN image
+			// hasn't changed between versions: the nodeset already has the
+			// matching image from a previous update, so the image comparison
+			// alone would return true before the OVN deployment finishes.
+			ovnDeploymentRunning, err := openstack.IsDataplaneDeploymentRunningForContainerImage(
+				ctx, versionHelper, instance.Namespace, dataplaneNodesets, "OvnControllerImage")
+			if err != nil {
+				return ctrl.Result{}, err
+			}
+			if ovnDeploymentRunning ||
+				!openstack.DataplaneNodesetsOVNControllerImagesMatch(instance, dataplaneNodesets) {
 				instance.Status.Conditions.Set(condition.FalseCondition(
 					corev1beta1.OpenStackVersionMinorUpdateOVNDataplane,
 					condition.RequestedReason,
