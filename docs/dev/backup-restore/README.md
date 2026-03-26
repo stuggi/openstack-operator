@@ -9,16 +9,41 @@ playbooks for orchestration.
 
 ## Quick Start
 
-```bash
-# Backup
-ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml
-# With Data Mover (upload snapshots to S3/MinIO):
-ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml -e snapshot_move_data=true
+The backup/restore playbooks are in the
+[ci-framework](https://github.com/openstack-k8s-operators/ci-framework) repo.
 
-# Restore
-ansible-playbook docs/dev/backup-restore/restore/restore-openstack.yaml \
-  -e backup_timestamp=20260311-081234
+```bash
+# Full lifecycle (install deps, backup, cleanup, restore):
+ansible-playbook playbooks/backup_restore.yaml
+
+# Install deps only:
+ansible-playbook playbooks/backup_restore.yaml \
+  -e cifmw_backup_restore_install_deps=true \
+  -e cifmw_backup_restore_run_backup=false \
+  -e cifmw_backup_restore_run_cleanup=false \
+  -e cifmw_backup_restore_run_restore=false
+
+# Backup only (deps already installed):
+ansible-playbook playbooks/backup_restore.yaml \
+  -e cifmw_backup_restore_install_deps=false \
+  -e cifmw_backup_restore_run_backup=true \
+  -e cifmw_backup_restore_run_cleanup=false \
+  -e cifmw_backup_restore_run_restore=false
+
+# Cleanup + restore (backup already done):
+ansible-playbook playbooks/backup_restore.yaml \
+  -e cifmw_backup_restore_install_deps=false \
+  -e cifmw_backup_restore_run_backup=false \
+  -e cifmw_backup_restore_run_cleanup=true \
+  -e cifmw_backup_restore_run_restore=true \
+  -e cifmw_backup_restore_backup_timestamp=20260311-081234
 ```
+
+The restore triggers an EDPM deployment to resync credentials but does
+not wait for it to complete. Monitor the deployment status separately.
+
+Data Mover (upload PVC snapshots to S3/MinIO) is enabled by default.
+To disable: `-e cifmw_backup_restore_snapshot_move_data=false`.
 
 ## Directory Structure
 
