@@ -1,25 +1,22 @@
 # OpenStack Backup CRs
 
-This directory contains OADP Backup CR templates and playbook for backing up
-OpenStack environments.
-
-The `templates/` directory contains Jinja2 templates for Velero Backup CRs.
-The backup playbook (`backup-openstack.yaml`) renders these templates with the
-appropriate variables and applies them in order, ensuring that what gets tested
-is exactly what gets documented.
+This document describes the OADP Backup CR strategy for backing up OpenStack
+environments. The backup playbooks and templates are in the
+[ci-framework](https://github.com/openstack-k8s-operators/ci-framework)
+`cifmw_backup_restore` role.
 
 ## Backup Approach
 
 We use a two-backup strategy:
 
-1. **PVC backup** (`templates/backup-pvcs.yaml.j2`) — PVCs with CSI snapshots
+1. **PVC backup** — PVCs with CSI snapshots
    - Filters at backup time using `labelSelector`
    - Only includes PVCs labeled with `backup.openstack.org/backup: "true"`
    - Supports Data Mover (`snapshotMoveData: true`, default) to upload snapshot
      data to the BackupStorageLocation (S3/MinIO) via Kopia, enabling restore
      even after total cluster loss
 
-2. **Resources backup** (`templates/backup-resources.yaml.j2`) — everything except PVCs
+2. **Resources backup** — everything except PVCs
    - Backs up all resources in the namespace
    - Excludes PVCs (backed up separately)
    - Includes: CRs, Secrets, ConfigMaps, NADs, etc.
@@ -43,12 +40,14 @@ We use a two-backup strategy:
 
 ## Quick Start
 
-### Automated (Recommended)
-
-Use the backup playbook to orchestrate the full backup flow:
+Use the ci-framework backup playbook (see [top-level README](../README.md)):
 
 ```bash
-ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml
+ansible-playbook playbooks/backup_restore.yaml \
+  -e cifmw_backup_restore_install_deps=false \
+  -e cifmw_backup_restore_run_backup=true \
+  -e cifmw_backup_restore_run_cleanup=false \
+  -e cifmw_backup_restore_run_restore=false
 ```
 
 The playbook runs three steps:
@@ -58,34 +57,18 @@ The playbook runs three steps:
 
 PVC backup labels are set automatically by service operators (glance-operator, mariadb-operator).
 
-Override defaults with extra vars:
-```bash
-ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml \
-  -e openstack_namespace=openstack \
-  -e storage_location=velero-1 \
-  -e backup_ttl=168h
+## Manual Backup Procedure
 
-# Without Data Mover (local snapshots only):
-ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml \
-  -e snapshot_move_data=false
+If you are not using the ci-framework playbooks, follow these steps manually.
 
-# Skip all confirmation prompts (non-interactive):
-ansible-playbook docs/dev/backup-restore/backup/backup-openstack.yaml \
-  -e auto_ack=true
-```
+### Step 1: Trigger Galera Database Dumps
 
-### Manual
-
-The templates in `templates/` use Jinja2 variables. For manual backups,
-replace the variables with your values or render them with the playbook.
+Create backup jobs from the GaleraBackup cronjobs, passing a common timestamp
+so DB dump filenames match the OADP backup name:
 
 ```bash
-# Set a common timestamp for all backup artifacts
 BACKUP_TS=$(date +%Y%m%d-%H%M%S)
 
-# 1. Trigger Galera database dumps (required before PVC backup)
-#    Creates jobs from GaleraBackup cronjobs and passes the timestamp
-#    so DB dump filenames match the backup name.
 for CRONJOB in $(oc get cronjob -n openstack -l app=galera -o jsonpath='{.items[*].metadata.name}'); do
   JOB_NAME="${CRONJOB}-${BACKUP_TS}"
   oc -n openstack create job --from=cronjob/${CRONJOB} ${JOB_NAME} \
@@ -96,19 +79,68 @@ done
 
 # Wait for all backup jobs to complete
 oc -n openstack wait --for=condition=complete job -l app=galera --timeout=10m
+```
 
-# 2. OADP PVC backup (CSI snapshots of labeled PVCs)
-#    See templates/backup-pvcs.yaml.j2 for the full template.
-#    Render with: ansible -m template -a "src=templates/backup-pvcs.yaml.j2 dest=/tmp/backup-pvcs.yaml" localhost -e backup_name_suffix=${BACKUP_TS} ...
-oc apply -f /tmp/backup-pvcs.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed backup/openstack-backup-pvcs-${BACKUP_TS} -n openshift-adp --timeout=30m
+### Step 2: OADP PVC Backup (CSI Snapshots)
 
-# 3. OADP resources backup
-#    See templates/backup-resources.yaml.j2 for the full template.
-oc apply -f /tmp/backup-resources.yaml
-oc wait --for=jsonpath='{.status.phase}'=Completed backup/openstack-backup-resources-${BACKUP_TS} -n openshift-adp --timeout=30m
+Create an OADP Backup CR for PVCs labeled with `backup.openstack.org/backup=true`:
 
-# Check backup status
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-backup-pvcs-${BACKUP_TS}
+  namespace: openshift-adp
+spec:
+  includedNamespaces:
+  - openstack
+  labelSelector:
+    matchLabels:
+      backup.openstack.org/backup: "true"
+  snapshotVolumes: true
+  defaultVolumesToFsBackup: false
+  snapshotMoveData: true
+  volumeSnapshotLocations: []
+  storageLocation: velero-1
+  ttl: 720h
+EOF
+
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  backup/openstack-backup-pvcs-${BACKUP_TS} -n openshift-adp --timeout=30m
+```
+
+Remove `snapshotMoveData: true` if you don't want to upload snapshots to
+the BackupStorageLocation (local CSI snapshots only).
+
+### Step 3: OADP Resources Backup
+
+Create an OADP Backup CR for all resources except PVCs:
+
+```bash
+cat <<EOF | oc apply -f -
+apiVersion: velero.io/v1
+kind: Backup
+metadata:
+  name: openstack-backup-resources-${BACKUP_TS}
+  namespace: openshift-adp
+spec:
+  includedNamespaces:
+  - openstack
+  excludedResources:
+  - persistentvolumeclaims
+  - persistentvolumes
+  storageLocation: velero-1
+  ttl: 720h
+EOF
+
+oc wait --for=jsonpath='{.status.phase}'=Completed \
+  backup/openstack-backup-resources-${BACKUP_TS} -n openshift-adp --timeout=30m
+```
+
+### Step 4: Verify
+
+```bash
 oc get backup -n openshift-adp -o custom-columns=NAME:.metadata.name,PHASE:.status.phase
 ```
 
@@ -126,19 +158,6 @@ All resources in the namespace except PVCs. This includes CRs, Secrets,
 ConfigMaps, NetworkAttachmentDefinitions, and any other namespace-scoped
 resources. Restore ordering is controlled by `backup.openstack.org/restore-order`
 labels on the backed-up resources (see `docs/dev/backup-restore/restore/README.md`).
-
-## Customization
-
-All templates accept variables for customization. Key variables:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `openstack_namespace` | `openstack` | Target namespace |
-| `oadp_namespace` | `openshift-adp` | OADP namespace |
-| `storage_location` | `velero-1` | Velero storage location |
-| `backup_ttl` | `720h` | Backup retention (30 days) |
-| `snapshot_move_data` | `true` | Upload snapshots to BSL via Data Mover |
-| `auto_ack` | `false` | Skip confirmation prompts |
 
 ## Verification
 
@@ -171,6 +190,6 @@ oc logs -n openshift-adp -l name=node-agent --tail=50
 
 ## See Also
 
-- Restore CRs: `docs/dev/backup-restore/restore/`
-- Implementation guide: `docs/dev/backup-restore/backup-restore-controller-implementation.md`
-- Design document: `docs/dev/backup-restore/backup-restore-controller-design.md`
+- Restore: [`../restore/README.md`](../restore/README.md)
+- Implementation guide: [`../backup-restore-controller-implementation.md`](../backup-restore-controller-implementation.md)
+- Design document: [`../backup-restore-controller-design.md`](../backup-restore-controller-design.md)
