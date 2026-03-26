@@ -10,14 +10,30 @@ see [`../oadp/README.md`](../oadp/README.md).
 - `oc` CLI tool installed and configured
 - Sufficient storage for MinIO (PVs available in your cluster)
 
-## Quick Start (Ansible Playbook)
+## Quick Start (ci-framework)
+
+MinIO is deployed automatically as part of the dependency installation
+step in the
+[ci-framework](https://github.com/openstack-k8s-operators/ci-framework)
+backup/restore playbook:
 
 ```bash
-ansible-playbook docs/dev/backup-restore/minio/setup-minio.yaml
-# With custom parameters:
-ansible-playbook docs/dev/backup-restore/minio/setup-minio.yaml \
-  -e minio_storage_class=local-storage -e minio_storage_size=100Gi
+ansible-playbook playbooks/backup_restore.yaml \
+  -e cifmw_backup_restore_install_deps=true \
+  -e cifmw_backup_restore_run_backup=false \
+  -e cifmw_backup_restore_run_cleanup=false \
+  -e cifmw_backup_restore_run_restore=false
 ```
+
+Configurable variables (see `roles/deploy_minio/defaults/main.yml`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `cifmw_deploy_minio_namespace` | `minio` | Namespace for MinIO |
+| `cifmw_deploy_minio_storage_size` | `10Gi` | PVC size |
+| `cifmw_deploy_minio_storage_class` | `""` (default) | StorageClass |
+| `cifmw_deploy_minio_root_user` | `minio` | Root user |
+| `cifmw_deploy_minio_root_password` | `minio123` | Root password |
 
 ## Manual Setup
 

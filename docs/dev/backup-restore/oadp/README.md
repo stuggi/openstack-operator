@@ -12,13 +12,35 @@ it with a MinIO backend. For MinIO deployment, see
 - MinIO service account credentials (Access Key and Secret Key)
 - `oc` CLI tool installed and configured
 
-## Quick Start (Ansible Playbook)
+## Quick Start (ci-framework)
+
+OADP is installed automatically as part of the dependency installation
+step in the
+[ci-framework](https://github.com/openstack-k8s-operators/ci-framework)
+backup/restore playbook (after MinIO):
 
 ```bash
-ansible-playbook docs/dev/backup-restore/oadp/setup-oadp.yaml \
-  -e minio_access_key_id=<ACCESS_KEY_ID> \
-  -e minio_secret_access_key=<SECRET_ACCESS_KEY>
+ansible-playbook playbooks/backup_restore.yaml \
+  -e cifmw_backup_restore_install_deps=true \
+  -e cifmw_backup_restore_run_backup=false \
+  -e cifmw_backup_restore_run_cleanup=false \
+  -e cifmw_backup_restore_run_restore=false
 ```
+
+Configurable variables (see `roles/openshift_adp/defaults/main.yml`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `cifmw_openshift_adp_namespace` | `openshift-adp` | OADP namespace |
+| `cifmw_openshift_adp_channel` | `stable` | OLM subscription channel |
+| `cifmw_openshift_adp_enable_node_agent` | `true` | Enable Kopia node agent (Data Mover) |
+| `cifmw_openshift_adp_s3_bucket` | `velero` | S3 bucket name |
+| `cifmw_openshift_adp_s3_prefix` | `rhoso` | Bucket prefix |
+| `cifmw_openshift_adp_s3_insecure_skip_tls` | `true` | Skip TLS verification |
+
+The S3 credentials (`cifmw_openshift_adp_s3_access_key`,
+`cifmw_openshift_adp_s3_secret_key`) are passed automatically from the
+`deploy_minio` role output.
 
 ## Manual Setup
 
@@ -46,7 +68,7 @@ metadata:
   name: redhat-oadp-operator
   namespace: openshift-adp
 spec:
-  channel: stable-1.4
+  channel: stable
   installPlanApproval: Automatic
   name: redhat-oadp-operator
   source: redhat-operators
@@ -159,13 +181,11 @@ VELERO_POD=$(oc get pods -n openshift-adp -l deploy=velero \
 oc exec -n openshift-adp ${VELERO_POD} -- /velero version
 ```
 
-[Velero v1.16+](https://github.com/vmware-tanzu/velero/releases/tag/v1.16.0)
-(expected in OADP for OCP 4.19+) adds the `ignoreDelayBinding` flag for
-node-agent, improving Data Mover handling of `WaitForFirstConsumer` PVCs.
-[velero#9343](https://github.com/vmware-tanzu/velero/issues/9343) /
-[velero#9532](https://github.com/vmware-tanzu/velero/pull/9532) adds PV
-topology constraints as pod affinities on data mover pods — check v1.18.1
-or v1.19 release notes when released.
+OCP 4.20 ships OADP 1.5 with Velero v1.16+, which adds the
+`ignoreDelayBinding` flag for node-agent, improving Data Mover handling
+of `WaitForFirstConsumer` PVCs. On OCP 4.18/4.19 with older OADP
+versions, see [`../restore/README.md`](../restore/README.md) for
+workarounds.
 
 ## Test Backup and Restore (Optional)
 

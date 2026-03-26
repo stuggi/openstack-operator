@@ -51,9 +51,8 @@ To disable: `-e cifmw_backup_restore_snapshot_move_data=false`.
 |------|-------------|
 | [`minio/`](minio/) | MinIO deployment (S3-compatible storage for OADP) |
 | [`oadp/`](oadp/) | OADP operator installation and configuration |
-| [`backup/`](backup/) | OADP Backup CRs and backup playbook |
-| [`restore/`](restore/) | OADP Restore CRs, manual restore docs, and restore playbook |
-| [`scripts/`](scripts/) | Helper scripts (`restore-galera.sh`, `list-backup-candidates.sh`) |
+| [`backup/`](backup/) | OADP Backup CR reference |
+| [`restore/`](restore/) | OADP Restore CR reference, manual database and RabbitMQ restore |
 | [`backup-restore-controller-design.md`](backup-restore-controller-design.md) | Design: CRD labels, controller-based labeling, restore ordering |
 | [`backup-restore-controller-implementation.md`](backup-restore-controller-implementation.md) | Implementation guide for the OpenStackBackupConfig controller |
 | [`backup-restore-pvc-enhancement.md`](backup-restore-pvc-enhancement.md) | Enhancement proposal: serialize CRs to PVC |
@@ -64,10 +63,9 @@ To disable: `-e cifmw_backup_restore_snapshot_move_data=false`.
 
 1. **OpenShift CLI (`oc`) installed** — version compatible with your cluster
 2. **Cluster access** — cluster admin or namespace admin for the `openstack` namespace
-3. **Ansible** — for running backup/restore playbooks
-4. **`jq`** — for JSON manipulation during Galera backup job creation
-5. **OADP operator** installed and configured (see [`oadp/README.md`](oadp/README.md) and [`minio/README.md`](minio/README.md))
-6. **CSI Volume Snapshot support** — required for PVC backup/restore
+3. **Ansible** — for running ci-framework backup/restore playbooks
+4. **OADP operator** installed and configured (see [`oadp/README.md`](oadp/README.md) and [`minio/README.md`](minio/README.md))
+5. **CSI Volume Snapshot support** — required for PVC backup/restore
 
 ### CSI Volume Snapshot Support
 
@@ -114,11 +112,10 @@ VELERO_POD=$(oc get pods -n openshift-adp -l deploy=velero \
 oc exec -n openshift-adp ${VELERO_POD} -- /velero version
 ```
 
-[Velero v1.16+](https://github.com/vmware-tanzu/velero/releases/tag/v1.16.0)
-(expected in OADP for OCP 4.19+) adds the `ignoreDelayBinding` flag for
-node-agent, improving Data Mover handling of `WaitForFirstConsumer` PVCs.
-See [`restore/README.md`](restore/README.md) for details and workarounds
-for earlier versions.
+OCP 4.20 ships OADP 1.5 with Velero v1.16+, which adds the
+`ignoreDelayBinding` flag for node-agent, improving Data Mover handling
+of `WaitForFirstConsumer` PVCs. On OCP 4.18/4.19 with older OADP
+versions, see [`restore/README.md`](restore/README.md) for workarounds.
 
 ## Backup Scope
 
@@ -274,4 +271,4 @@ Metal3, additional procedures are required.
 
 - MinIO setup: [`minio/README.md`](minio/README.md)
 - OADP setup: [`oadp/README.md`](oadp/README.md)
-- Restore scripts: [`scripts/restore-galera.sh`](scripts/restore-galera.sh)
+- ci-framework playbooks: [ci-framework](https://github.com/openstack-k8s-operators/ci-framework)
