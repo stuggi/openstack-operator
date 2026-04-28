@@ -371,6 +371,10 @@ var _ = BeforeSuite(func() {
 	Expect(err).NotTo(HaveOccurred())
 	err = dataplanewebhook.SetupOpenStackDataPlaneNodeSetWebhookWithManager(k8sManager)
 	Expect(err).NotTo(HaveOccurred())
+	err = dataplanewebhook.SetupOpenStackDataPlaneServiceWebhookWithManager(k8sManager)
+	Expect(err).NotTo(HaveOccurred())
+	err = dataplanewebhook.SetupOpenStackDataPlaneDeploymentWebhookWithManager(k8sManager)
+	Expect(err).NotTo(HaveOccurred())
 	err = backupwebhook.SetupOpenStackBackupConfigWebhookWithManager(k8sManager)
 	Expect(err).NotTo(HaveOccurred())
 

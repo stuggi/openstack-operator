@@ -26,10 +26,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/go-logr/logr"
@@ -82,6 +85,8 @@ func (r *OpenStackVersionReconciler) GetLogger(ctx context.Context) logr.Logger 
 // +kubebuilder:rbac:groups=core.openstack.org,resources=openstackversions/finalizers,verbs=update;patch
 // +kubebuilder:rbac:groups=core.openstack.org,resources=openstackcontrolplanes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=dataplane.openstack.org,resources=openstackdataplanenodesets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dataplane.openstack.org,resources=openstackdataplanedeployments,verbs=get;list;watch
+// +kubebuilder:rbac:groups=dataplane.openstack.org,resources=openstackdataplaneservices,verbs=get;list;watch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -344,16 +349,24 @@ func (r *OpenStackVersionReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				prevOvnDataplaneCond := savedConditions.Get(corev1beta1.OpenStackVersionMinorUpdateOVNDataplane)
 				if prevOvnDataplaneCond == nil ||
 					prevOvnDataplaneCond.Reason != condition.RequestedReason {
-					// We have never observed a running OVN deployment in
-					// this update cycle — the deployment has not been
-					// created yet. Keep waiting.
-					instance.Status.Conditions.Set(condition.FalseCondition(
-						corev1beta1.OpenStackVersionMinorUpdateOVNDataplane,
-						condition.InitReason,
-						condition.SeverityInfo,
-						corev1beta1.OpenStackVersionMinorUpdateReadyRunningMessage))
-					Log.Info("Waiting for OVN Dataplane deployment to be created (OVN image unchanged between versions)")
-					return ctrl.Result{}, nil
+					// The saved condition doesn't show we observed a running
+					// deployment (may be due to reconcile race). Check if a
+					// completed deployment already exists for the target version.
+					ovnDeploymentCompleted, err := openstack.IsDataplaneDeploymentCompletedForServiceType(
+						ctx, versionHelper, instance.Namespace, dataplaneNodesets, "ovn", instance.Spec.TargetVersion)
+					if err != nil {
+						return ctrl.Result{}, err
+					}
+					if !ovnDeploymentCompleted {
+						instance.Status.Conditions.Set(condition.FalseCondition(
+							corev1beta1.OpenStackVersionMinorUpdateOVNDataplane,
+							condition.InitReason,
+							condition.SeverityInfo,
+							corev1beta1.OpenStackVersionMinorUpdateReadyRunningMessage))
+						Log.Info("Waiting for OVN Dataplane deployment to be created (OVN image unchanged between versions)")
+						return ctrl.Result{}, nil
+					}
+					Log.Info("OVN Dataplane deployment completed (found completed deployment for target version)")
 				}
 				// Previously saw a running OVN deployment (condition was
 				// False/RequestedReason), now no OVN deployment is running
@@ -526,9 +539,38 @@ func (r *OpenStackVersionReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return nil
 	})
 
+	// Only reconcile when a deployment's Deployed status changes,
+	// not on every status update during deployment execution.
+	// The dataplane controller sets Deployed and DeployedVersion
+	// in the same status update, so checking Deployed alone is sufficient.
+	deploymentStatusPredicate := predicate.Funcs{
+		CreateFunc: func(_ event.CreateEvent) bool {
+			return true
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldDepl, ok := e.ObjectOld.(*dataplanev1.OpenStackDataPlaneDeployment)
+			if !ok {
+				return false
+			}
+			newDepl, ok := e.ObjectNew.(*dataplanev1.OpenStackDataPlaneDeployment)
+			if !ok {
+				return false
+			}
+			return oldDepl.Status.Deployed != newDepl.Status.Deployed
+		},
+		DeleteFunc: func(_ event.DeleteEvent) bool {
+			return false
+		},
+		GenericFunc: func(_ event.GenericEvent) bool {
+			return false
+		},
+	}
+
 	return ctrl.NewControllerManagedBy(mgr).
 		Watches(&corev1beta1.OpenStackControlPlane{}, versionFunc).
 		Watches(&dataplanev1.OpenStackDataPlaneNodeSet{}, versionFunc).
+		Watches(&dataplanev1.OpenStackDataPlaneDeployment{}, versionFunc,
+			builder.WithPredicates(deploymentStatusPredicate)).
 		For(&corev1beta1.OpenStackVersion{}).
 		Complete(r)
 }

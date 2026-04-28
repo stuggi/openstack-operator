@@ -60,17 +60,18 @@ func DataplaneNodesetsOVNControllerImagesMatch(version *corev1beta1.OpenStackVer
 	return true
 }
 
-// IsDataplaneDeploymentRunningForServiceType checks whether any in-progress
-// OpenStackDataPlaneDeployment is deploying a service with the given
-// EDPMServiceType (e.g. "ovn"). It resolves which services each deployment
-// runs (from ServicesOverride or the nodeset's service list) and inspects
-// the service's EDPMServiceType to determine if it matches.
-func IsDataplaneDeploymentRunningForServiceType(
+// deploymentFilter is a predicate that selects which deployments to consider.
+type deploymentFilter func(*dataplanev1.OpenStackDataPlaneDeployment) bool
+
+// findDataplaneDeploymentForServiceType checks if any deployment matching the
+// filter includes the given service type for at least one nodeset with nodes.
+func findDataplaneDeploymentForServiceType(
 	ctx context.Context,
 	h *helper.Helper,
 	namespace string,
 	dataplaneNodesets *dataplanev1.OpenStackDataPlaneNodeSetList,
 	serviceType string,
+	filter deploymentFilter,
 ) (bool, error) {
 	// List all deployments in the namespace
 	deployments := &dataplanev1.OpenStackDataPlaneDeploymentList{}
@@ -92,8 +93,7 @@ func IsDataplaneDeploymentRunningForServiceType(
 	serviceCache := make(map[string]*dataplanev1.OpenStackDataPlaneService)
 
 	for _, deployment := range deployments.Items {
-		// Skip completed deployments
-		if deployment.Status.Deployed {
+		if !filter(&deployment) {
 			continue
 		}
 
@@ -137,6 +137,39 @@ func IsDataplaneDeploymentRunningForServiceType(
 	}
 
 	return false, nil
+}
+
+// IsDataplaneDeploymentRunningForServiceType checks if a non-completed
+// deployment exists that includes the given service type.
+func IsDataplaneDeploymentRunningForServiceType(
+	ctx context.Context,
+	h *helper.Helper,
+	namespace string,
+	dataplaneNodesets *dataplanev1.OpenStackDataPlaneNodeSetList,
+	serviceType string,
+) (bool, error) {
+	return findDataplaneDeploymentForServiceType(ctx, h, namespace, dataplaneNodesets, serviceType,
+		func(d *dataplanev1.OpenStackDataPlaneDeployment) bool {
+			return !d.Status.Deployed
+		})
+}
+
+// IsDataplaneDeploymentCompletedForServiceType checks if a completed deployment
+// exists for the given service type with the target version. This is used during
+// minor updates when the OVN image is unchanged between versions — the image
+// match alone is not sufficient, so we check for a completed deployment instead.
+func IsDataplaneDeploymentCompletedForServiceType(
+	ctx context.Context,
+	h *helper.Helper,
+	namespace string,
+	dataplaneNodesets *dataplanev1.OpenStackDataPlaneNodeSetList,
+	serviceType string,
+	targetVersion string,
+) (bool, error) {
+	return findDataplaneDeploymentForServiceType(ctx, h, namespace, dataplaneNodesets, serviceType,
+		func(d *dataplanev1.OpenStackDataPlaneDeployment) bool {
+			return d.Status.Deployed && d.Status.DeployedVersion == targetVersion
+		})
 }
 
 // DataplaneNodesetsDeployed returns true if all nodesets are deployed with the latest version
