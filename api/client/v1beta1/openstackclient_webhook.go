@@ -23,7 +23,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -52,7 +51,6 @@ func (r *OpenStackClient) SetupWebhookWithManager(mgr ctrl.Manager) error {
 
 // +kubebuilder:webhook:path=/mutate-client-openstack-org-v1beta1-openstackclient,mutating=true,failurePolicy=fail,sideEffects=None,groups=client.openstack.org,resources=openstackclients,verbs=create;update,versions=v1beta1,name=mopenstackclient.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Defaulter = &OpenStackClient{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (r *OpenStackClient) Default() {
@@ -71,7 +69,6 @@ func (spec *OpenStackClientSpec) Default() {
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
 // +kubebuilder:webhook:path=/validate-client-openstack-org-v1beta1-openstackclient,mutating=false,failurePolicy=fail,sideEffects=None,groups=client.openstack.org,resources=openstackclients,verbs=create;update,versions=v1beta1,name=vopenstackclient.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Validator = &OpenStackClient{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *OpenStackClient) ValidateCreate() (admission.Warnings, error) {

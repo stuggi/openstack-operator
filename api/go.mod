@@ -35,16 +35,17 @@ require (
 	go.uber.org/zap v1.27.1 // indirect
 	golang.org/x/exp v0.0.0-20241217172543-b2144cdd0a67
 	golang.org/x/tools v0.41.0 // indirect
-	k8s.io/api v0.31.14
-	k8s.io/apimachinery v0.31.14
-	k8s.io/client-go v0.31.14
+	k8s.io/api v0.33.11
+	k8s.io/apimachinery v0.33.11
+	k8s.io/client-go v0.33.11
 	k8s.io/utils v0.0.0-20250820121507-0af2bda4dd1d
-	sigs.k8s.io/controller-runtime v0.19.7
+	sigs.k8s.io/controller-runtime v0.21.0
 )
 
 require (
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/blang/semver/v4 v4.0.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
@@ -61,15 +62,12 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
-	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/pprof v0.0.0-20260115054156-294ebfa9ad83 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gophercloud/gophercloud/v2 v2.8.0 // indirect
-	github.com/imdario/mergo v0.3.16 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
@@ -102,9 +100,10 @@ require (
 	golang.org/x/time v0.12.0 // indirect
 	gomodules.xyz/jsonpatch/v2 v2.5.0 // indirect
 	google.golang.org/protobuf v1.36.7 // indirect
+	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/apiextensions-apiserver v0.33.2 // indirect
+	k8s.io/apiextensions-apiserver v0.33.11 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20250902184714-7fc278399c7f // indirect
 	sigs.k8s.io/gateway-api v1.2.1 // indirect
@@ -115,9 +114,9 @@ require (
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 
-// mschuppert: map to latest commit from release-4.18 tag
+// mschuppert: map to latest commit from release-4.20 tag
 // must consistent within modules and service operators
-replace github.com/openshift/api => github.com/openshift/api v0.0.0-20250711200046-c86d80652a9e //allow-merging
+replace github.com/openshift/api => github.com/openshift/api v0.0.0-20260107143020-50517c6f4bfd //allow-merging
 
 // custom RabbitmqClusterSpecCore for OpenStackControlplane (v2.16.0_patches)
 replace github.com/rabbitmq/cluster-operator/v2 => github.com/openstack-k8s-operators/rabbitmq-cluster-operator/v2 v2.6.1-0.20250929174222-a0d328fa4dec //allow-merging
@@ -125,20 +124,66 @@ replace github.com/rabbitmq/cluster-operator/v2 => github.com/openstack-k8s-oper
 // pin to support rabbitmq 2.16.0 rebase
 //replace k8s.io/kube-openapi => k8s.io/kube-openapi v0.0.0-20250627150254-e9823e99808e //allow-merging
 
-replace k8s.io/apimachinery => k8s.io/apimachinery v0.31.14 //allow-merging
+replace k8s.io/apimachinery => k8s.io/apimachinery v0.33.11 //allow-merging
 
-replace k8s.io/api => k8s.io/api v0.31.14 //allow-merging
+replace k8s.io/api => k8s.io/api v0.33.11 //allow-merging
 
-replace k8s.io/apiserver => k8s.io/apiserver v0.31.14 //allow-merging
+replace k8s.io/apiserver => k8s.io/apiserver v0.33.11 //allow-merging
 
-replace k8s.io/client-go => k8s.io/client-go v0.31.14 //allow-merging
+replace k8s.io/client-go => k8s.io/client-go v0.33.11 //allow-merging
 
-replace k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.31.14 //allow-merging
+replace k8s.io/apiextensions-apiserver => k8s.io/apiextensions-apiserver v0.33.11 //allow-merging
 
-replace k8s.io/cli-runtime => k8s.io/cli-runtime v0.31.14 //allow-merging
+replace k8s.io/cli-runtime => k8s.io/cli-runtime v0.33.11 //allow-merging
 
-replace k8s.io/code-generator => k8s.io/code-generator v0.31.14 //allow-merging
+replace k8s.io/code-generator => k8s.io/code-generator v0.33.11 //allow-merging
 
-replace k8s.io/component-base => k8s.io/component-base v0.31.14 //allow-merging
+replace k8s.io/component-base => k8s.io/component-base v0.33.11 //allow-merging
 
 replace github.com/cert-manager/cmctl/v2 => github.com/cert-manager/cmctl/v2 v2.1.2-0.20241127223932-88edb96860cf //allow-merging
+
+replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.21.0 //allow-merging
+
+replace github.com/openstack-k8s-operators/lib-common/modules/common => github.com/stuggi/lib-common/modules/common v0.0.0-20260429152920-f1900d36ca2b
+
+replace github.com/openstack-k8s-operators/lib-common/modules/storage => github.com/stuggi/lib-common/modules/storage v0.0.0-20260429152920-f1900d36ca2b
+
+replace github.com/openstack-k8s-operators/infra-operator/apis => github.com/stuggi/infra-operator/apis v0.0.0-20260429134914-41a7e59a5a38
+
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/stuggi/keystone-operator/api v0.0.0-20260429160458-495e7b1a1ff9
+
+replace github.com/openstack-k8s-operators/mariadb-operator/api => github.com/stuggi/mariadb-operator/api v0.0.0-20260429155043-94ed6e2dbe07
+
+replace github.com/openstack-k8s-operators/ovn-operator/api => github.com/stuggi/ovn-operator/api v0.0.0-20260430083155-c9b920f3fc72
+
+replace github.com/openstack-k8s-operators/nova-operator/api => github.com/stuggi/nova-operator/api v0.0.0-20260430083758-cb7665181e05
+
+replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/stuggi/neutron-operator/api v0.0.0-20260430084226-a9a77e682c1d
+
+replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/stuggi/cinder-operator/api v0.0.0-20260430091358-88f48a987f79
+
+replace github.com/openstack-k8s-operators/barbican-operator/api => github.com/stuggi/barbican-operator/api v0.0.0-20260430093502-60eb6a246db7
+
+replace github.com/openstack-k8s-operators/designate-operator/api => github.com/stuggi/designate-operator/api v0.0.0-20260430094528-d0ef7bff221a
+
+replace github.com/openstack-k8s-operators/horizon-operator/api => github.com/stuggi/horizon-operator/api v0.0.0-20260430085027-fa2617d65a3e
+
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/stuggi/glance-operator/api v0.0.0-20260430092218-5ae76824f036
+
+replace github.com/openstack-k8s-operators/manila-operator/api => github.com/stuggi/manila-operator/api v0.0.0-20260430092422-b8a5f0842e04
+
+replace github.com/openstack-k8s-operators/heat-operator/api => github.com/stuggi/heat-operator/api v0.0.0-20260430092547-055fd43af50d
+
+replace github.com/openstack-k8s-operators/ironic-operator/api => github.com/stuggi/ironic-operator/api v0.0.0-20260430092827-b145e0d36b73
+
+replace github.com/openstack-k8s-operators/octavia-operator/api => github.com/stuggi/octavia-operator/api v0.0.0-20260430093113-388344b2a9ff
+
+replace github.com/openstack-k8s-operators/swift-operator/api => github.com/stuggi/swift-operator/api v0.0.0-20260430093623-53d42492c000
+
+replace github.com/openstack-k8s-operators/placement-operator/api => github.com/stuggi/placement-operator/api v0.0.0-20260430093851-dcb05e21ece1
+
+replace github.com/openstack-k8s-operators/telemetry-operator/api => github.com/stuggi/telemetry-operator/api v0.0.0-20260430094116-9bfa3b70ff67
+
+replace github.com/openstack-k8s-operators/watcher-operator/api => github.com/stuggi/watcher-operator/api v0.0.0-20260430094004-e8bc2ecd27bf
+
+replace github.com/openstack-k8s-operators/openstack-baremetal-operator/api => github.com/stuggi/openstack-baremetal-operator/api v0.0.0-20260430094241-b11afe31140a

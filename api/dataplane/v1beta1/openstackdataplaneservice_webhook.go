@@ -23,7 +23,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
@@ -38,7 +37,6 @@ func (r *OpenStackDataPlaneService) SetupWebhookWithManager(mgr ctrl.Manager) er
 
 // +kubebuilder:webhook:path=/mutate-dataplane-openstack-org-v1beta1-openstackdataplaneservice,mutating=true,failurePolicy=fail,sideEffects=None,groups=dataplane.openstack.org,resources=openstackdataplaneservices,verbs=create;update,versions=v1beta1,name=mopenstackdataplaneservice.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Defaulter = &OpenStackDataPlaneService{}
 
 // Default implements webhook.Defaulter so a webhook will be registered for the type
 func (r *OpenStackDataPlaneService) Default() {
@@ -58,7 +56,6 @@ func (spec *OpenStackDataPlaneServiceSpec) Default(name string) {
 // TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
 // +kubebuilder:webhook:path=/validate-dataplane-openstack-org-v1beta1-openstackdataplaneservice,mutating=false,failurePolicy=fail,sideEffects=None,groups=dataplane.openstack.org,resources=openstackdataplaneservices,verbs=create;update,versions=v1beta1,name=vopenstackdataplaneservice.kb.io,admissionReviewVersions=v1
 
-var _ webhook.Validator = &OpenStackDataPlaneService{}
 
 // ValidateCreate implements webhook.Validator so a webhook will be registered for the type
 func (r *OpenStackDataPlaneService) ValidateCreate() (admission.Warnings, error) {
