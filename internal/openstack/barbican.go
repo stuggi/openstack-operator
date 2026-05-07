@@ -38,8 +38,10 @@ func ReconcileBarbican(ctx context.Context, instance *corev1beta1.OpenStackContr
 		instance.Status.ContainerImages.BarbicanWorkerImage = nil
 		instance.Status.ContainerImages.BarbicanKeystoneListenerImage = nil
 		// Clean up AC CRs when service is disabled
-		if err := CleanupApplicationCredentialForService(ctx, helper, instance, barbican.Name); err != nil {
+		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, barbican.Name); err != nil {
 			return ctrl.Result{}, err
+		} else if (result != ctrl.Result{}) {
+			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -96,15 +98,15 @@ func ReconcileBarbican(ctx context.Context, instance *corev1beta1.OpenStackContr
 			return ctrl.Result{}, err
 		}
 
-		// If AC is not ready, return immediately without updating the service CR
+		// Set ApplicationCredentialSecret based on what the helper returned:
+		// - If AC not ready yet: returns "" — skip to avoid clearing existing value
+		// - If AC enabled and ready: returns the AC secret name
+		if acSecretName != "" {
+			instance.Spec.Barbican.Template.Auth.ApplicationCredentialSecret = acSecretName
+		}
 		if (acResult != ctrl.Result{}) {
 			return acResult, nil
 		}
-
-		// Set ApplicationCredentialSecret based on what the helper returned:
-		// - If AC disabled: returns ""
-		// - If AC enabled and ready: returns the AC secret name
-		instance.Spec.Barbican.Template.Auth.ApplicationCredentialSecret = acSecretName
 	}
 
 	// preserve any previously set TLS certs, set CA cert

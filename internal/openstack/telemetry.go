@@ -56,8 +56,10 @@ func ReconcileTelemetry(ctx context.Context, instance *corev1beta1.OpenStackCont
 		instance.Status.ContainerImages.CloudKittyProcImage = nil
 		// Clean up AC CRs when service is disabled (telemetry has three: aodh, ceilometer, cloudkitty)
 		for _, svcName := range []string{"aodh", "ceilometer", "cloudkitty"} {
-			if err := CleanupApplicationCredentialForService(ctx, helper, instance, svcName); err != nil {
+			if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, svcName); err != nil {
 				return ctrl.Result{}, err
+			} else if (result != ctrl.Result{}) {
+				return result, nil
 			}
 		}
 		return ctrl.Result{}, nil
@@ -158,20 +160,24 @@ func ReconcileTelemetry(ctx context.Context, instance *corev1beta1.OpenStackCont
 				return ctrl.Result{}, err
 			}
 
-			// If AC is not ready, return immediately without updating the service CR
-			if (aodhACResult != ctrl.Result{}) {
+			// We only propagate the AC secret when it's actually ready (non-empty).
+			// This avoids overwriting an existing value while the AC CR is still
+			// being created. For EDPM services, the RequeueAfter for EDPM sync is
+			// handled centrally by HasPendingEDPMSync at the end of reconcileNormal,
+			// so we do NOT return early for a pending EDPM sync here.
+			if aodhACSecretName != "" {
+				instance.Spec.Telemetry.Template.Autoscaling.Aodh.Auth.ApplicationCredentialSecret = aodhACSecretName
+			}
+			if aodhACSecretName == "" && (aodhACResult != ctrl.Result{}) {
 				return aodhACResult, nil
 			}
-
-			// Set ApplicationCredentialSecret for Aodh based on what the helper returned:
-			// - If AC disabled: returns ""
-			// - If AC enabled and ready: returns the AC secret name
-			instance.Spec.Telemetry.Template.Autoscaling.Aodh.Auth.ApplicationCredentialSecret = aodhACSecretName
 		}
 	} else {
 		// Aodh sub-service disabled - clean up AC CR and clear secret field
-		if err := CleanupApplicationCredentialForService(ctx, helper, instance, "aodh"); err != nil {
+		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, "aodh"); err != nil {
 			return ctrl.Result{}, err
+		} else if (result != ctrl.Result{}) {
+			return result, nil
 		}
 		instance.Spec.Telemetry.Template.Autoscaling.Aodh.Auth.ApplicationCredentialSecret = ""
 	}
@@ -203,20 +209,24 @@ func ReconcileTelemetry(ctx context.Context, instance *corev1beta1.OpenStackCont
 				return ctrl.Result{}, err
 			}
 
-			// If AC is not ready, return immediately without updating the service CR
-			if (ceilometerACResult != ctrl.Result{}) {
+			// We only propagate the AC secret when it's actually ready (non-empty).
+			// This avoids overwriting an existing value while the AC CR is still
+			// being created. For EDPM services, the RequeueAfter for EDPM sync is
+			// handled centrally by HasPendingEDPMSync at the end of reconcileNormal,
+			// so we do NOT return early for a pending EDPM sync here.
+			if ceilometerACSecretName != "" {
+				instance.Spec.Telemetry.Template.Ceilometer.Auth.ApplicationCredentialSecret = ceilometerACSecretName
+			}
+			if ceilometerACSecretName == "" && (ceilometerACResult != ctrl.Result{}) {
 				return ceilometerACResult, nil
 			}
-
-			// Set ApplicationCredentialSecret for Ceilometer based on what the helper returned:
-			// - If AC disabled: returns ""
-			// - If AC enabled and ready: returns the AC secret name
-			instance.Spec.Telemetry.Template.Ceilometer.Auth.ApplicationCredentialSecret = ceilometerACSecretName
 		}
 	} else {
 		// Ceilometer sub-service disabled - clean up AC CR and clear secret field
-		if err := CleanupApplicationCredentialForService(ctx, helper, instance, "ceilometer"); err != nil {
+		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, "ceilometer"); err != nil {
 			return ctrl.Result{}, err
+		} else if (result != ctrl.Result{}) {
+			return result, nil
 		}
 		instance.Spec.Telemetry.Template.Ceilometer.Auth.ApplicationCredentialSecret = ""
 	}
@@ -247,20 +257,24 @@ func ReconcileTelemetry(ctx context.Context, instance *corev1beta1.OpenStackCont
 				return ctrl.Result{}, err
 			}
 
-			// If AC is not ready, return immediately without updating the service CR
-			if (cloudkittyACResult != ctrl.Result{}) {
+			// We only propagate the AC secret when it's actually ready (non-empty).
+			// This avoids overwriting an existing value while the AC CR is still
+			// being created. For EDPM services, the RequeueAfter for EDPM sync is
+			// handled centrally by HasPendingEDPMSync at the end of reconcileNormal,
+			// so we do NOT return early for a pending EDPM sync here.
+			if cloudkittyACSecretName != "" {
+				instance.Spec.Telemetry.Template.CloudKitty.Auth.ApplicationCredentialSecret = cloudkittyACSecretName
+			}
+			if cloudkittyACSecretName == "" && (cloudkittyACResult != ctrl.Result{}) {
 				return cloudkittyACResult, nil
 			}
-
-			// Set ApplicationCredentialSecret for CloudKitty based on what the helper returned:
-			// - If AC disabled: returns ""
-			// - If AC enabled and ready: returns the AC secret name
-			instance.Spec.Telemetry.Template.CloudKitty.Auth.ApplicationCredentialSecret = cloudkittyACSecretName
 		}
 	} else {
 		// CloudKitty sub-service disabled - clean up AC CR and clear secret field
-		if err := CleanupApplicationCredentialForService(ctx, helper, instance, "cloudkitty"); err != nil {
+		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, "cloudkitty"); err != nil {
 			return ctrl.Result{}, err
+		} else if (result != ctrl.Result{}) {
+			return result, nil
 		}
 		instance.Spec.Telemetry.Template.CloudKitty.Auth.ApplicationCredentialSecret = ""
 	}

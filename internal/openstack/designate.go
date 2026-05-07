@@ -42,8 +42,10 @@ func ReconcileDesignate(ctx context.Context, instance *corev1beta1.OpenStackCont
 		instance.Status.ContainerImages.DesignateUnboundImage = nil
 		instance.Status.ContainerImages.NetUtilsImage = nil
 		// Clean up AC CRs when service is disabled
-		if err := CleanupApplicationCredentialForService(ctx, helper, instance, designate.Name); err != nil {
+		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, designate.Name); err != nil {
 			return ctrl.Result{}, err
+		} else if (result != ctrl.Result{}) {
+			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -108,15 +110,15 @@ func ReconcileDesignate(ctx context.Context, instance *corev1beta1.OpenStackCont
 			return ctrl.Result{}, err
 		}
 
-		// If AC is not ready, return immediately without updating the service CR
+		// Set ApplicationCredentialSecret based on what the helper returned:
+		// - If AC not ready yet: returns "" — skip to avoid clearing existing value
+		// - If AC enabled and ready: returns the AC secret name
+		if acSecretName != "" {
+			instance.Spec.Designate.Template.DesignateAPI.Auth.ApplicationCredentialSecret = acSecretName
+		}
 		if (acResult != ctrl.Result{}) {
 			return acResult, nil
 		}
-
-		// Set ApplicationCredentialSecret based on what the helper returned:
-		// - If AC disabled: returns ""
-		// - If AC enabled and ready: returns the AC secret name
-		instance.Spec.Designate.Template.DesignateAPI.Auth.ApplicationCredentialSecret = acSecretName
 	}
 
 	svcs, err := service.GetServicesListWithLabel(

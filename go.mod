@@ -176,3 +176,33 @@ replace k8s.io/code-generator => k8s.io/code-generator v0.31.14 //allow-merging
 replace k8s.io/component-base => k8s.io/component-base v0.31.14 //allow-merging
 
 replace github.com/cert-manager/cmctl/v2 => github.com/cert-manager/cmctl/v2 v2.1.2-0.20241127223932-88edb96860cf //allow-merging
+
+replace github.com/openstack-k8s-operators/barbican-operator/api => github.com/Deydra71/barbican-operator/api v0.0.0-20260423060613-1a83ee4b32ff
+
+replace github.com/openstack-k8s-operators/cinder-operator/api => github.com/Deydra71/cinder-operator/api v0.0.0-20260423061635-d373193f22ad
+
+replace github.com/openstack-k8s-operators/glance-operator/api => github.com/Deydra71/glance-operator/api v0.0.0-20260422103930-171799379396
+
+replace github.com/openstack-k8s-operators/manila-operator/api => github.com/Deydra71/manila-operator/api v0.0.0-20260423062305-c91273f0d07b
+
+replace github.com/openstack-k8s-operators/swift-operator/api => github.com/Deydra71/swift-operator/api v0.0.0-20260423062819-c589f2f8b0d8
+
+replace github.com/openstack-k8s-operators/octavia-operator/api => github.com/Deydra71/octavia-operator/api v0.0.0-20260423095422-2c17f6844a1b
+
+replace github.com/openstack-k8s-operators/neutron-operator/api => github.com/Deydra71/neutron-operator/api v0.0.0-20260423100803-67833c8a7a98
+
+replace github.com/openstack-k8s-operators/heat-operator/api => github.com/Deydra71/heat-operator/api v0.0.0-20260423101552-d14e4845b001
+
+replace github.com/openstack-k8s-operators/designate-operator/api => github.com/Deydra71/designate-operator/api v0.0.0-20260423102530-d048085f0cab
+
+replace github.com/openstack-k8s-operators/keystone-operator/api => github.com/Deydra71/keystone-operator/api v0.0.0-20260424093804-00a0ccdc9d20
+
+replace github.com/openstack-k8s-operators/ironic-operator/api => github.com/Deydra71/ironic-operator/api v0.0.0-20260424110450-d04813c021e5
+
+replace github.com/openstack-k8s-operators/watcher-operator/api => github.com/Deydra71/watcher-operator/api v0.0.0-20260424133808-685c276a7622
+
+replace github.com/openstack-k8s-operators/nova-operator/api => github.com/Deydra71/nova-operator/api v0.0.0-20260424134355-1f9ae2f841ec
+
+replace github.com/openstack-k8s-operators/placement-operator/api => github.com/Deydra71/placement-operator/api v0.0.0-20260424134154-9d4962b768f0
+
+replace github.com/openstack-k8s-operators/telemetry-operator/api => github.com/Deydra71/telemetry-operator/api v0.0.0-20260428064046-d92953a92991

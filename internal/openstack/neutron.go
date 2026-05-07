@@ -40,8 +40,10 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 		instance.Status.Conditions.Remove(corev1beta1.OpenStackControlPlaneExposeNeutronReadyCondition)
 		instance.Status.ContainerImages.NeutronAPIImage = nil
 		// Clean up AC CRs when service is disabled
-		if err := CleanupApplicationCredentialForService(ctx, helper, instance, neutronAPI.Name); err != nil {
+		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, neutronAPI.Name); err != nil {
 			return ctrl.Result{}, err
+		} else if (result != ctrl.Result{}) {
+			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -142,15 +144,15 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 			return ctrl.Result{}, err
 		}
 
-		// If AC is not ready, return immediately without updating the service CR
+		// Set ApplicationCredentialSecret based on what the helper returned:
+		// - If AC not ready yet: returns "" — skip to avoid clearing existing value
+		// - If AC enabled and ready: returns the AC secret name
+		if acSecretName != "" {
+			instance.Spec.Neutron.Template.Auth.ApplicationCredentialSecret = acSecretName
+		}
 		if (acResult != ctrl.Result{}) {
 			return acResult, nil
 		}
-
-		// Set ApplicationCredentialSecret based on what the helper returned:
-		// - If AC disabled: returns ""
-		// - If AC enabled and ready: returns the AC secret name
-		instance.Spec.Neutron.Template.Auth.ApplicationCredentialSecret = acSecretName
 	}
 
 	svcs, err := service.GetServicesListWithLabel(

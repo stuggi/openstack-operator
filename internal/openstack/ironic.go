@@ -41,11 +41,15 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 		instance.Status.ContainerImages.IronicPxeImage = nil
 		instance.Status.ContainerImages.IronicPythonAgentImage = nil
 		// Clean up AC CRs when service is disabled (ironic has two: ironic and ironic-inspector)
-		if err := CleanupApplicationCredentialForService(ctx, helper, instance, ironic.Name); err != nil {
+		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, ironic.Name); err != nil {
 			return ctrl.Result{}, err
+		} else if (result != ctrl.Result{}) {
+			return result, nil
 		}
-		if err := CleanupApplicationCredentialForService(ctx, helper, instance, "ironic-inspector"); err != nil {
+		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, "ironic-inspector"); err != nil {
 			return ctrl.Result{}, err
+		} else if (result != ctrl.Result{}) {
+			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -152,15 +156,15 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 			return ctrl.Result{}, err
 		}
 
-		// If AC is not ready, return immediately without updating the service CR
+		// Set ApplicationCredentialSecret based on what the helper returned:
+		// - If AC not ready yet: returns "" — skip to avoid clearing existing value
+		// - If AC enabled and ready: returns the AC secret name
+		if ironicACSecretName != "" {
+			instance.Spec.Ironic.Template.Auth.ApplicationCredentialSecret = ironicACSecretName
+		}
 		if (acResult != ctrl.Result{}) {
 			return acResult, nil
 		}
-
-		// Set ApplicationCredentialSecret for main ironic service based on what the helper returned:
-		// - If AC disabled: returns ""
-		// - If AC enabled and ready: returns the AC secret name
-		instance.Spec.Ironic.Template.Auth.ApplicationCredentialSecret = ironicACSecretName
 
 		// AC for ironic-inspector (separate user, separate AC, but shares the same secret as ironic)
 		inspectorACSecretName, inspectorACResult, err := EnsureApplicationCredentialForService(
@@ -178,15 +182,15 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 			return ctrl.Result{}, err
 		}
 
-		// If AC is not ready, return immediately without updating the service CR
+		// Set ApplicationCredentialSecret based on what the helper returned:
+		// - If AC not ready yet: returns "" — skip to avoid clearing existing value
+		// - If AC enabled and ready: returns the AC secret name
+		if inspectorACSecretName != "" {
+			instance.Spec.Ironic.Template.IronicInspector.Auth.ApplicationCredentialSecret = inspectorACSecretName
+		}
 		if (inspectorACResult != ctrl.Result{}) {
 			return inspectorACResult, nil
 		}
-
-		// Set ApplicationCredentialSecret for ironic-inspector based on what the helper returned:
-		// - If AC disabled: returns ""
-		// - If AC enabled and ready: returns the AC secret name
-		instance.Spec.Ironic.Template.IronicInspector.Auth.ApplicationCredentialSecret = inspectorACSecretName
 	}
 
 	// Ironic API

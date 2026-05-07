@@ -742,6 +742,13 @@ func (r *OpenStackControlPlaneReconciler) reconcileNormal(ctx context.Context, i
 
 	instance.Status.Conditions.Remove(corev1beta1.OpenStackControlPlaneCertCleanupReadyCondition)
 
+	ctrlResult, err = openstack.HasPendingEDPMSync(ctx, helper, instance.Namespace)
+	if err != nil {
+		return ctrl.Result{}, err
+	} else if (ctrlResult != ctrl.Result{}) {
+		return ctrlResult, nil
+	}
+
 	return ctrl.Result{}, nil
 }
 

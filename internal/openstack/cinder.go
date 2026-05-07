@@ -60,8 +60,10 @@ func ReconcileCinder(ctx context.Context, instance *corev1beta1.OpenStackControl
 		instance.Status.ContainerImages.CinderBackupImage = nil
 		instance.Status.ContainerImages.CinderVolumeImages = make(map[string]*string)
 		// Clean up AC CRs when service is disabled
-		if err := CleanupApplicationCredentialForService(ctx, helper, instance, cinder.Name); err != nil {
+		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, cinder.Name); err != nil {
 			return ctrl.Result{}, err
+		} else if (result != ctrl.Result{}) {
+			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -119,15 +121,15 @@ func ReconcileCinder(ctx context.Context, instance *corev1beta1.OpenStackControl
 			return ctrl.Result{}, err
 		}
 
-		// If AC is not ready, return immediately without updating the service CR
+		// Set ApplicationCredentialSecret based on what the helper returned:
+		// - If AC not ready yet: returns "" — skip to avoid clearing existing value
+		// - If AC enabled and ready: returns the AC secret name
+		if acSecretName != "" {
+			instance.Spec.Cinder.Template.Auth.ApplicationCredentialSecret = acSecretName
+		}
 		if (acResult != ctrl.Result{}) {
 			return acResult, nil
 		}
-
-		// Set ApplicationCredentialSecret based on what the helper returned:
-		// - If AC disabled: returns ""
-		// - If AC enabled and ready: returns the AC secret name
-		instance.Spec.Cinder.Template.Auth.ApplicationCredentialSecret = acSecretName
 	}
 
 	// preserve any previously set TLS certs,set CA cert

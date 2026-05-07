@@ -65,8 +65,10 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 		instance.Status.Conditions.Remove(corev1beta1.OpenStackControlPlaneExposeGlanceReadyCondition)
 		instance.Status.ContainerImages.GlanceAPIImage = nil
 		// Clean up AC CRs when service is disabled
-		if err := CleanupApplicationCredentialForService(ctx, helper, instance, glance.Name); err != nil {
+		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, glance.Name); err != nil {
 			return ctrl.Result{}, err
+		} else if (result != ctrl.Result{}) {
+			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -149,17 +151,17 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 			return ctrl.Result{}, err
 		}
 
-		// If AC is not ready, return immediately without updating the service CR
+		// Set ApplicationCredentialSecret based on what the helper returned:
+		// - If AC not ready yet: returns "" — skip to avoid clearing existing value
+		// - If AC enabled and ready: returns the AC secret name
+		if acSecretName != "" {
+			for name, glanceAPI := range instance.Spec.Glance.Template.GlanceAPIs {
+				glanceAPI.Auth.ApplicationCredentialSecret = acSecretName
+				instance.Spec.Glance.Template.GlanceAPIs[name] = glanceAPI
+			}
+		}
 		if (acResult != ctrl.Result{}) {
 			return acResult, nil
-		}
-
-		// Set ApplicationCredentialSecret for all GlanceAPIs based on what the helper returned:
-		// - If AC disabled: returns ""
-		// - If AC enabled and ready: returns the AC secret name
-		for name, glanceAPI := range instance.Spec.Glance.Template.GlanceAPIs {
-			glanceAPI.Auth.ApplicationCredentialSecret = acSecretName
-			instance.Spec.Glance.Template.GlanceAPIs[name] = glanceAPI
 		}
 	}
 
