@@ -41,10 +41,8 @@ func ReconcileSwift(ctx context.Context, instance *corev1beta1.OpenStackControlP
 		instance.Status.ContainerImages.SwiftObjectImage = nil
 		instance.Status.ContainerImages.SwiftProxyImage = nil
 		// Clean up AC CRs when service is disabled
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, swift.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, swift.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -129,6 +127,7 @@ func ReconcileSwift(ctx context.Context, instance *corev1beta1.OpenStackControlP
 			instance.Spec.Swift.Template.SwiftProxy.PasswordSelectors.Service,
 			instance.Spec.Swift.Template.SwiftProxy.ServiceUser,
 			instance.Spec.Swift.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err

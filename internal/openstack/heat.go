@@ -41,10 +41,8 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 		instance.Status.ContainerImages.HeatCfnapiImage = nil
 		instance.Status.ContainerImages.HeatEngineImage = nil
 		// Clean up AC CRs when service is disabled
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, heat.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, heat.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -136,6 +134,7 @@ func ReconcileHeat(ctx context.Context, instance *corev1beta1.OpenStackControlPl
 			instance.Spec.Heat.Template.PasswordSelectors.Service,
 			instance.Spec.Heat.Template.ServiceUser,
 			instance.Spec.Heat.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err

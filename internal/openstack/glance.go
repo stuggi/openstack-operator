@@ -65,10 +65,8 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 		instance.Status.Conditions.Remove(corev1beta1.OpenStackControlPlaneExposeGlanceReadyCondition)
 		instance.Status.ContainerImages.GlanceAPIImage = nil
 		// Clean up AC CRs when service is disabled
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, glance.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, glance.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -146,6 +144,7 @@ func ReconcileGlance(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Glance.Template.PasswordSelectors.Service,
 			instance.Spec.Glance.Template.ServiceUser,
 			instance.Spec.Glance.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err

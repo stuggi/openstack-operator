@@ -39,10 +39,8 @@ func ReconcileManila(ctx context.Context, instance *corev1beta1.OpenStackControl
 		instance.Status.ContainerImages.ManilaSchedulerImage = nil
 		instance.Status.ContainerImages.ManilaShareImages = make(map[string]*string)
 		// Clean up AC CRs when service is disabled
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, manila.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, manila.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -95,6 +93,7 @@ func ReconcileManila(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Manila.Template.PasswordSelectors.Service,
 			instance.Spec.Manila.Template.ServiceUser,
 			instance.Spec.Manila.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err

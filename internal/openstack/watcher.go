@@ -37,10 +37,8 @@ func ReconcileWatcher(ctx context.Context, instance *corev1beta1.OpenStackContro
 		instance.Status.ContainerImages.WatcherApplierImage = nil
 		instance.Status.ContainerImages.WatcherDecisionEngineImage = nil
 		// Clean up AC CRs when service is disabled
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, watcher.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, watcher.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -108,6 +106,7 @@ func ReconcileWatcher(ctx context.Context, instance *corev1beta1.OpenStackContro
 			getWatcherPasswordSelector(),
 			getWatcherServiceUser(),
 			instance.Spec.Watcher.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err

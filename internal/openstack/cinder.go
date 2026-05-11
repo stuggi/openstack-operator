@@ -60,10 +60,8 @@ func ReconcileCinder(ctx context.Context, instance *corev1beta1.OpenStackControl
 		instance.Status.ContainerImages.CinderBackupImage = nil
 		instance.Status.ContainerImages.CinderVolumeImages = make(map[string]*string)
 		// Clean up AC CRs when service is disabled
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, cinder.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, cinder.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -116,6 +114,7 @@ func ReconcileCinder(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Cinder.Template.PasswordSelectors.Service,
 			instance.Spec.Cinder.Template.ServiceUser,
 			instance.Spec.Cinder.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err

@@ -76,19 +76,19 @@ func readyACCR(name, namespace, secretName string, annotations map[string]string
 	return cr
 }
 
-// --- HasPendingEDPMSync tests ---
+// --- ReconcilePendingEDPMSyncs tests ---
 
-func TestHasPendingEDPMSync_NoACCRs(t *testing.T) {
+func TestReconcilePendingEDPMSyncs_NoACCRs(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
 	h := acTestHelper()
 
-	result, err := HasPendingEDPMSync(ctx, h, "test-ns")
+	result, err := ReconcilePendingEDPMSyncs(ctx, h, "test-ns")
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(Equal(ctrl.Result{}), "should return zero result when no AC CRs exist")
 }
 
-func TestHasPendingEDPMSync_DeployedMatchesCurrent(t *testing.T) {
+func TestReconcilePendingEDPMSyncs_DeployedMatchesCurrent(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -100,36 +100,65 @@ func TestHasPendingEDPMSync_DeployedMatchesCurrent(t *testing.T) {
 	})
 
 	h := acTestHelper(novaAC, ceilAC)
-	// Patch status since fake client doesn't apply status from initial object
 	novaAC.Status.SecretName = "ac-nova-abc12-secret"
 	g.Expect(h.GetClient().Status().Update(ctx, novaAC)).To(Succeed())
 	ceilAC.Status.SecretName = "ac-ceilometer-def34-secret"
 	g.Expect(h.GetClient().Status().Update(ctx, ceilAC)).To(Succeed())
 
-	result, err := HasPendingEDPMSync(ctx, h, "test-ns")
+	result, err := ReconcilePendingEDPMSyncs(ctx, h, "test-ns")
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(Equal(ctrl.Result{}), "should return zero result when deployed == current for all services")
 }
 
-func TestHasPendingEDPMSync_DeployedDiffersFromCurrent(t *testing.T) {
+func TestReconcilePendingEDPMSyncs_DeployedDiffersFromCurrent(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
 
-	novaAC := readyACCR("ac-nova", "test-ns", "ac-nova-NEW-secret", map[string]string{
-		EDPMDeployedSecretAnnotation: "ac-nova-OLD-secret",
+	acCR := readyACCR("ac-nova", "test-ns", "ac-nova-NEW-secret", map[string]string{
+		EDPMDeployedSecretAnnotation:    "ac-nova-OLD-secret",
+		EDPMSyncedConfigHashAnnotation: "old-hash",
 	})
+	oldSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "ac-nova-OLD-secret", Namespace: "test-ns"},
+		Data:       map[string][]byte{"credential": []byte("old")},
+	}
+	configSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "nova-config", Namespace: "test-ns"},
+		Data:       map[string][]byte{"config": []byte("new-config")},
+	}
+	dpSvc := &dataplanev1.OpenStackDataPlaneService{
+		ObjectMeta: metav1.ObjectMeta{Name: "nova", Namespace: "test-ns"},
+		Spec: dataplanev1.OpenStackDataPlaneServiceSpec{
+			EDPMServiceType: "nova",
+			DataSources: []dataplanev1.DataSource{
+				{SecretRef: &dataplanev1.SecretEnvSource{LocalObjectReference: dataplanev1.LocalObjectReference{Name: "nova-config"}}},
+			},
+		},
+	}
 
-	h := acTestHelper(novaAC)
-	novaAC.Status.SecretName = "ac-nova-NEW-secret"
-	g.Expect(h.GetClient().Status().Update(ctx, novaAC)).To(Succeed())
+	ns := &dataplanev1.OpenStackDataPlaneNodeSet{
+		ObjectMeta: metav1.ObjectMeta{Name: "compute-0", Namespace: "test-ns"},
+		Spec: dataplanev1.OpenStackDataPlaneNodeSetSpec{
+			PreProvisioned: true,
+			Services:       []string{"nova"},
+			Nodes:          map[string]dataplanev1.NodeSection{},
+			NodeTemplate:   dataplanev1.NodeTemplate{},
+		},
+	}
 
-	result, err := HasPendingEDPMSync(ctx, h, "test-ns")
+	h := acTestHelper(acCR, oldSecret, configSecret, dpSvc, ns)
+	acCR.Status.SecretName = "ac-nova-NEW-secret"
+	g.Expect(h.GetClient().Status().Update(ctx, acCR)).To(Succeed())
+	ns.Status.SecretHashes = map[string]string{"nova-config": "stale-hash"}
+	g.Expect(h.GetClient().Status().Update(ctx, ns)).To(Succeed())
+
+	result, err := ReconcilePendingEDPMSyncs(ctx, h, "test-ns")
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(Equal(EDPMSyncRequeueInterval),
-		"should return RequeueAfter when deployed != current")
+	g.Expect(result.RequeueAfter).To(Equal(EDPMSyncFallbackInterval),
+		"should return RequeueAfter when deployed != current and NodeSets not synced")
 }
 
-func TestHasPendingEDPMSync_NoAnnotationMeansNoSync(t *testing.T) {
+func TestReconcilePendingEDPMSyncs_NoAnnotationMeansNoSync(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
 
@@ -139,33 +168,117 @@ func TestHasPendingEDPMSync_NoAnnotationMeansNoSync(t *testing.T) {
 	novaAC.Status.SecretName = "ac-nova-abc12-secret"
 	g.Expect(h.GetClient().Status().Update(ctx, novaAC)).To(Succeed())
 
-	result, err := HasPendingEDPMSync(ctx, h, "test-ns")
+	result, err := ReconcilePendingEDPMSyncs(ctx, h, "test-ns")
 	g.Expect(err).ToNot(HaveOccurred())
 	g.Expect(result).To(Equal(ctrl.Result{}),
-		"should return zero result when deployed-secret annotation is empty (tracking not yet initialized)")
+		"should return zero result when no EDPM annotations are set")
 }
 
-func TestHasPendingEDPMSync_OnlyOneServiceStale(t *testing.T) {
+// --- getEDPMConfigSecretNames tests ---
+
+func TestGetEDPMConfigSecretNames_EmptyServiceType(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+	h := acTestHelper()
+
+	names, err := getEDPMConfigSecretNames(ctx, h.GetClient(), "test-ns", "")
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(names).To(BeNil(), "should return nil for empty service type")
+}
+
+func TestGetEDPMConfigSecretNames_DynamicDiscovery(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
 
-	novaAC := readyACCR("ac-nova", "test-ns", "ac-nova-NEW-secret", map[string]string{
-		EDPMDeployedSecretAnnotation: "ac-nova-NEW-secret",
-	})
-	ceilAC := readyACCR("ac-ceilometer", "test-ns", "ac-ceilometer-NEW-secret", map[string]string{
-		EDPMDeployedSecretAnnotation: "ac-ceilometer-OLD-secret",
-	})
+	svc := &dataplanev1.OpenStackDataPlaneService{
+		ObjectMeta: metav1.ObjectMeta{Name: "nova", Namespace: "test-ns"},
+		Spec: dataplanev1.OpenStackDataPlaneServiceSpec{
+			EDPMServiceType: "nova",
+			DataSources: []dataplanev1.DataSource{
+				{SecretRef: &dataplanev1.SecretEnvSource{LocalObjectReference: dataplanev1.LocalObjectReference{Name: "nova-cell1-config"}}},
+				{SecretRef: &dataplanev1.SecretEnvSource{LocalObjectReference: dataplanev1.LocalObjectReference{Name: "nova-compute-config"}}},
+			},
+		},
+	}
 
-	h := acTestHelper(novaAC, ceilAC)
-	novaAC.Status.SecretName = "ac-nova-NEW-secret"
-	g.Expect(h.GetClient().Status().Update(ctx, novaAC)).To(Succeed())
-	ceilAC.Status.SecretName = "ac-ceilometer-NEW-secret"
-	g.Expect(h.GetClient().Status().Update(ctx, ceilAC)).To(Succeed())
-
-	result, err := HasPendingEDPMSync(ctx, h, "test-ns")
+	h := acTestHelper(svc)
+	names, err := getEDPMConfigSecretNames(ctx, h.GetClient(), "test-ns", "nova")
 	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(result.RequeueAfter).To(Equal(EDPMSyncRequeueInterval),
-		"should return RequeueAfter when even one service has deployed != current")
+	g.Expect(names).To(ConsistOf("nova-cell1-config", "nova-compute-config"))
+}
+
+func TestGetEDPMConfigSecretNames_CustomService(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	// Custom service with a different name but same EDPMServiceType
+	customSvc := &dataplanev1.OpenStackDataPlaneService{
+		ObjectMeta: metav1.ObjectMeta{Name: "custom-nova-compute", Namespace: "test-ns"},
+		Spec: dataplanev1.OpenStackDataPlaneServiceSpec{
+			EDPMServiceType: "nova",
+			DataSources: []dataplanev1.DataSource{
+				{SecretRef: &dataplanev1.SecretEnvSource{LocalObjectReference: dataplanev1.LocalObjectReference{Name: "custom-nova-config"}}},
+			},
+		},
+	}
+
+	h := acTestHelper(customSvc)
+	names, err := getEDPMConfigSecretNames(ctx, h.GetClient(), "test-ns", "nova")
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(names).To(ConsistOf("custom-nova-config"),
+		"should discover custom services by EDPMServiceType")
+}
+
+func TestGetEDPMConfigSecretNames_MultipleServicesUnion(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	svc1 := &dataplanev1.OpenStackDataPlaneService{
+		ObjectMeta: metav1.ObjectMeta{Name: "nova", Namespace: "test-ns"},
+		Spec: dataplanev1.OpenStackDataPlaneServiceSpec{
+			EDPMServiceType: "nova",
+			DataSources: []dataplanev1.DataSource{
+				{SecretRef: &dataplanev1.SecretEnvSource{LocalObjectReference: dataplanev1.LocalObjectReference{Name: "nova-config"}}},
+			},
+		},
+	}
+	svc2 := &dataplanev1.OpenStackDataPlaneService{
+		ObjectMeta: metav1.ObjectMeta{Name: "nova-custom", Namespace: "test-ns"},
+		Spec: dataplanev1.OpenStackDataPlaneServiceSpec{
+			EDPMServiceType: "nova",
+			DataSources: []dataplanev1.DataSource{
+				{SecretRef: &dataplanev1.SecretEnvSource{LocalObjectReference: dataplanev1.LocalObjectReference{Name: "nova-custom-config"}}},
+				{SecretRef: &dataplanev1.SecretEnvSource{LocalObjectReference: dataplanev1.LocalObjectReference{Name: "nova-config"}}}, // duplicate
+			},
+		},
+	}
+
+	h := acTestHelper(svc1, svc2)
+	names, err := getEDPMConfigSecretNames(ctx, h.GetClient(), "test-ns", "nova")
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(names).To(ConsistOf("nova-config", "nova-custom-config"),
+		"should return union of secrets, deduplicated")
+}
+
+func TestGetEDPMConfigSecretNames_DefaultsToName(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	// EDPMServiceType not set — defaults to CR name
+	svc := &dataplanev1.OpenStackDataPlaneService{
+		ObjectMeta: metav1.ObjectMeta{Name: "nova", Namespace: "test-ns"},
+		Spec: dataplanev1.OpenStackDataPlaneServiceSpec{
+			DataSources: []dataplanev1.DataSource{
+				{SecretRef: &dataplanev1.SecretEnvSource{LocalObjectReference: dataplanev1.LocalObjectReference{Name: "nova-config"}}},
+			},
+		},
+	}
+
+	h := acTestHelper(svc)
+	names, err := getEDPMConfigSecretNames(ctx, h.GetClient(), "test-ns", "nova")
+	g.Expect(err).ToNot(HaveOccurred())
+	g.Expect(names).To(ConsistOf("nova-config"),
+		"should match on CR name when EDPMServiceType is empty")
 }
 
 // --- allNodeSetsSynced tests ---

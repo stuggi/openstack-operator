@@ -38,10 +38,8 @@ func ReconcileBarbican(ctx context.Context, instance *corev1beta1.OpenStackContr
 		instance.Status.ContainerImages.BarbicanWorkerImage = nil
 		instance.Status.ContainerImages.BarbicanKeystoneListenerImage = nil
 		// Clean up AC CRs when service is disabled
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, barbican.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, barbican.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -93,6 +91,7 @@ func ReconcileBarbican(ctx context.Context, instance *corev1beta1.OpenStackContr
 			instance.Spec.Barbican.Template.PasswordSelectors.Service,
 			instance.Spec.Barbican.Template.ServiceUser,
 			instance.Spec.Barbican.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err

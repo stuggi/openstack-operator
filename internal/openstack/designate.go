@@ -42,10 +42,8 @@ func ReconcileDesignate(ctx context.Context, instance *corev1beta1.OpenStackCont
 		instance.Status.ContainerImages.DesignateUnboundImage = nil
 		instance.Status.ContainerImages.NetUtilsImage = nil
 		// Clean up AC CRs when service is disabled
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, designate.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, designate.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -105,6 +103,7 @@ func ReconcileDesignate(ctx context.Context, instance *corev1beta1.OpenStackCont
 			instance.Spec.Designate.Template.PasswordSelectors.Service,
 			instance.Spec.Designate.Template.ServiceUser,
 			instance.Spec.Designate.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err

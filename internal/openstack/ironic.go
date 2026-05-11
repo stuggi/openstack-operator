@@ -41,15 +41,11 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 		instance.Status.ContainerImages.IronicPxeImage = nil
 		instance.Status.ContainerImages.IronicPythonAgentImage = nil
 		// Clean up AC CRs when service is disabled (ironic has two: ironic and ironic-inspector)
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, ironic.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, ironic.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, "ironic-inspector"); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, "ironic-inspector", ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -151,6 +147,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Ironic.Template.PasswordSelectors.Service,
 			instance.Spec.Ironic.Template.ServiceUser,
 			instance.Spec.Ironic.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -177,6 +174,7 @@ func ReconcileIronic(ctx context.Context, instance *corev1beta1.OpenStackControl
 			instance.Spec.Ironic.Template.IronicInspector.PasswordSelectors.Service,
 			instance.Spec.Ironic.Template.IronicInspector.ServiceUser,
 			instance.Spec.Ironic.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err

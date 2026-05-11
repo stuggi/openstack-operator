@@ -35,10 +35,8 @@ func ReconcilePlacementAPI(ctx context.Context, instance *corev1beta1.OpenStackC
 		instance.Status.Conditions.Remove(corev1beta1.OpenStackControlPlanePlacementAPIReadyCondition)
 		instance.Status.Conditions.Remove(corev1beta1.OpenStackControlPlaneExposePlacementAPIReadyCondition)
 		// Clean up AC CRs when service is disabled
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, placementAPI.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, placementAPI.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -99,6 +97,7 @@ func ReconcilePlacementAPI(ctx context.Context, instance *corev1beta1.OpenStackC
 			instance.Spec.Placement.Template.PasswordSelectors.Service,
 			instance.Spec.Placement.Template.ServiceUser,
 			instance.Spec.Placement.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err

@@ -60,10 +60,8 @@ func ReconcileOctavia(ctx context.Context, instance *corev1beta1.OpenStackContro
 		instance.Status.ContainerImages.OctaviaApacheImage = nil
 		instance.Status.ContainerImages.OctaviaRsyslogImage = nil
 		// Clean up AC CRs when service is disabled
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, octavia.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, octavia.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -187,6 +185,7 @@ func ReconcileOctavia(ctx context.Context, instance *corev1beta1.OpenStackContro
 			instance.Spec.Octavia.Template.PasswordSelectors.Service,
 			instance.Spec.Octavia.Template.ServiceUser,
 			instance.Spec.Octavia.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err

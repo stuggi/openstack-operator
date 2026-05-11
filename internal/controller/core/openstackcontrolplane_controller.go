@@ -50,6 +50,7 @@ import (
 	octaviav1 "github.com/openstack-k8s-operators/octavia-operator/api/v1beta1"
 	clientv1 "github.com/openstack-k8s-operators/openstack-operator/api/client/v1beta1"
 	corev1beta1 "github.com/openstack-k8s-operators/openstack-operator/api/core/v1beta1"
+	dataplanev1 "github.com/openstack-k8s-operators/openstack-operator/api/dataplane/v1beta1"
 
 	"github.com/openstack-k8s-operators/openstack-operator/internal/openstack"
 
@@ -742,7 +743,7 @@ func (r *OpenStackControlPlaneReconciler) reconcileNormal(ctx context.Context, i
 
 	instance.Status.Conditions.Remove(corev1beta1.OpenStackControlPlaneCertCleanupReadyCondition)
 
-	ctrlResult, err = openstack.HasPendingEDPMSync(ctx, helper, instance.Namespace)
+	ctrlResult, err = openstack.ReconcilePendingEDPMSyncs(ctx, helper, instance.Namespace)
 	if err != nil {
 		return ctrl.Result{}, err
 	} else if (ctrlResult != ctrl.Result{}) {
@@ -901,6 +902,14 @@ func (r *OpenStackControlPlaneReconciler) SetupWithManager(
 			&corev1.Secret{},
 			handler.EnqueueRequestsFromMapFunc(r.findControlPlaneForSrc),
 			builder.WithPredicates(backup.AnnotationChangedPredicate(openstack.ServiceCertSelector)),
+		).
+		// Watch NodeSet status changes so EDPM AC sync reacts promptly
+		// when a dataplane deployment completes (SecretHashes update),
+		// instead of relying on the fallback polling interval.
+		Watches(
+			&dataplanev1.OpenStackDataPlaneNodeSet{},
+			handler.EnqueueRequestsFromMapFunc(r.findControlPlaneForSrc),
+			builder.WithPredicates(predicate.ResourceVersionChangedPredicate{}),
 		).
 		Complete(r)
 }

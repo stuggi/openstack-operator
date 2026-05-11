@@ -84,87 +84,56 @@ const (
 	// after a rotation.
 	EDPMSyncedConfigHashAnnotation = "openstack.org/edpm-synced-config-hash"
 
-	// EDPMSyncRequeueInterval is how often we recheck EDPM sync status while
-	// waiting for a dataplane redeployment to propagate new credentials.
-	EDPMSyncRequeueInterval = 5 * time.Minute
+	// EDPMSyncFallbackInterval is the safety-net requeue interval while
+	// waiting for EDPM to redeploy. The primary trigger is the Watch on
+	// OpenStackDataPlaneNodeSet status changes — this fallback only fires
+	// if the Watch misses an event.
+	EDPMSyncFallbackInterval = 30 * time.Minute
 )
 
-// edpmServices maps AC service names to the OpenStackDataPlaneService CR name
-// whose dataSources secrets carry the credential to EDPM nodes.
-// Only services that actually run on EDPM are listed.
-var edpmServices = map[string]string{
+// edpmACServiceTypes maps AC service names to the EDPM service type used for
+// dynamic DataPlaneService discovery. Only services that actually run on EDPM
+// are listed. To add a new EDPM service, add an entry here and pass the
+// service type via the edpmServiceType parameter in the service reconciler.
+var edpmACServiceTypes = map[string]string{
 	"nova":       "nova",
 	"ceilometer": "telemetry",
 }
 
-func isEDPMService(serviceName string) bool {
-	_, ok := edpmServices[serviceName]
-	return ok
-}
-
-// HasPendingEDPMSync checks whether any EDPM service has a pending credential
-// sync (the AC secret deployed to EDPM differs from the current AC secret).
-// Returns a RequeueAfter result if any service is waiting for EDPM to catch up.
-//
-// This is called at the end of the main reconcile loop so that individual
-// service reconcilers (ReconcileNova, ReconcileTelemetry) do not need to
-// propagate EDPM RequeueAfter — which would short-circuit the loop and
-// prevent the later service from being processed.
-func HasPendingEDPMSync(
-	ctx context.Context,
-	h *helper.Helper,
-	namespace string,
-) (ctrl.Result, error) {
-	for serviceName := range edpmServices {
-		acName := keystonev1.GetACCRName(serviceName)
-		acCR := &keystonev1.KeystoneApplicationCredential{}
-		err := h.GetClient().Get(ctx, types.NamespacedName{Name: acName, Namespace: namespace}, acCR)
-		if err != nil {
-			if k8s_errors.IsNotFound(err) {
-				continue
-			}
-			return ctrl.Result{}, err
-		}
-		if !acCR.IsReady() {
-			continue
-		}
-		deployedSecret := ""
-		if acCR.Annotations != nil {
-			deployedSecret = acCR.Annotations[EDPMDeployedSecretAnnotation]
-		}
-		if deployedSecret != "" && deployedSecret != acCR.Status.SecretName {
-			return ctrl.Result{RequeueAfter: EDPMSyncRequeueInterval}, nil
-		}
-	}
-	return ctrl.Result{}, nil
-}
-
-// getEDPMConfigSecretNames reads the OpenStackDataPlaneService CR for the
-// given AC service and returns the secret names from its dataSources.
+// getEDPMConfigSecretNames lists OpenStackDataPlaneService CRs matching the
+// given edpmServiceType and returns all secret names from their dataSources.
+// This discovers custom services dynamically instead of relying on a hardcoded
+// mapping from AC service name to DataPlaneService CR name.
 func getEDPMConfigSecretNames(
 	ctx context.Context,
 	c client.Client,
 	namespace string,
-	serviceName string,
+	edpmServiceType string,
 ) ([]string, error) {
-	dpServiceName, ok := edpmServices[serviceName]
-	if !ok {
+	if edpmServiceType == "" {
 		return nil, nil
 	}
 
-	svc := &dataplanev1.OpenStackDataPlaneService{}
-	err := c.Get(ctx, types.NamespacedName{Name: dpServiceName, Namespace: namespace}, svc)
-	if err != nil {
-		if k8s_errors.IsNotFound(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get OpenStackDataPlaneService %s: %w", dpServiceName, err)
+	svcList := &dataplanev1.OpenStackDataPlaneServiceList{}
+	if err := c.List(ctx, svcList, client.InNamespace(namespace)); err != nil {
+		return nil, fmt.Errorf("failed to list OpenStackDataPlaneServices: %w", err)
 	}
 
+	seen := map[string]bool{}
 	var names []string
-	for _, ds := range svc.Spec.DataSources {
-		if ds.SecretRef != nil {
-			names = append(names, ds.SecretRef.Name)
+	for _, svc := range svcList.Items {
+		svcType := svc.Spec.EDPMServiceType
+		if svcType == "" {
+			svcType = svc.Name
+		}
+		if svcType != edpmServiceType {
+			continue
+		}
+		for _, ds := range svc.Spec.DataSources {
+			if ds.SecretRef != nil && !seen[ds.SecretRef.Name] {
+				seen[ds.SecretRef.Name] = true
+				names = append(names, ds.SecretRef.Name)
+			}
 		}
 	}
 	return names, nil
@@ -266,7 +235,7 @@ func allNodeSetsSynced(
 	return true, nil
 }
 
-// setEDPMTrackingAnnotations patches the AC CR with the EDPM tracking
+// setEDPMTrackingAnnotations patches the AC CR with the EDPM tracking annotations.
 func setEDPMTrackingAnnotations(
 	ctx context.Context,
 	h *helper.Helper,
@@ -357,26 +326,28 @@ func removeEDPMFinalizerFromACSecret(
 
 // reconcileEDPMSync manages the EDPM consumer finalizer for an AC service.
 //
-// Tracking is done via two annotations on the AC CR:
+// Tracking is done via three annotations on the AC CR:
 //   - EDPMDeployedSecretAnnotation: the AC secret currently deployed to EDPM
 //   - EDPMSyncedConfigHashAnnotation: the config hash when EDPM last synced
+//   - EDPMServiceTypeAnnotation: the EDPM service type for dynamic discovery
 //
 // Only the secret recorded in EDPMDeployedSecretAnnotation gets the EDPM
-// consumer finalizer. Intermediate secrets from possibly rapid rotations only on ctlplane
+// consumer finalizer. Intermediate secrets from rapid rotations on ctlplane
 // never receive a finalizer because they were never deployed to EDPM.
 //
 // Two-phase sync detection:
 //
-//	Phase 1: config hash differs from synced baseline - service operator
+//	Phase 1: config hash differs from synced baseline — service operator
 //	         has re-rendered the config with new credentials.
-//	Phase 2: all NodeSet SecretHashes match live config - EDPM has been fully redeployed.
+//	Phase 2: all NodeSet SecretHashes match live config — EDPM has been
+//	         fully redeployed.
 func reconcileEDPMSync(
 	ctx context.Context,
 	h *helper.Helper,
 	namespace string,
 	acCR *keystonev1.KeystoneApplicationCredential,
-	serviceName string,
-) (ctrl.Result, error) {
+	edpmServiceType string,
+) (bool, error) {
 	Log := GetLogger(ctx)
 	currentSecret := acCR.Status.SecretName
 
@@ -387,41 +358,41 @@ func reconcileEDPMSync(
 		syncedHash = acCR.Annotations[EDPMSyncedConfigHashAnnotation]
 	}
 
-	configSecretNames, err := getEDPMConfigSecretNames(ctx, h.GetClient(), namespace, serviceName)
+	configSecretNames, err := getEDPMConfigSecretNames(ctx, h.GetClient(), namespace, edpmServiceType)
 	if err != nil {
-		return ctrl.Result{}, err
+		return false, err
 	}
 	if len(configSecretNames) == 0 {
-		return ctrl.Result{}, nil
+		return false, nil
 	}
 
 	currentConfigHash, err := computeCombinedConfigHash(ctx, h.GetClient(), namespace, configSecretNames)
 	if err != nil {
-		return ctrl.Result{}, err
+		return false, err
 	}
 	if currentConfigHash == "" {
-		return ctrl.Result{}, nil
+		return false, nil
 	}
 
 	// Initialize tracking: first time we see this AC with EDPM deployed.
 	if deployedSecret == "" {
 		synced, err := allNodeSetsSynced(ctx, h.GetClient(), namespace, configSecretNames)
 		if err != nil {
-			return ctrl.Result{}, err
+			return false, err
 		}
 		if synced {
 			if err := setEDPMTrackingAnnotations(ctx, h, acCR, currentSecret, currentConfigHash); err != nil {
-				return ctrl.Result{}, fmt.Errorf("failed to initialize EDPM tracking on AC CR %s: %w", acCR.Name, err)
+				return false, fmt.Errorf("failed to initialize EDPM tracking on AC CR %s: %w", acCR.Name, err)
 			}
 			Log.Info("Initialized EDPM tracking on AC CR",
-				"service", serviceName, "deployedSecret", currentSecret)
+				"edpmServiceType", edpmServiceType, "deployedSecret", currentSecret)
 		}
-		return ctrl.Result{}, nil
+		return false, nil
 	}
 
 	// Tracking is in sync — nothing to do.
 	if deployedSecret == currentSecret {
-		return ctrl.Result{}, nil
+		return false, nil
 	}
 
 	// Rotation detected: deployedSecret is the old AC still on EDPM.
@@ -430,81 +401,122 @@ func reconcileEDPMSync(
 	if err := h.GetClient().Get(ctx, types.NamespacedName{Name: deployedSecret, Namespace: namespace}, deployedSec); err != nil {
 		if k8s_errors.IsNotFound(err) {
 			Log.Info("EDPM-deployed AC secret no longer exists, resetting tracking",
-				"service", serviceName, "lostSecret", deployedSecret)
+				"edpmServiceType", edpmServiceType, "lostSecret", deployedSecret)
 			if err := setEDPMTrackingAnnotations(ctx, h, acCR, currentSecret, currentConfigHash); err != nil {
-				return ctrl.Result{}, err
+				return false, err
 			}
-			return ctrl.Result{}, nil
+			return false, nil
 		}
-		return ctrl.Result{}, err
+		return false, err
 	}
 
 	if !controllerutil.ContainsFinalizer(deployedSec, EDPMACConsumerFinalizer) {
 		if err := addEDPMFinalizerToACSecret(ctx, h, namespace, deployedSecret); err != nil {
-			return ctrl.Result{}, err
+			return false, err
 		}
 		Log.Info("Added EDPM finalizer to deployed AC secret",
-			"service", serviceName, "deployedSecret", deployedSecret)
+			"edpmServiceType", edpmServiceType, "deployedSecret", deployedSecret)
 	}
 
 	// Phase 1: has the config been updated by the service operator?
 	if currentConfigHash == syncedHash {
 		Log.Info("EDPM config not yet updated by service operator",
-			"service", serviceName, "deployedSecret", deployedSecret)
-		return ctrl.Result{RequeueAfter: EDPMSyncRequeueInterval}, nil
+			"edpmServiceType", edpmServiceType, "deployedSecret", deployedSecret)
+		return true, nil
 	}
 
 	// Phase 2: have all NodeSets been redeployed with the updated config?
 	synced, err := allNodeSetsSynced(ctx, h.GetClient(), namespace, configSecretNames)
 	if err != nil {
-		return ctrl.Result{}, err
+		return false, err
 	}
 	if !synced {
 		Log.Info("EDPM config updated but NodeSets not yet redeployed",
-			"service", serviceName, "deployedSecret", deployedSecret)
-		return ctrl.Result{RequeueAfter: EDPMSyncRequeueInterval}, nil
+			"edpmServiceType", edpmServiceType, "deployedSecret", deployedSecret)
+		return true, nil
 	}
 
 	// Fully synced: remove finalizer from old secret, update tracking to current.
 	if err := removeEDPMFinalizerFromACSecret(ctx, h, namespace, deployedSecret); err != nil {
-		return ctrl.Result{}, err
+		return false, err
 	}
 	if err := setEDPMTrackingAnnotations(ctx, h, acCR, currentSecret, currentConfigHash); err != nil {
-		return ctrl.Result{}, err
+		return false, err
 	}
 	Log.Info("EDPM synced, released old AC secret and updated tracking",
-		"service", serviceName, "releasedSecret", deployedSecret, "newDeployedSecret", currentSecret)
+		"edpmServiceType", edpmServiceType, "releasedSecret", deployedSecret, "newDeployedSecret", currentSecret)
+	return false, nil
+}
+
+// ReconcilePendingEDPMSyncs iterates the edpmACServiceTypes map to check each
+// EDPM service's AC CR for pending credential syncs and progresses them.
+// DataPlaneService CRs are discovered dynamically by EDPMServiceType, so
+// custom services (e.g., HCI nova variants) are handled automatically.
+//
+// Called at the end of reconcileNormal, after all service reconcilers have run,
+// so that all EDPM services update their configs in a single reconcile cycle.
+// Returns RequeueAfter only when sync is still pending; the primary trigger
+// for re-reconciliation is the Watch on OpenStackDataPlaneNodeSet status.
+func ReconcilePendingEDPMSyncs(
+	ctx context.Context,
+	h *helper.Helper,
+	namespace string,
+) (ctrl.Result, error) {
+	pending := false
+	for serviceName, edpmServiceType := range edpmACServiceTypes {
+		acName := keystonev1.GetACCRName(serviceName)
+		acCR := &keystonev1.KeystoneApplicationCredential{}
+		err := h.GetClient().Get(ctx, types.NamespacedName{Name: acName, Namespace: namespace}, acCR)
+		if err != nil {
+			if k8s_errors.IsNotFound(err) {
+				continue
+			}
+			return ctrl.Result{}, err
+		}
+		if !acCR.IsReady() {
+			continue
+		}
+
+		isPending, err := reconcileEDPMSync(ctx, h, namespace, acCR, edpmServiceType)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if isPending {
+			pending = true
+		}
+	}
+
+	if pending {
+		return ctrl.Result{RequeueAfter: EDPMSyncFallbackInterval}, nil
+	}
 	return ctrl.Result{}, nil
 }
 
-// CleanupApplicationCredentialForService deletes the AC CR for a service if it exists.
-// Used when a service or its AC is disabled - deletes the AC CR if it exists regardless
-// of the AC enabled flag.
+// CleanupApplicationCredentialForService deletes the AC CR for a service if it
+// exists. Used when a service or its AC is disabled.
 //
-// For EDPM services (Nova, Ceilometer), deletion is blocked using a two-phase
-// check: first the service operator must re-render the config secret without
-// AC data, then EDPM nodes must be redeployed. This guard is skipped when
-// the entire ControlPlane is being torn down (instance.DeletionTimestamp != nil).
-//
-// Returns a non-zero ctrl.Result when EDPM sync is pending and the caller
-// should requeue rather than proceed.
+// For EDPM services (edpmServiceType != ""), deletion is deferred while nodes
+// still reference the old credential. ReconcilePendingEDPMSyncs handles sync
+// progression; once synced, the next reconcile proceeds with deletion.
+// This guard is skipped when the ControlPlane is being torn down.
 func CleanupApplicationCredentialForService(
 	ctx context.Context,
 	helper *helper.Helper,
 	instance *corev1beta1.OpenStackControlPlane,
 	serviceName string,
-) (ctrl.Result, error) {
+	edpmServiceType string,
+) error {
 	Log := GetLogger(ctx)
 	acName := keystonev1.GetACCRName(serviceName)
 
-	if isEDPMService(serviceName) && instance.DeletionTimestamp == nil {
+	if edpmServiceType != "" && instance.DeletionTimestamp == nil {
 		acCR := &keystonev1.KeystoneApplicationCredential{}
 		err := helper.GetClient().Get(ctx, types.NamespacedName{Name: acName, Namespace: instance.Namespace}, acCR)
 		if err != nil {
 			if k8s_errors.IsNotFound(err) {
-				return ctrl.Result{}, nil
+				return nil
 			}
-			return ctrl.Result{}, err
+			return err
 		}
 
 		deployedSecret := ""
@@ -513,26 +525,26 @@ func CleanupApplicationCredentialForService(
 		}
 
 		if deployedSecret != "" {
-			configSecretNames, err := getEDPMConfigSecretNames(ctx, helper.GetClient(), instance.Namespace, serviceName)
+			configSecretNames, err := getEDPMConfigSecretNames(ctx, helper.GetClient(), instance.Namespace, edpmServiceType)
 			if err != nil {
-				return ctrl.Result{}, err
+				return err
 			}
 
 			synced, err := allNodeSetsSynced(ctx, helper.GetClient(), instance.Namespace, configSecretNames)
 			if err != nil {
-				return ctrl.Result{}, err
+				return err
 			}
 			if !synced {
-				Log.Info("EDPM not yet synced, blocking application credential CR deletion",
+				Log.Info("EDPM not yet synced, deferring application credential CR deletion",
 					"service", serviceName, "acName", acName, "deployedSecret", deployedSecret)
-				return ctrl.Result{RequeueAfter: EDPMSyncRequeueInterval}, nil
+				return nil
 			}
 
 			if err := removeEDPMFinalizerFromACSecret(ctx, helper, instance.Namespace, deployedSecret); err != nil {
-				return ctrl.Result{}, err
+				return err
 			}
 			if err := clearEDPMTrackingAnnotations(ctx, helper, acCR); err != nil {
-				return ctrl.Result{}, err
+				return err
 			}
 		}
 	}
@@ -545,19 +557,23 @@ func CleanupApplicationCredentialForService(
 	}
 	err := helper.GetClient().Delete(ctx, acCR)
 	if k8s_errors.IsNotFound(err) {
-		return ctrl.Result{}, nil
+		return nil
 	}
 	if err != nil {
-		return ctrl.Result{}, err
+		return err
 	}
 	Log.Info("Service disabled, deleted existing KeystoneApplicationCredential CR", "service", serviceName, "acName", acName)
-	return ctrl.Result{}, nil
+	return nil
 }
 
 // EnsureApplicationCredentialForService handles AC creation for a single service.
 // If service is not ready, AC creation is deferred
 // If AC already exists and is ready, it's used immediately
 // If AC doesn't exist and service is ready, AC is created
+//
+// For EDPM services (edpmServiceType != ""), initial tracking annotations are
+// set when the AC becomes ready. The actual EDPM sync reconciliation is handled
+// centrally by ReconcilePendingEDPMSyncs at the end of reconcileNormal.
 //
 // Returns:
 //   - acSecretName: name of the AC secret (from status), empty if not ready
@@ -573,6 +589,7 @@ func EnsureApplicationCredentialForService(
 	passwordSelector string,
 	serviceUser string,
 	acConfig *corev1beta1.ServiceAppCredSection,
+	edpmServiceType string,
 ) (acSecretName string, result ctrl.Result, err error) {
 	Log := GetLogger(ctx)
 
@@ -596,12 +613,8 @@ func EnsureApplicationCredentialForService(
 	// Check if AC is enabled for this service
 	if !isACEnabled(instance.Spec.ApplicationCredential, acConfig) {
 		if acExists {
-			result, err := CleanupApplicationCredentialForService(ctx, helper, instance, serviceName)
-			if err != nil {
+			if err := CleanupApplicationCredentialForService(ctx, helper, instance, serviceName, edpmServiceType); err != nil {
 				return "", ctrl.Result{}, err
-			}
-			if (result != ctrl.Result{}) {
-				return "", result, nil
 			}
 		}
 		return "", ctrl.Result{}, nil
@@ -629,13 +642,33 @@ func EnsureApplicationCredentialForService(
 		if acCR.IsReady() {
 			Log.Info("Application Credential is ready", "service", serviceName, "acName", acName, "secretName", acCR.Status.SecretName)
 
-			if isEDPMService(serviceName) {
-				edpmResult, edpmErr := reconcileEDPMSync(ctx, helper, instance.Namespace, acCR, serviceName)
-				if edpmErr != nil {
-					return "", ctrl.Result{}, edpmErr
-				}
-				if (edpmResult != ctrl.Result{}) {
-					return acCR.Status.SecretName, edpmResult, nil
+			// For EDPM services, initialize tracking if not already set.
+			// The actual sync reconciliation happens in ReconcilePendingEDPMSyncs.
+			if edpmServiceType != "" {
+				if acCR.Annotations == nil || acCR.Annotations[EDPMDeployedSecretAnnotation] == "" {
+					configSecretNames, err := getEDPMConfigSecretNames(ctx, helper.GetClient(), instance.Namespace, edpmServiceType)
+					if err != nil {
+						return "", ctrl.Result{}, err
+					}
+					if len(configSecretNames) > 0 {
+						synced, err := allNodeSetsSynced(ctx, helper.GetClient(), instance.Namespace, configSecretNames)
+						if err != nil {
+							return "", ctrl.Result{}, err
+						}
+						if synced {
+							configHash, err := computeCombinedConfigHash(ctx, helper.GetClient(), instance.Namespace, configSecretNames)
+							if err != nil {
+								return "", ctrl.Result{}, err
+							}
+							if configHash != "" {
+								if err := setEDPMTrackingAnnotations(ctx, helper, acCR, acCR.Status.SecretName, configHash); err != nil {
+									return "", ctrl.Result{}, fmt.Errorf("failed to initialize EDPM tracking on AC CR %s: %w", acCR.Name, err)
+								}
+								Log.Info("Initialized EDPM tracking on AC CR",
+									"edpmServiceType", edpmServiceType, "deployedSecret", acCR.Status.SecretName)
+							}
+						}
+					}
 				}
 			}
 

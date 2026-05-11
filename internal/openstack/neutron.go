@@ -40,10 +40,8 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 		instance.Status.Conditions.Remove(corev1beta1.OpenStackControlPlaneExposeNeutronReadyCondition)
 		instance.Status.ContainerImages.NeutronAPIImage = nil
 		// Clean up AC CRs when service is disabled
-		if result, err := CleanupApplicationCredentialForService(ctx, helper, instance, neutronAPI.Name); err != nil {
+		if err := CleanupApplicationCredentialForService(ctx, helper, instance, neutronAPI.Name, ""); err != nil {
 			return ctrl.Result{}, err
-		} else if (result != ctrl.Result{}) {
-			return result, nil
 		}
 		return ctrl.Result{}, nil
 	}
@@ -139,6 +137,7 @@ func ReconcileNeutron(ctx context.Context, instance *corev1beta1.OpenStackContro
 			instance.Spec.Neutron.Template.PasswordSelectors.Service,
 			instance.Spec.Neutron.Template.ServiceUser,
 			instance.Spec.Neutron.ApplicationCredential,
+			"",
 		)
 		if err != nil {
 			return ctrl.Result{}, err
