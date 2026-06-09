@@ -3,7 +3,7 @@
 # To re-generate a bundle for another specific version without changing the standard setup, you can:
 # - use the VERSION as arg of the bundle target (e.g make bundle VERSION=0.0.2)
 # - use environment variables to overwrite this value (e.g export VERSION=0.0.2)
-VERSION ?= 0.3.0
+VERSION ?= 0.6.0
 
 OPENSTACK_RELEASE_VERSION ?= $(VERSION)-$(shell date +%s)
 
@@ -48,17 +48,27 @@ ifeq ($(USE_IMAGE_DIGESTS), true)
 	BUNDLE_GEN_FLAGS += --use-image-digests
 endif
 
+# REPLACES is the previous version that this version replaces (for OLM upgrades)
+# Example: make bundle REPLACES=openstack-operator.v0.6.0 VERSION=0.6.1
+REPLACES ?=
+
 # Set the Operator SDK version to use. By default, what is installed on the system is used.
 # This is useful for CI or a project to utilize a specific version of the operator-sdk toolkit.
-OPERATOR_SDK_VERSION ?= v1.31.0
+OPERATOR_SDK_VERSION ?= v1.41.1
 
 # Image URL to use all building/pushing image targets
 DEFAULT_IMG ?= quay.io/openstack-k8s-operators/openstack-operator:latest
 IMG ?= $(DEFAULT_IMG)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.29
+ENVTEST_K8S_VERSION = 1.31
 
-CRDDESC_OVERRIDE ?= :maxDescLen=0
+SETUP_ENVTEST_VERSION ?= release-0.22
+
+# CRD description settings
+# Disable descriptions for OpenStackControlPlane (and OpenStackVersion because it is in the same package),
+# enable for all others
+CRDDESC_CORE ?= :maxDescLen=0
+CRDDESC_OTHER ?=
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
@@ -133,13 +143,16 @@ help: ## Display this help.
 
 # (dprince) FIXME: controller-gen crd didn't seem to like multiple paths so I didn't split it. So we can continue using kubebuilder
 # I did split out the rbac for both binaries so we can use separate roles
+# NOTE: we generate the OpenStackControlplane CR in a separate step to avoid the CRD descriptions
+# which increase the size greatly and may ultimately cause issues with CR upgrades
 .PHONY: manifests
 manifests: controller-gen ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	mkdir -p config/operator/rbac && \
-	$(CONTROLLER_GEN) crd$(CRDDESC_OVERRIDE) output:crd:artifacts:config=config/crd/bases webhook paths="./..." && \
-	$(CONTROLLER_GEN) rbac:roleName=manager-role paths="{./apis/client/...,./apis/core/...,./apis/dataplane/...,./controllers/client/...,./controllers/core/...,./controllers/dataplane/...,./pkg/...}" output:dir=config/rbac && \
-	$(CONTROLLER_GEN) rbac:roleName=operator-role paths="./controllers/operator/..." paths="./apis/operator/..." output:dir=config/operator/rbac && \
-	rm -f apis/bases/* && cp -a config/crd/bases apis/
+	$(CONTROLLER_GEN) crd$(CRDDESC_OTHER) output:crd:artifacts:config=config/crd/bases webhook paths="./..." && \
+	$(CONTROLLER_GEN) crd$(CRDDESC_CORE) output:crd:artifacts:config=config/crd/bases paths="./api/core/..." && \
+	$(CONTROLLER_GEN) rbac:roleName=manager-role paths="{./api/client/...,./api/core/...,./api/dataplane/...,./internal/controller/client/...,./internal/controller/core/...,./internal/controller/dataplane/...,./internal/...}" output:dir=config/rbac && \
+	$(CONTROLLER_GEN) rbac:roleName=operator-role paths="./internal/controller/operator/..." paths="./api/operator/..." output:dir=config/operator/rbac && \
+	rm -f api/bases/* && cp -a config/crd/bases api/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -151,10 +164,12 @@ bindata: kustomize yq ## Call sync bindata script
 	mkdir -p bindata/crds bindata/rbac bindata/operator
 	$(KUSTOMIZE) build config/crd > bindata/crds/crds.yaml
 	$(KUSTOMIZE) build config/default > bindata/operator/operator.yaml
-	sed -i bindata/operator/operator.yaml -e "/envCustomImage/c\\{{ range \$$envName, \$$envValue := .OpenStackServiceRelatedImages }}\n        - name: {{ \$$envName }}\n          value: {{ \$$envValue }}\n{{ end }}"
-	sed -i bindata/operator/operator.yaml -e "s|kube-rbac-proxy:replace_me.*|'{{ .KubeRbacProxyImage }}'|"
+	sed -i bindata/operator/operator.yaml -e "s|replicas:.*|replicas: {{ .OpenStackOperator.Deployment.Replicas }}|"
+	sed -i bindata/operator/operator.yaml -e "/envCustom/c\\{{- range .OpenStackOperator.Deployment.Manager.Env }}\n        - name: '{{ .Name }}'\n          value: '{{ .Value }}'\n{{- end }}"
+	sed -i bindata/operator/operator.yaml -e "/customLimits/c\\            cpu: {{ .OpenStackOperator.Deployment.Manager.Resources.Limits.CPU }}\n            memory: {{ .OpenStackOperator.Deployment.Manager.Resources.Limits.Memory }}"
+	sed -i bindata/operator/operator.yaml -e "/customRequests/c\\            cpu: {{ .OpenStackOperator.Deployment.Manager.Resources.Requests.CPU }}\n            memory: {{ .OpenStackOperator.Deployment.Manager.Resources.Requests.Memory }}"
+	sed -i bindata/operator/operator.yaml -e "/customTolerations/c\\      tolerations:\n{{- range .OpenStackOperator.Deployment.Tolerations }}\n      - key: \"{{ .Key }}\"\n{{- if .Operator }}\n        operator: \"{{ .Operator }}\"\n{{- end }}\n{{- if .Value }}\n        value: \"{{ .Value }}\"\n{{- end }}\n{{- if .Effect }}\n        effect: \"{{ .Effect }}\"\n{{- end }}\n{{- if .TolerationSeconds }}\n        tolerationSeconds: {{ .TolerationSeconds }}\n{{- end }}\n{{- end }}"
 	cp config/operator/managers.yaml bindata/operator/
-	cp config/operator/rabbit.yaml bindata/operator/
 	$(KUSTOMIZE) build config/rbac > bindata/rbac/rbac.yaml
 	/bin/bash hack/sync-bindata.sh
 
@@ -165,7 +180,7 @@ fmt: ## Run go fmt against code.
 .PHONY: vet
 vet: gowork ## Run go vet against code.
 	go vet ./...
-	go vet ./apis/...
+	go vet ./api/...
 
 BRANCH ?= main
 .PHONY: force-bump
@@ -173,18 +188,19 @@ force-bump: ## Force bump after tagging
 	for dep in $$(cat go.mod | grep openstack-k8s-operators | grep -vE -- 'indirect|openstack-operator|^replace' | awk '{print $$1}'); do \
 		go get $$dep@$(BRANCH) ; \
 	done
-	for dep in $$(cat apis/go.mod | grep openstack-k8s-operators | grep -vE -- 'indirect|openstack-operator|^replace' | awk '{print $$1}'); do \
-		cd ./apis && go get $$dep@$(BRANCH) && cd .. ; \
+	for dep in $$(cat api/go.mod | grep openstack-k8s-operators | grep -vE -- 'indirect|openstack-operator|^replace' | awk '{print $$1}'); do \
+		cd ./api && go get $$dep@$(BRANCH) && cd .. ; \
 	done
 
 .PHONY: tidy
 tidy: ## Run go mod tidy on every mod file in the repo
 	go mod tidy
-	cd ./apis && go mod tidy
+	cd ./api && go mod tidy
 
+GOLANGCI_LINT_VERSION ?= v2.7.2
 .PHONY: golangci-lint
 golangci-lint:
-	test -s $(LOCALBIN)/golangci-lint || curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s v1.59.1
+	test -s $(LOCALBIN)/golangci-lint || curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s $(GOLANGCI_LINT_VERSION)
 	$(LOCALBIN)/golangci-lint run --fix
 
 MAX_PROCS := 5
@@ -200,7 +216,7 @@ ginkgo-run: ## Run ginkgo.
 	source hack/export_related_images.sh && \
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) -v debug --bin-dir $(LOCALBIN) use $(ENVTEST_K8S_VERSION) -p path)" \
 	OPERATOR_TEMPLATES="$(PWD)/templates" \
-	$(GINKGO) --trace --cover --coverpkg=./pkg/openstack,./pkg/openstackclient,./pkg/util,./pkg/dataplane/...,./controllers/...,./apis/client/v1beta1,./apis/core/v1beta1,./apis/dataplane/v1beta1 --coverprofile cover.out --covermode=atomic ${PROC_CMD} $(GINKGO_ARGS) $(GINKGO_TESTS)
+	$(GINKGO) --trace --cover --coverpkg=./internal/...,./api/... --coverprofile cover.out --covermode=atomic ${PROC_CMD} $(GINKGO_ARGS) $(GINKGO_TESTS)
 
 .PHONY: test-all
 test-all: test golint golangci golangci-lint ## Run all tests.
@@ -213,28 +229,30 @@ cover: test ## Run tests and display functional test coverage
 
 .PHONY: build
 build: generate fmt vet ## Build manager binary.
-	go build -o bin/manager main.go
+	go build -o bin/manager cmd/main.go
 	go build -o bin/operator cmd/operator/main.go
 
 .PHONY: run
 run: export METRICS_PORT?=8080
 run: export HEALTH_PORT?=8081
+run: export PPROF_PORT?=8082
 run: export ENABLE_WEBHOOKS?=false
 run: manifests generate fmt vet ## Run a controller from your host.
 	/bin/bash hack/clean_local_webhook.sh
 	source hack/export_related_images.sh && \
-	go run ./main.go -metrics-bind-address ":$(METRICS_PORT)" -health-probe-bind-address ":$(HEALTH_PORT)"
+		go run ./cmd/main.go -metrics-bind-address ":$(METRICS_PORT)" -health-probe-bind-address ":$(HEALTH_PORT)" -pprof-bind-address ":$(PPROF_PORT)"
 
 .PHONY: run-operator
 run-operator: export METRICS_PORT?=8080
 run-operator: export HEALTH_PORT?=8081
+run: export PPROF_PORT?=8082
 run-operator: export ENABLE_WEBHOOKS?=false
 run-operator: export BASE_BINDATA?=bindata
 run-operator: export OPERATOR_IMAGE_URL=${IMG}
 run-operator: manifests generate fmt vet ## Run a controller from your host.
 	source hack/export_related_images.sh && \
 	source hack/export_operator_related_images.sh && \
-	go run ./cmd/operator/main.go -metrics-bind-address ":$(METRICS_PORT)" -health-probe-bind-address ":$(HEALTH_PORT)"
+	go run ./cmd/operator/main.go -metrics-bind-address ":$(METRICS_PORT)" -health-probe-bind-address ":$(HEALTH_PORT)" -pprof-bind-address ":$(PPROF_PORT)"
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
@@ -261,6 +279,12 @@ docker-buildx:  ## Build and push docker image for the manager for cross-platfor
 	- docker buildx rm project-v3-builder
 	rm Dockerfile.cross
 
+.PHONY: build-installer
+build-installer: manifests generate kustomize ## Generate a consolidated YAML with CRDs and deployment.
+	mkdir -p dist
+	cd config/manager && $(KUSTOMIZE) edit set image controller=${IMG}
+	$(KUSTOMIZE) build config/default > dist/install.yaml
+
 ##@ Deployment
 
 ifndef ignore-not-found
@@ -269,7 +293,7 @@ endif
 
 .PHONY: install
 install: manifests kustomize ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	$(KUSTOMIZE) build config/crd | kubectl apply -f -
+	$(KUSTOMIZE) build config/crd | kubectl apply --server-side -f -
 
 .PHONY: uninstall
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config. Call with ignore-not-found=true to ignore resource not found errors during deletion.
@@ -288,6 +312,7 @@ undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/confi
 
 ## Location to install dependencies to
 LOCALBIN ?= $(shell pwd)/bin
+.PHONY: $(LOCALBIN)
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
 
@@ -297,21 +322,22 @@ CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 CRD_MARKDOWN ?= $(LOCALBIN)/crd-to-markdown
 GINKGO ?= $(LOCALBIN)/ginkgo
-GINKGO_TESTS ?= ./tests/... ./apis/client/... ./apis/core/... ./apis/dataplane/... ./pkg/dataplane/...
+GINKGO_TESTS ?= ./test/... ./api/client/... ./api/core/... ./api/dataplane/... ./internal/...
 
 KUTTL ?= $(LOCALBIN)/kubectl-kuttl
 
 ## Tool Versions
-KUSTOMIZE_VERSION ?= v5.5.0 #(dprince: bumped to aquire new features like --load-restrictor)
-CONTROLLER_TOOLS_VERSION ?= v0.14.0
+KUSTOMIZE_VERSION ?= v5.6.0 #(dprince: bumped to aquire new features like --load-restrictor)
+CONTROLLER_TOOLS_VERSION ?= v0.18.0
 CRD_MARKDOWN_VERSION ?= v0.0.3
 KUTTL_VERSION ?= 0.17.0
-GOTOOLCHAIN_VERSION ?= go1.21.0
+GOTOOLCHAIN_VERSION ?= go1.24.0
 OC_VERSION ?= 4.16.0
 
 KUSTOMIZE_INSTALL_SCRIPT ?= "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh"
 .PHONY: kustomize
 kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary. If wrong version is installed, it will be removed before downloading.
+.PHONY: $(KUSTOMIZE)
 $(KUSTOMIZE): $(LOCALBIN)
 	@if test -x $(LOCALBIN)/kustomize && ! $(LOCALBIN)/kustomize version | grep -q $(KUSTOMIZE_VERSION); then \
 		echo "$(LOCALBIN)/kustomize version is not expected $(KUSTOMIZE_VERSION). Removing it before installing."; \
@@ -321,31 +347,36 @@ $(KUSTOMIZE): $(LOCALBIN)
 
 .PHONY: controller-gen
 controller-gen: gowork $(CONTROLLER_GEN) ## Download controller-gen locally if necessary. If wrong version is installed, it will be overwritten.
+.PHONY: $(CONTROLLER_GEN)
 $(CONTROLLER_GEN): $(LOCALBIN)
 	test -s $(LOCALBIN)/controller-gen && $(LOCALBIN)/controller-gen --version | grep -q $(CONTROLLER_TOOLS_VERSION) || \
 	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-tools/cmd/controller-gen@$(CONTROLLER_TOOLS_VERSION)
 
 .PHONY: crd-to-markdown
 crd-to-markdown: $(CRD_MARKDOWN) ## Download crd-to-markdown locally if necessary.
+.PHONY: $(CRD_MARKDOWN)
 $(CRD_MARKDOWN): $(LOCALBIN)
 	test -s $(LOCALBIN)/crd-to-markdown || GOBIN=$(LOCALBIN) go install github.com/clamoriniere/crd-to-markdown@$(CRD_MARKDOWN_VERSION)
 
 .PHONY: envtest
 envtest: $(ENVTEST) ## Download envtest-setup locally if necessary.
+.PHONY: $(ENVTEST)
 $(ENVTEST): $(LOCALBIN)
-	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@c7e1dc9b
+	test -s $(LOCALBIN)/setup-envtest || GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(SETUP_ENVTEST_VERSION)
 
 .PHONY: ginkgo
 ginkgo: $(GINKGO) ## Download ginkgo locally if necessary.
+.PHONY: $(GINKGO)
 $(GINKGO): $(LOCALBIN)
 	test -s $(LOCALBIN)/ginkgo || GOBIN=$(LOCALBIN) go install github.com/onsi/ginkgo/v2/ginkgo
 
 .PHONY: kuttl-test
 kuttl-test: ## Run kuttl tests
-	$(LOCALBIN)/kubectl-kuttl test --config kuttl-test.yaml tests/kuttl/tests $(KUTTL_ARGS)
+	$(LOCALBIN)/kubectl-kuttl test --config kuttl-test.yaml test/kuttl/tests $(KUTTL_ARGS)
 
 .PHONY: kuttl
 kuttl: $(KUTTL) ## Download kubectl-kuttl locally if necessary.
+.PHONY: $(KUTTL)
 $(KUTTL): $(LOCALBIN)
 	test -s $(LOCALBIN)/kubectl-kuttl || curl -L -o $(LOCALBIN)/kubectl-kuttl https://github.com/kudobuilder/kuttl/releases/download/v$(KUTTL_VERSION)/kubectl-kuttl_$(KUTTL_VERSION)_linux_x86_64
 	chmod +x $(LOCALBIN)/kubectl-kuttl
@@ -370,10 +401,16 @@ endif
 .PHONY: bundle
 bundle: manifests kustomize operator-sdk ## Generate bundle manifests and metadata, then validate generated files.
 	$(OPERATOR_SDK) generate kustomize manifests -q
-	cd config/operator/deployment/ && $(KUSTOMIZE) edit set image controller=$(IMG) && \
-	$(KUSTOMIZE) edit add patch --kind Deployment --name openstack-operator-controller-operator --namespace system --patch "[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/1/env/0\", \"value\": {\"name\": \"OPENSTACK_RELEASE_VERSION\", \"value\": \"$(OPENSTACK_RELEASE_VERSION)\"}}]" && \
-	$(KUSTOMIZE) edit add patch --kind Deployment --name openstack-operator-controller-operator --namespace system --patch "[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/1/env/1\", \"value\": {\"name\": \"OPERATOR_IMAGE_URL\", \"value\": \"$(IMG)\"}}]"
+	cd config/operator/deployment/ && \
+	sed -i '/^patches:/,$$d' kustomization.yaml && \
+	$(KUSTOMIZE) edit set image controller=$(IMG) && \
+	$(KUSTOMIZE) edit add patch --kind Deployment --name openstack-operator-controller-init --namespace system --patch "[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/env/0\", \"value\": {\"name\": \"OPENSTACK_RELEASE_VERSION\", \"value\": \"$(OPENSTACK_RELEASE_VERSION)\"}}]" && \
+	$(KUSTOMIZE) edit add patch --kind Deployment --name openstack-operator-controller-init --namespace system --patch "[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/env/1\", \"value\": {\"name\": \"OPERATOR_IMAGE_URL\", \"value\": \"$(IMG)\"}}]"
 	$(KUSTOMIZE) build config/operator --load-restrictor='LoadRestrictionsNone' | $(OPERATOR_SDK) generate bundle $(BUNDLE_GEN_FLAGS)
+ifneq ($(REPLACES),)
+	@echo "Adding replaces: $(REPLACES) to CSV"
+	sed -i "/^  name: openstack-operator.v$(VERSION)/a\  replaces: $(REPLACES)" bundle/manifests/openstack-operator.clusterserviceversion.yaml
+endif
 	$(OPERATOR_SDK) bundle validate ./bundle
 
 .PHONY: bundle-build
@@ -418,14 +455,34 @@ MAKE_ENV := $(shell echo '$(.VARIABLES)' | awk -v RS=' ' '/^(IMAGE)|.*?(REGISTRY
 SHELL_EXPORT = $(foreach v,$(MAKE_ENV),$(v)='$($(v))')
 
 # These images MUST exist in a registry and be pull-able.
+# Sub-operator bundles are included for from-scratch catalog builds but are not functionally
+# required — sub-operators are deployed by operator-controller-init, not OLM.
 BUNDLE_IMGS = "$(BUNDLE_IMG)$(shell $(SHELL_EXPORT) /bin/bash hack/pin-bundle-images.sh || echo bundle-fail-tag)"
+
+# When REPLACES is set, include the previous version's bundle in the catalog for upgrade support
+# PREV_BUNDLE_IMG can be set to override the default (defaults to upstream :latest)
+# Example: make catalog-build REPLACES=openstack-operator.v0.6.0 PREV_BUNDLE_IMG=quay.io/openstack-k8s-operators/openstack-operator-bundle:latest
+ifneq ($(REPLACES),)
+PREV_BUNDLE_IMG ?= quay.io/openstack-k8s-operators/openstack-operator-bundle:latest
+endif
 
 # The image tag given to the resulting catalog image (e.g. make catalog-build CATALOG_IMG=example.com/operator-catalog:v0.2.0).
 CATALOG_IMG ?= $(IMAGE_TAG_BASE)-index:v$(VERSION)
 
-# Set CATALOG_BASE_IMG to an existing catalog image tag to add $BUNDLE_IMGS to that image.
+# Set CATALOG_BASE_IMG to an existing catalog image tag to add the new bundle to it.
+# Only adds the openstack-operator bundle — sub-operator bundles from the base catalog
+# are preserved but not functionally used (sub-operators are deployed by operator-controller-init).
 ifneq ($(origin CATALOG_BASE_IMG), undefined)
 FROM_INDEX_OPT := --from-index $(CATALOG_BASE_IMG)
+CATALOG_BUNDLE_IMGS ?= $(BUNDLE_IMG)
+else
+# Building from scratch: include previous bundle if REPLACES is set, plus all dependency bundles
+# Can be overridden by setting CATALOG_BUNDLE_IMGS on command line
+ifneq ($(REPLACES),)
+CATALOG_BUNDLE_IMGS ?= $(PREV_BUNDLE_IMG),$(BUNDLE_IMGS)
+else
+CATALOG_BUNDLE_IMGS ?= $(BUNDLE_IMGS)
+endif
 endif
 
 # Build a catalog image by adding bundle images to an empty catalog using the operator package manager tool, 'opm'.
@@ -434,7 +491,7 @@ endif
 .PHONY: catalog-build
 catalog-build: opm ## Build a catalog image.
 	# FIXME: hardcoded bundle below should use go.mod pinned version for manila bundle
-	$(OPM) index add --container-tool podman --mode semver --tag $(CATALOG_IMG) --bundles $(BUNDLE_IMGS) $(FROM_INDEX_OPT)
+	$(OPM) index add --container-tool podman --mode semver --tag $(CATALOG_IMG) --bundles $(CATALOG_BUNDLE_IMGS) $(FROM_INDEX_OPT)
 
 # Push the catalog image.
 .PHONY: catalog-push
@@ -459,12 +516,12 @@ get-ci-tools:
 # Run go fmt against code
 gofmt: get-ci-tools
 	GOWORK=off $(CI_TOOLS_REPO_DIR)/test-runner/gofmt.sh
-	GOWORK=off $(CI_TOOLS_REPO_DIR)/test-runner/gofmt.sh ./apis
+	GOWORK=off $(CI_TOOLS_REPO_DIR)/test-runner/gofmt.sh ./api
 
 # Run go vet against code
 govet: get-ci-tools
 	GOWORK=off $(CI_TOOLS_REPO_DIR)/test-runner/govet.sh
-	GOWORK=off $(CI_TOOLS_REPO_DIR)/test-runner/govet.sh  ./apis
+	GOWORK=off $(CI_TOOLS_REPO_DIR)/test-runner/govet.sh  ./api
 
 # Run go test against code
 gotest: test
@@ -472,24 +529,24 @@ gotest: test
 # Run golangci-lint test against code
 golangci: get-ci-tools
 	GOWORK=off $(CI_TOOLS_REPO_DIR)/test-runner/golangci.sh
-	GOWORK=off $(CI_TOOLS_REPO_DIR)/test-runner/golangci.sh  ./apis
+	GOWORK=off $(CI_TOOLS_REPO_DIR)/test-runner/golangci.sh  ./api
 
 # Run go lint against code
 golint: get-ci-tools
 	GOWORK=off PATH=$(GOBIN):$(PATH); $(CI_TOOLS_REPO_DIR)/test-runner/golint.sh
-	GOWORK=off PATH=$(GOBIN):$(PATH); $(CI_TOOLS_REPO_DIR)/test-runner/golint.sh ./apis
+	GOWORK=off PATH=$(GOBIN):$(PATH); $(CI_TOOLS_REPO_DIR)/test-runner/golint.sh ./api
 
 .PHONY: gowork
 gowork: ## Generate go.work file to support our multi module repository
 	test -f go.work || GOTOOLCHAIN=$(GOTOOLCHAIN_VERSION) go work init
 	go work use .
-	go work use ./apis
+	go work use ./api
 	go work sync
 
 .PHONY: operator-lint
 operator-lint: gowork ## Runs operator-lint
 	GOBIN=$(LOCALBIN) go install github.com/gibizer/operator-lint@v0.3.0
-	go vet -vettool=$(LOCALBIN)/operator-lint ./... ./apis/...
+	go vet -vettool=$(LOCALBIN)/operator-lint ./... ./api/...
 
 # Used for webhook testing
 # The configure_local_webhook.sh script below will remove any OLM webhooks
@@ -502,6 +559,8 @@ SKIP_CERT ?=false
 .PHONY: run-with-webhook
 run-with-webhook: export METRICS_PORT?=8080
 run-with-webhook: export HEALTH_PORT?=8081
+run-with-webhook: export PPROF_PORT?=8082
+run-with-webhook: export WEBHOOK_PORT?=9443
 run-with-webhook: manifests generate fmt vet ## Run a controller from your host.
 	/bin/bash hack/run_with_local_webhook.sh
 

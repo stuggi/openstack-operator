@@ -11,9 +11,14 @@ testbin/*
 bundle/*
 bundle.Dockerfile
 config/operator/deployment/kustomization.yaml
+# Generated certificate ConfigMaps for kustomize
+config/samples/tls/custom_route_cert/placement-cert-data.yaml
 
 # Test binary, build with `go test -c`
 *.test
+
+# Test artifacts
+test/functional/*/default.etcd/
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
@@ -41,3 +46,9 @@ go.work.sum
 docs_build/
 Gemfile.lock
 local/
+
+# personal configs not to commit
+# Cursor AI
+.cursor
+# Claude AI
+.claude

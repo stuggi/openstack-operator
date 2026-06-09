@@ -9,10 +9,12 @@ spec:
     template:
       databaseInstance: openstack
       secret: osp-secret
+      notificationsBus:
+        cluster: rabbitmq  # Required for Barbican KeystoneListener
   galera:
     templates:
       openstack:
-        storageRequest: 500M
+        storageRequest: 500Mi
   rabbitmq:
     templates:
       rabbitmq:
@@ -32,6 +34,8 @@ spec:
     template:
       databaseInstance: openstack
       secret: osp-secret
+      notificationsBus:
+        cluster: rabbitmq  # Match Keystone for complete notification integration
       barbicanAPI:
         replicas: 1
       barbicanWorker:
@@ -60,7 +64,7 @@ spec:
         swift_store_key = {{ .ServicePassword }}
       storage:
         storageClass: ""
-        storageRequest: 10G
+        storageRequest: 10Gi
       keystoneEndpoint: default
       glanceAPIs:
         default:
@@ -84,11 +88,11 @@ spec:
         ovndbcluster-nb:
           replicas: 1
           dbType: NB
-          storageRequest: 10G
+          storageRequest: 10Gi
         ovndbcluster-sb:
           replicas: 1
           dbType: SB
-          storageRequest: 10G
+          storageRequest: 10Gi
       ovnNorthd:
         replicas: 1
       ovnController: {}
@@ -114,7 +118,8 @@ spec:
           cell1:
             cellDatabaseAccount: nova-cell1
             cellDatabaseInstance: openstack
-            cellMessageBusInstance: rabbitmq
+            messagingBus:
+              cluster: rabbitmq
             conductorServiceTemplate:
               replicas: 1
             hasAPIAccess: true
@@ -125,7 +130,7 @@ spec:
         replicas: 1
       ironicConductors:
       - replicas: 1
-        storageRequest: 10G
+        storageRequest: 10Gi
       ironicInspector:
         replicas: 1
       ironicNeutronAgent:
@@ -135,7 +140,7 @@ spec:
     enabled: true
     template:
       metricStorage:
-        enabled: false
+        enabled: true
         monitoringStack:
           alertingEnabled: true
           scrapeInterval: 30s
@@ -143,7 +148,8 @@ spec:
             strategy: persistent
             retention: 24h
             persistent:
-              pvcStorageRequest: 20G
+              pvcStorageRequest: 10Gi
+        networkAttachments: []
       autoscaling:
         enabled: false
         aodh:
@@ -151,10 +157,14 @@ spec:
           databaseAccount: aodh
           databaseInstance: openstack
           secret: osp-secret
+          notificationsBus:
+            cluster: rabbitmq  # Required for receiving notifications from OpenStack services
         heatInstance: heat
       ceilometer:
         enabled: true
         secret: osp-secret
+        notificationsBus:
+          cluster: rabbitmq  # Required for receiving notifications from OpenStack services
       logging:
         enabled: false
         ipaddr: 172.17.0.80
@@ -169,3 +179,5 @@ spec:
         replicas: 1
       swiftProxy:
         replicas: 1
+  watcher:
+    enabled: true

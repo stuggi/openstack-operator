@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   creationTimestamp: null
   name: autoscalings.telemetry.openstack.org
 spec:
@@ -70,6 +70,20 @@ spec:
                     default: 60
                     description: APITimeout for Route and Apache
                     type: integer
+                  auth:
+                    description: Auth - authentication settings for keystone integration
+                    properties:
+                      applicationCredentialSecret:
+                        description: ApplicationCredentialSecret - secret name for
+                          application credential
+                        type: string
+                    type: object
+                  customConfigsSecretName:
+                    description: |-
+                      A name of a secret containing custom configuration files. Files
+                      from this secret will get copied into /etc/aodh/ and they'll
+                      overwrite any default files already present there.
+                    type: string
                   customServiceConfig:
                     default: '# add your customization here'
                     description: |-
@@ -95,7 +109,6 @@ spec:
                     description: |-
                       ConfigOverwrite - interface to overwrite default config files like e.g. logging.conf or policy.json.
                       But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                      TODO: -> implement
                     type: object
                   evaluatorImage:
                     type: string
@@ -116,6 +129,23 @@ spec:
                       type: string
                     description: NodeSelector to target subset of worker nodes running
                       this service
+                    type: object
+                  notificationsBus:
+                    description: NotificationsBus configuration (username, vhost,
+                      and cluster) for notifications
+                    properties:
+                      cluster:
+                        description: Name of the cluster
+                        minLength: 1
+                        type: string
+                      user:
+                        description: User - RabbitMQ username
+                        type: string
+                      vhost:
+                        description: Vhost - RabbitMQ vhost name
+                        type: string
+                    required:
+                    - cluster
                     type: object
                   notifierImage:
                     type: string
@@ -143,7 +173,7 @@ spec:
                                     Annotations is an unstructured key value map stored with a resource that may be
                                     set by external tools to store and retrieve arbitrary metadata. They are not
                                     queryable and should be preserved when modifying objects.
-                                    More info: http://kubernetes.io/docs/user-guide/annotations
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
                                   type: object
                                 labels:
                                   additionalProperties:
@@ -152,7 +182,7 @@ spec:
                                     Map of string keys and values that can be used to organize and categorize
                                     (scope and select) objects. May match selectors of replication controllers
                                     and services.
-                                    More info: http://kubernetes.io/docs/user-guide/labels
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
                                   type: object
                               type: object
                             spec:
@@ -294,6 +324,11 @@ spec:
                         description: CeilometerService - Selector to get the ceilometer
                           service password from the Secret
                         type: string
+                      cloudKittyService:
+                        default: CloudKittyPassword
+                        description: CloudKittyService - Selector to get the CloudKitty
+                          service password from the Secret
+                        type: string
                     type: object
                   preserveJobs:
                     default: false
@@ -301,10 +336,10 @@ spec:
                       e.g. to check logs
                     type: boolean
                   rabbitMqClusterName:
-                    default: rabbitmq
                     description: |-
                       RabbitMQ instance name
                       Needed to request a transportURL that is created and used in Aodh
+                      Deprecated: Use NotificationsBus.Cluster instead
                     type: string
                   secret:
                     default: osp-secret
@@ -395,10 +430,13 @@ spec:
                       valid secret key.
                     type: string
                   name:
+                    default: ""
                     description: |-
                       Name of the referent.
+                      This field is effectively required, but due to backwards compatibility is
+                      allowed to be empty. Instances of this type with an empty value here are
+                      almost certainly wrong.
                       More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
-                      TODO: Add other useful fields. apiVersion, kind, uid?
                     type: string
                   optional:
                     description: Specify whether the Secret or its key must be defined
@@ -418,6 +456,10 @@ spec:
                   type: string
                 description: API endpoint
                 type: object
+              applicationCredentialSecret:
+                description: ApplicationCredentialSecret - the AC secret aodh is currently
+                  consuming
+                type: string
               conditions:
                 description: Conditions
                 items:
@@ -489,6 +531,10 @@ spec:
                 items:
                   type: string
                 type: array
+              notificationsURLSecret:
+                description: NotificationsURLSecret - Secret containing RabbitMQ notification
+                  transportURL
+                type: string
               observedGeneration:
                 description: |-
                   ObservedGeneration - the most recent generation observed for this

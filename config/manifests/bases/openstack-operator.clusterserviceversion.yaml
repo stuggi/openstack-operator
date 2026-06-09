@@ -12,15 +12,29 @@ metadata:
     features.operators.openshift.io/token-auth-azure: "false"
     features.operators.openshift.io/token-auth-gcp: "false"
     operatorframework.io/suggested-namespace: openstack-operators
-    operators.operatorframework.io/builder: operator-sdk-v1.31.0
+    operators.openshift.io/valid-subscription: '["OpenShift Container Platform", "OpenShift
+      Platform Plus"]'
+    operators.operatorframework.io/builder: operator-sdk-v1.41.0
     operators.operatorframework.io/internal-objects: '["openstackclients.client.openstack.org","openstackdataplaneservices.dataplane.openstack.org"]'
-    operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
+    operators.operatorframework.io/project_layout: go.kubebuilder.io/v4
   name: openstack-operator.v0.0.0
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
   customresourcedefinitions:
     owned:
+    - description: |-
+        OpenStackBackupConfig is the Schema for the openstackbackupconfigs API.
+        It configures automatic backup labeling for user-provided resources (without ownerReferences).
+      displayName: Open Stack Backup Config
+      kind: OpenStackBackupConfig
+      name: openstackbackupconfigs.backup.openstack.org
+      statusDescriptors:
+      - description: Conditions represents the latest available observations of the
+          resource's current state
+        displayName: Conditions
+        path: conditions
+      version: v1beta1
     - description: OpenStackClient is the Schema for the openstackclients API
       displayName: OpenStack Client
       kind: OpenStackClient
@@ -36,6 +50,13 @@ spec:
       kind: OpenStackControlPlane
       name: openstackcontrolplanes.core.openstack.org
       specDescriptors:
+      - description: |-
+          ApplicationCredential - Global configuration for ApplicationCredentials.
+          Both this global section AND the per-service applicationCredential section
+          must be enabled for a service to use ApplicationCredentials.
+          If omitted, defaults to enabled=false with standard expiration/grace periods.
+        displayName: Application Credential
+        path: applicationCredential
       - description: Barbican - Parameters related to the Barbican service
         displayName: Barbican
         path: barbican
@@ -46,6 +67,10 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: barbican.apiOverride.tls
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: barbican.applicationCredential
       - description: Enabled - Whether Barbican service should be deployed and managed
         displayName: Enabled
         path: barbican.enabled
@@ -64,6 +89,10 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: cinder.apiOverride.tls
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: cinder.applicationCredential
       - description: Enabled - Whether Cinder service should be deployed and managed
         displayName: Enabled
         path: cinder.enabled
@@ -82,6 +111,10 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: designate.apiOverride.tls
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: designate.applicationCredential
       - description: Enabled - Whether the Designate service should be deployed and
           managed
         displayName: Enabled
@@ -129,6 +162,10 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: glance.apiOverrides.tls
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: glance.applicationCredential
       - description: Enabled - Whether Glance service should be deployed and managed
         displayName: Enabled
         path: glance.enabled
@@ -147,6 +184,10 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: heat.apiOverride.tls
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: heat.applicationCredential
       - description: CnfAPIOverride, provides the ability to override the generated
           manifest of several child resources.
         displayName: Cnf APIOverride
@@ -190,6 +231,10 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: ironic.apiOverride.tls
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: ironic.applicationCredential
       - description: Enabled - Whether Ironic services should be deployed and managed
         displayName: Enabled
         path: ironic.enabled
@@ -233,6 +278,10 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: manila.apiOverride.tls
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: manila.applicationCredential
       - description: Enabled - Whether Manila service should be deployed and managed
         displayName: Enabled
         path: manila.enabled
@@ -262,6 +311,10 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: neutron.apiOverride.tls
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: neutron.applicationCredential
       - description: Enabled - Whether Neutron service should be deployed and managed
         displayName: Enabled
         path: neutron.enabled
@@ -284,10 +337,14 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: nova.apiOverride.tls
-      - description: CellOverride, provides the ability to override the generated
-          manifest of several child resources for a nova cell. cell0 never have compute
-          nodes and therefore it won't have a noVNCProxy deployed. Providing an override
-          for cell0 noVNCProxy does not have an effect.
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: nova.applicationCredential
+      - description: |-
+          CellOverride, provides the ability to override the generated manifest of several child resources
+          for a nova cell. cell0 never have compute nodes and therefore it won't have a noVNCProxy deployed.
+          Providing an override for cell0 noVNCProxy does not have an effect.
         displayName: Cell Override
         path: nova.cellOverride
       - description: TLS - overrides tls parameters for public endpoint
@@ -311,6 +368,10 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: octavia.apiOverride.tls
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: octavia.applicationCredential
       - description: Enabled - Whether the Octavia service should be deployed and
           managed
         displayName: Enabled
@@ -362,6 +423,10 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: placement.apiOverride.tls
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: placement.applicationCredential
       - description: Enabled - Whether Placement service should be deployed and managed
         displayName: Enabled
         path: placement.enabled
@@ -402,6 +467,10 @@ spec:
       - description: Swift - Parameters related to the Swift service
         displayName: Swift
         path: swift
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: swift.applicationCredential
       - description: Enabled - Whether Swift service should be deployed and managed
         displayName: Enabled
         path: swift.enabled
@@ -434,6 +503,25 @@ spec:
       - description: TLS - overrides tls parameters for public endpoint
         displayName: TLS
         path: telemetry.aodhApiOverride.tls
+      - description: ApplicationCredentialAodh allows service-specific overrides of
+          the global AC configuration for Aodh.
+        displayName: Application Credential Aodh
+        path: telemetry.applicationCredentialAodh
+      - description: ApplicationCredentialCeilometer allows service-specific overrides
+          of the global AC configuration for Ceilometer.
+        displayName: Application Credential Ceilometer
+        path: telemetry.applicationCredentialCeilometer
+      - description: ApplicationCredentialCloudKitty allows service-specific overrides
+          of the global AC configuration for CloudKitty.
+        displayName: Application Credential Cloud Kitty
+        path: telemetry.applicationCredentialCloudKitty
+      - description: CloudKittyAPIOverride, provides the ability to override the generated
+          manifest of several child resources.
+        displayName: Cloud Kitty APIOverride
+        path: telemetry.cloudKittyApiOverride
+      - description: TLS - overrides tls parameters for public endpoint
+        displayName: TLS
+        path: telemetry.cloudKittyApiOverride.tls
       - description: Enabled - Whether OpenStack Telemetry services should be deployed
           and managed
         displayName: Enabled
@@ -474,8 +562,9 @@ spec:
         path: tls.podLevel.enabled
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
-      - description: Internal - default CA used for all OpenStackControlPlane and
-          OpenStackDataplane endpoints, except OVN related CA and certs
+      - description: |-
+          Internal - default CA used for all OpenStackControlPlane and OpenStackDataplane endpoints,
+          except OVN related CA and certs
         displayName: Internal
         path: tls.podLevel.internal
       - description: Ca - defines details for CA cert config
@@ -504,6 +593,28 @@ spec:
       - description: Cert - defines details for cert config
         displayName: Cert
         path: tls.podLevel.ovn.cert
+      - description: Watcher - Parameters related to the Watcher service
+        displayName: Watcher
+        path: watcher
+      - description: APIOverride, provides the ability to override the generated manifest
+          of several child resources.
+        displayName: APIOverride
+        path: watcher.apiOverride
+      - description: TLS - overrides tls parameters for public endpoint
+        displayName: TLS
+        path: watcher.apiOverride.tls
+      - description: ApplicationCredential allows service-specific overrides of the
+          global AC configuration.
+        displayName: Application Credential
+        path: watcher.applicationCredential
+      - description: Enabled - Whether Watcher service should be deployed and managed
+        displayName: Enabled
+        path: watcher.enabled
+        x-descriptors:
+        - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
+      - description: Template - Overrides to use when creating the Watcher service
+        displayName: Template
+        path: watcher.template
       statusDescriptors:
       - description: Conditions
         displayName: Conditions
@@ -520,9 +631,9 @@ spec:
         displayName: TLS
         path: tls
       version: v1beta1
-    - description: OpenStackDataPlaneDeployment is the Schema for the openstackdataplanedeployments
-        API OpenStackDataPlaneDeployment name must be a valid RFC1123 as it is used
-        in labels
+    - description: |-
+        OpenStackDataPlaneDeployment is the Schema for the openstackdataplanedeployments API
+        OpenStackDataPlaneDeployment name must be a valid RFC1123 as it is used in labels
       displayName: OpenStack Data Plane Deployments
       kind: OpenStackDataPlaneDeployment
       name: openstackdataplanedeployments.dataplane.openstack.org
@@ -545,9 +656,9 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
       version: v1beta1
-    - description: OpenStackDataPlaneNodeSet is the Schema for the openstackdataplanenodesets
-        API OpenStackDataPlaneNodeSet name must be a valid RFC1123 as it is used in
-        labels
+    - description: |-
+        OpenStackDataPlaneNodeSet is the Schema for the openstackdataplanenodesets API
+        OpenStackDataPlaneNodeSet name must be a valid RFC1123 as it is used in labels
       displayName: OpenStack Data Plane NodeSet
       kind: OpenStackDataPlaneNodeSet
       name: openstackdataplanenodesets.dataplane.openstack.org
@@ -557,10 +668,12 @@ spec:
         path: nodeTemplate.ansible.ansiblePort
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:number
-      - description: 'AnsibleSSHPrivateKeySecret Name of a private SSH key secret
-          containing private SSH key for connecting to node. The named secret must
-          be of the form: Secret.data.ssh-privatekey: <base64 encoded private key
-          contents> <https://kubernetes.io/docs/concepts/configuration/secret/#ssh-authentication-secrets>'
+      - description: |-
+          AnsibleSSHPrivateKeySecret Name of a private SSH key secret containing
+          private SSH key for connecting to node.
+          The named secret must be of the form:
+          Secret.data.ssh-privatekey: <base64 encoded private key contents>
+          <https://kubernetes.io/docs/concepts/configuration/secret/#ssh-authentication-secrets>
         displayName: Ansible SSHPrivate Key Secret
         path: nodeTemplate.ansibleSSHPrivateKeySecret
         x-descriptors:
@@ -587,9 +700,9 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes.conditions
       version: v1beta1
-    - description: OpenStackDataPlaneService is the Schema for the openstackdataplaneservices
-        API OpenStackDataPlaneService name must be a valid RFC1123 as it is used in
-        labels
+    - description: |-
+        OpenStackDataPlaneService defines the Schema for the openstackdataplaneservices API.
+        OpenStackDataPlaneService name must be a valid RFC1123 as it is used in labels
       displayName: OpenStack Data Plane Service
       kind: OpenStackDataPlaneService
       name: openstackdataplaneservices.dataplane.openstack.org
@@ -599,9 +712,9 @@ spec:
         path: addCertMounts
         x-descriptors:
         - urn:alm:descriptor:com.tectonic.ui:booleanSwitch
-      - description: DeployOnAllNodeSets - should the service be deploy across all
-          nodesets This will override default target of a service play, setting it
-          to 'all'.
+      - description: |-
+          DeployOnAllNodeSets - should the service be deploy across all nodesets
+          This will override default target of a service play, setting it to 'all'.
         displayName: Deploy On All Node Sets
         path: deployOnAllNodeSets
         x-descriptors:
@@ -613,7 +726,7 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes.conditions
       version: v1beta1
-    - description: OpenStack is the Schema for the openstacks API
+    - description: OpenStack defines the Schema for the openstacks API
       displayName: OpenStack
       kind: OpenStack
       name: openstacks.operator.openstack.org
@@ -624,7 +737,7 @@ spec:
         x-descriptors:
         - urn:alm:descriptor:io.kubernetes.conditions
       version: v1beta1
-    - description: OpenStackVersion is the Schema for the openstackversionupdates
+    - description: OpenStackVersion defines the Schema for the openstackversionupdates
         API
       displayName: OpenStack Version
       kind: OpenStackVersion
@@ -660,6 +773,7 @@ spec:
   - name: Openstack Operator
     url: https://github.com/openstack-k8s-operators/
   maturity: alpha
+  minKubeVersion: 1.31.0
   provider:
     name: Red Hat Inc.
     url: https://redhat.com/

@@ -1,23 +1,23 @@
 name: openstack operator image builder
-
 on:
   push:
     branches:
       - '*'
+  workflow_dispatch:  # This allows manual triggering from the Actions tab if needed
 
 env:
   imageregistry: 'quay.io'
   imagenamespace: ${{ secrets.IMAGENAMESPACE || secrets.QUAY_USERNAME }}
   latesttag: latest
-
 jobs:
   call-build-workflow:
     uses: openstack-k8s-operators/openstack-k8s-operators-ci/.github/workflows/reusable-build-operator.yaml@main
     with:
       operator_name: openstack
-      go_version: 1.21.x
-      operator_sdk_version: 1.31.0
+      go_version: 1.24.x
+      operator_sdk_version: 1.41.1
       bundle_dockerfile: ./bundle.Dockerfile
+      operator_version: 0.6.0
     secrets:
       IMAGENAMESPACE: ${{ secrets.IMAGENAMESPACE }}
       QUAY_USERNAME: ${{ secrets.QUAY_USERNAME }}

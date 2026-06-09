@@ -69,7 +69,7 @@ spec:
       databaseInstance: openstack
       storage:
         storageClass: ""
-        storageRequest: 10G
+        storageRequest: 10Gi
       secret: osp-secret
       keystoneEndpoint: default
       glanceAPIs:
@@ -103,14 +103,16 @@ spec:
               type: LoadBalancer
       databaseInstance: openstack
       secret: osp-secret
+      notificationsBus:
+        cluster: rabbitmq  # Required for Barbican KeystoneListener
   galera:
     templates:
       openstack:
-        storageRequest: 500M
+        storageRequest: 500Mi
         secret: osp-secret
         replicas: 1
       openstack-cell1:
-        storageRequest: 500M
+        storageRequest: 500Mi
         secret: osp-secret
         replicas: 1
   memcached:
@@ -141,6 +143,8 @@ spec:
     template:
       databaseInstance: openstack
       secret: osp-secret
+      notificationsBus:
+        cluster: rabbitmq  # Match Keystone for complete notification integration
       barbicanAPI:
         replicas: 1
         override:
@@ -171,14 +175,16 @@ spec:
         cell0:
           cellDatabaseAccount: nova-cell0
           cellDatabaseInstance: openstack
-          cellMessageBusInstance: rabbitmq
+          messagingBus:
+            cluster: rabbitmq
           conductorServiceTemplate:
             replicas: 1
           hasAPIAccess: true
         cell1:
           cellDatabaseAccount: nova-cell1
           cellDatabaseInstance: openstack-cell1
-          cellMessageBusInstance: rabbitmq-cell1
+          messagingBus:
+            cluster: rabbitmq-cell1
           conductorServiceTemplate:
             replicas: 1
           hasAPIAccess: true
@@ -208,6 +214,7 @@ spec:
     apiOverride:
       route: {}
     template:
+      databaseInstance: openstack
       manilaAPI:
         replicas: 1
         networkAttachments:
@@ -234,11 +241,11 @@ spec:
       ovnDBCluster:
         ovndbcluster-nb:
           dbType: NB
-          storageRequest: 10G
+          storageRequest: 10Gi
           networkAttachment: internalapi
         ovndbcluster-sb:
           dbType: SB
-          storageRequest: 10G
+          storageRequest: 10Gi
           networkAttachment: internalapi
       ovnController:
         networkAttachment: tenant
@@ -319,7 +326,7 @@ spec:
         replicas: 1
       ironicConductors:
       - replicas: 1
-        storageRequest: 10G
+        storageRequest: 10Gi
       ironicInspector:
         replicas: 1
       ironicNeutronAgent:
@@ -337,7 +344,7 @@ spec:
             strategy: persistent
             retention: 24h
             persistent:
-              pvcStorageRequest: 20G
+              pvcStorageRequest: 10Gi
       autoscaling:
         enabled: false
         aodh:
@@ -345,10 +352,14 @@ spec:
           databaseAccount: aodh
           databaseInstance: openstack
           secret: osp-secret
+          notificationsBus:
+            cluster: rabbitmq  # Required for receiving notifications from OpenStack services
         heatInstance: heat
       ceilometer:
         enabled: true
         secret: osp-secret
+        notificationsBus:
+          cluster: rabbitmq  # Required for receiving notifications from OpenStack services
       logging:
         enabled: false
         ipaddr: 172.17.0.80
@@ -358,6 +369,52 @@ spec:
           metallb.universe.tf/loadBalancerIPs: 172.17.0.80
         port: 10514
         cloNamespace: openshift-logging
+      cloudkitty:
+        apiTimeout: 0
+        cloudKittyAPI:
+          override:
+            service:
+              internal:
+                metadata:
+                  annotations:
+                    metallb.universe.tf/address-pool: internalapi
+                    metallb.universe.tf/allow-shared-ip: internalapi
+                    metallb.universe.tf/loadBalancerIPs: 172.17.0.80
+                spec:
+                  type: LoadBalancer
+          replicas: 1
+          resources: {}
+          tls:
+            api:
+              internal: {}
+              public: {}
+            caBundleSecretName: combined-ca-bundle
+        cloudKittyProc:
+          replicas: 1
+          resources: {}
+          tls:
+            caBundleSecretName: combined-ca-bundle
+        databaseAccount: cloudkitty
+        databaseInstance: openstack
+        enabled: false
+        memcachedInstance: memcached
+        messagingBus:
+          cluster: rabbitmq
+        passwordSelector:
+          aodhService: AodhPassword
+          ceilometerService: CeilometerPassword
+          cloudKittyService: CloudKittyPassword
+        preserveJobs: false
+        s3StorageConfig:
+          schemas:
+          - effectiveDate: "2024-11-18"
+            version: v13
+          secret:
+            name: cloudkitty-loki-s3
+            type: s3
+        secret: osp-secret
+        serviceUser: cloudkitty
+        storageClass: local-storage
   swift:
     enabled: true
     proxyOverride:
@@ -425,6 +482,6 @@ spec:
       designateBackendbind9:
         replicas: 1
         storageClass: local-storage
-        storageRequest: 10G
+        storageRequest: 10Gi
         networkAttachments:
           - designate

@@ -2,8 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    cert-manager.io/inject-ca-from: $(CERTIFICATE_NAMESPACE)/$(CERTIFICATE_NAME)
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   creationTimestamp: null
   name: ironics.ironic.openstack.org
 spec:
@@ -54,6 +53,15 @@ spec:
                 description: APITimeout for HAProxy, Apache
                 minimum: 10
                 type: integer
+              auth:
+                description: Auth - Parameters related to authentication (shared by
+                  IronicAPI, IronicConductor, and IronicNeutronAgent)
+                properties:
+                  applicationCredentialSecret:
+                    description: ApplicationCredentialSecret - Secret containing Application
+                      Credential ID and Secret
+                    type: string
+                type: object
               customServiceConfig:
                 default: '# add your customization here'
                 description: |-
@@ -78,8 +86,16 @@ spec:
                 description: |-
                   ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                   But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                  TODO: -> implement
                 type: object
+              graphicalConsoles:
+                default: Disabled
+                description: 'Whether to enable graphical consoles. NOTE: Setting
+                  this to Enabled is not supported.'
+                enum:
+                - Enabled
+                - Disabled
+                - ""
+                type: string
               images:
                 default: {}
                 description: Images - Container images for all ironic services
@@ -92,6 +108,10 @@ spec:
                     description: Conductor - Ironic Conductor Container Image (will
                       be set to environmental default if empty)
                     type: string
+                  graphicalConsole:
+                    description: GraphicalConsole - Ironic Graphical Console Container
+                      Image (will be set to environmental default if empty)
+                    type: string
                   inspector:
                     description: Inspector - Ironic Inspector Container Image (will
                       be set to environmental default if empty)
@@ -103,6 +123,10 @@ spec:
                   neutronAgent:
                     description: NeutronAgent - ML2 baremtal - Ironic Neutron Agent
                       Image (will be set to environmental default if empty)
+                    type: string
+                  novncproxy:
+                    description: NoVNCProxy - Ironic NoVNCProxy Container Image (will
+                      be set to environmental default if empty)
                     type: string
                   pxe:
                     description: Pxe- Ironic DHCP/TFTP/HTTP Container Image URL (will
@@ -126,7 +150,6 @@ spec:
                     description: |-
                       ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                       But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                      TODO: -> implement
                     type: object
                   networkAttachments:
                     description: NetworkAttachments is a list of NetworkAttachment
@@ -165,7 +188,7 @@ spec:
                                     Annotations is an unstructured key value map stored with a resource that may be
                                     set by external tools to store and retrieve arbitrary metadata. They are not
                                     queryable and should be preserved when modifying objects.
-                                    More info: http://kubernetes.io/docs/user-guide/annotations
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
                                   type: object
                                 labels:
                                   additionalProperties:
@@ -174,7 +197,7 @@ spec:
                                     Map of string keys and values that can be used to organize and categorize
                                     (scope and select) objects. May match selectors of replication controllers
                                     and services.
-                                    More info: http://kubernetes.io/docs/user-guide/labels
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
                                   type: object
                               type: object
                             spec:
@@ -317,10 +340,8 @@ spec:
                           Claims lists the names of resources, defined in spec.resourceClaims,
                           that are used by this container.
 
-
                           This is an alpha field and requires enabling the
                           DynamicResourceAllocation feature gate.
-
 
                           This field is immutable. It can only be set for containers.
                         items:
@@ -331,6 +352,12 @@ spec:
                                 Name must match the name of one entry in pod.spec.resourceClaims of
                                 the Pod where this field is used. It makes that resource available
                                 inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
                               type: string
                           required:
                           - name
@@ -436,12 +463,11 @@ spec:
                       description: |-
                         ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                         But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                        TODO: -> implement
                       type: object
                     dhcpRanges:
                       description: DHCPRanges - List of DHCP ranges to use for provisioning
                       items:
-                        description: DHCPRange to define address range for DHCP requestes
+                        description: DHCPRange to define address range for DHCP requests
                         properties:
                           cidr:
                             description: Cidr - IP address prefix (CIDR) representing
@@ -507,10 +533,8 @@ spec:
                             Claims lists the names of resources, defined in spec.resourceClaims,
                             that are used by this container.
 
-
                             This is an alpha field and requires enabling the
                             DynamicResourceAllocation feature gate.
-
 
                             This field is immutable. It can only be set for containers.
                           items:
@@ -521,6 +545,12 @@ spec:
                                   Name must match the name of one entry in pod.spec.resourceClaims of
                                   the Pod where this field is used. It makes that resource available
                                   inside a container.
+                                type: string
+                              request:
+                                description: |-
+                                  Request is the name chosen for a request in the referenced claim.
+                                  If empty, everything from the claim is made available, otherwise
+                                  only the result of this request.
                                 type: string
                             required:
                             - name
@@ -561,6 +591,18 @@ spec:
                     storageRequest:
                       description: StorageRequest
                       type: string
+                    terminationGracePeriodSeconds:
+                      default: 120
+                      description: |-
+                        terminationGracePeriodSeconds - Pod termination grace period in seconds.
+                        Controls how long to wait for conductor pods to shut down gracefully before they are forcefully terminated.
+                        The default value is long enough for periodic tasks to complete but not for long-running tasks (deployment, cleaning).
+                        A node reserved for a long running task will be put into a failed state when the conductor reserving it is forcefully terminated.
+                        The terminationGracePeriodSeconds should be chosen with this and maintenance processes in mind.
+                        Changing terminationGracePeriodSeconds results in conductor pods being restarted with the old value.
+                      format: int64
+                      minimum: 30
+                      type: integer
                     topologyRef:
                       description: |-
                         TopologyRef to apply the Topology defined by the associated CR referenced
@@ -588,6 +630,14 @@ spec:
                 description: IronicInspector - Spec definition for the inspector service
                   of this Ironic deployment
                 properties:
+                  auth:
+                    description: Auth - Parameters related to authentication
+                    properties:
+                      applicationCredentialSecret:
+                        description: ApplicationCredentialSecret - Secret containing
+                          Application Credential ID and Secret
+                        type: string
+                    type: object
                   customServiceConfig:
                     default: '# add your customization here'
                     description: |-
@@ -609,12 +659,11 @@ spec:
                     description: |-
                       ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                       But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                      TODO: -> implement
                     type: object
                   dhcpRanges:
                     description: DHCPRanges - List of DHCP ranges to use for provisioning
                     items:
-                      description: DHCPRange to define address range for DHCP requestes
+                      description: DHCPRange to define address range for DHCP requests
                       properties:
                         cidr:
                           description: Cidr - IP address prefix (CIDR) representing
@@ -687,7 +736,7 @@ spec:
                                     Annotations is an unstructured key value map stored with a resource that may be
                                     set by external tools to store and retrieve arbitrary metadata. They are not
                                     queryable and should be preserved when modifying objects.
-                                    More info: http://kubernetes.io/docs/user-guide/annotations
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
                                   type: object
                                 labels:
                                   additionalProperties:
@@ -696,7 +745,7 @@ spec:
                                     Map of string keys and values that can be used to organize and categorize
                                     (scope and select) objects. May match selectors of replication controllers
                                     and services.
-                                    More info: http://kubernetes.io/docs/user-guide/labels
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
                                   type: object
                               type: object
                             spec:
@@ -856,10 +905,8 @@ spec:
                           Claims lists the names of resources, defined in spec.resourceClaims,
                           that are used by this container.
 
-
                           This is an alpha field and requires enabling the
                           DynamicResourceAllocation feature gate.
-
 
                           This field is immutable. It can only be set for containers.
                         items:
@@ -870,6 +917,12 @@ spec:
                                 Name must match the name of one entry in pod.spec.resourceClaims of
                                 the Pod where this field is used. It makes that resource available
                                 inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
                               type: string
                           required:
                           - name
@@ -978,7 +1031,23 @@ spec:
                     description: |-
                       ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                       But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                      TODO: -> implement
+                    type: object
+                  messagingBus:
+                    description: MessagingBus configuration (username, vhost, and
+                      cluster) for RPC messaging
+                    properties:
+                      cluster:
+                        description: Name of the cluster
+                        minLength: 1
+                        type: string
+                      user:
+                        description: User - RabbitMQ username
+                        type: string
+                      vhost:
+                        description: Vhost - RabbitMQ vhost name
+                        type: string
+                    required:
+                    - cluster
                     type: object
                   nodeSelector:
                     additionalProperties:
@@ -987,11 +1056,28 @@ spec:
                       NodeSelector to target subset of worker nodes running this service. Setting here overrides
                       any global NodeSelector settings within the Ironic CR
                     type: object
+                  notificationsBus:
+                    description: NotificationsBus configuration (username, vhost,
+                      and cluster) for notifications
+                    properties:
+                      cluster:
+                        description: Name of the cluster
+                        minLength: 1
+                        type: string
+                      user:
+                        description: User - RabbitMQ username
+                        type: string
+                      vhost:
+                        description: Vhost - RabbitMQ vhost name
+                        type: string
+                    required:
+                    - cluster
+                    type: object
                   rabbitMqClusterName:
-                    default: rabbitmq
                     description: |-
                       RabbitMQ instance name
                       Needed to request a transportURL that is created and used in Ironic
+                      Deprecated: Use MessagingBus.Cluster instead
                     type: string
                   replicas:
                     default: 1
@@ -1010,10 +1096,8 @@ spec:
                           Claims lists the names of resources, defined in spec.resourceClaims,
                           that are used by this container.
 
-
                           This is an alpha field and requires enabling the
                           DynamicResourceAllocation feature gate.
-
 
                           This field is immutable. It can only be set for containers.
                         items:
@@ -1024,6 +1108,12 @@ spec:
                                 Name must match the name of one entry in pod.spec.resourceClaims of
                                 the Pod where this field is used. It makes that resource available
                                 inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
                               type: string
                           required:
                           - name
@@ -1076,6 +1166,23 @@ spec:
                         type: string
                     type: object
                 type: object
+              messagingBus:
+                description: MessagingBus configuration (username, vhost, and cluster)
+                  for RPC messaging
+                properties:
+                  cluster:
+                    description: Name of the cluster
+                    minLength: 1
+                    type: string
+                  user:
+                    description: User - RabbitMQ username
+                    type: string
+                  vhost:
+                    description: Vhost - RabbitMQ vhost name
+                    type: string
+                required:
+                - cluster
+                type: object
               nodeSelector:
                 additionalProperties:
                   type: string
@@ -1083,6 +1190,23 @@ spec:
                   NodeSelector to target subset of worker nodes running this service. Setting
                   NodeSelector here acts as a default value and can be overridden by service
                   specific NodeSelector Settings.
+                type: object
+              notificationsBus:
+                description: NotificationsBus configuration (username, vhost, and
+                  cluster) for notifications
+                properties:
+                  cluster:
+                    description: Name of the cluster
+                    minLength: 1
+                    type: string
+                  user:
+                    description: User - RabbitMQ username
+                    type: string
+                  vhost:
+                    description: Vhost - RabbitMQ vhost name
+                    type: string
+                required:
+                - cluster
                 type: object
               passwordSelectors:
                 default:
@@ -1102,10 +1226,10 @@ spec:
                   e.g. to check logs
                 type: boolean
               rabbitMqClusterName:
-                default: rabbitmq
                 description: |-
                   RabbitMQ instance name
                   Needed to request a transportURL that is created and used in Ironic
+                  Deprecated: Use MessagingBus.Cluster instead
                 type: string
               rpcTransport:
                 description: |-
@@ -1236,6 +1360,10 @@ spec:
                 description: ReadyCount of Ironic Neutron Agent instance
                 format: int32
                 type: integer
+              notificationsURLSecret:
+                description: NotificationsURLSecret - Secret containing RabbitMQ notifications
+                  URL
+                type: string
               observedGeneration:
                 description: |-
                   ObservedGeneration - the most recent generation observed for this

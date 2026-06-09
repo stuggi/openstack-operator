@@ -17,7 +17,7 @@ if [ -n "$DOCKERFILE" ]; then
 fi
 
 #loop over each openstack-k8s-operators go.mod entry
-MOD_PATHS=$(go list -mod=readonly -m -json all | jq -r '. | select(.Path | contains("openstack")) | .Replace // . |.Path' | grep -v openstack-operator | grep -v lib-common)
+MOD_PATHS=$(go list -mod=readonly -m -json all | jq -r '. | select(.Path | contains("openstack")) | select(.Path | contains("openstack-operator") | not) | select(.Path | contains("lib-common") | not) | .Replace // . |.Path')
 for MOD_PATH in ${MOD_PATHS}; do
     if [[ "$MOD_PATH" == "./apis" ]]; then
         continue
@@ -50,7 +50,7 @@ for MOD_PATH in ${MOD_PATHS}; do
             # Quay registry v2 api does not return all the tags that's why keeping v1 for quay and v2
             # for local registry
             if [[ ${LOCAL_REGISTRY} -eq 1 ]]; then
-                REPO_CURL_URL="${CURL_REGISTRY}/v2/${IMAGENAMESPACE}"
+                REPO_CURL_URL="http://${CURL_REGISTRY}/v2/${IMAGENAMESPACE}"
             elif [[ "${CURL_REGISTRY}" == "docker.io" ]]; then
                 # replace docker.io by hub.docker.com to read tags
                 REPO_CURL_URL="https://hub.docker.com/v2/repositories/${IMAGENAMESPACE}"
@@ -64,18 +64,27 @@ for MOD_PATH in ${MOD_PATHS}; do
     fi
 
     if [[ ${LOCAL_REGISTRY} -eq 1 && ( "$GITHUB_USER" != "openstack-k8s-operators" || "$BASE" == "$IMAGEBASE" ) ]]; then
-        SHA=$(curl -s ${REPO_CURL_URL}/$BASE-operator-bundle/tags/list | jq -r .tags[] | sort -u | grep $REF)
+        SHA=$(curl -s ${REPO_CURL_URL}/$BASE-operator-bundle/tags/list | jq -r '.tags // [] | .[]' | sort -u | { grep $REF || true; })
     elif [[ "${CURL_REGISTRY}" == "docker.io" ]]; then
-        SHA=$(curl -s ${REPO_CURL_URL}/$BASE-operator-bundle/tags/?page_size=100 | jq -r .results[].name | sort -u | grep $REF)
+        SHA=$(curl -s ${REPO_CURL_URL}/$BASE-operator-bundle/tags/?page_size=100 | jq -r '.results // [] | .[].name' | sort -u | { grep $REF || true; })
     elif [[ "${CURL_REGISTRY}" != "quay.io" ]]; then
         # quay.rdoproject.io doesn't support filter_tag_name, so increase limit to 100
-        SHA=$(curl -s ${REPO_CURL_URL}/$BASE-operator-bundle/tag/?onlyActiveTags=true?limit=100 | jq -r .tags[].name | sort -u | grep $REF)
+        SHA=$(curl -s ${REPO_CURL_URL}/$BASE-operator-bundle/tag/?onlyActiveTags=true\&limit=100 | jq -r '.tags // [] | .[].name' | sort -u | { grep $REF || true; })
     else
-        SHA=$(curl -s ${REPO_CURL_URL}/$BASE-operator-bundle/tag/?onlyActiveTags=true\&filter_tag_name=like:$REF | jq -r .tags[].name)
+        SHA=$(curl -s ${REPO_CURL_URL}/$BASE-operator-bundle/tag/?onlyActiveTags=true\&filter_tag_name=like:$REF | jq -r '.tags // [] | .[].name')
     fi
 
     if [ -z "$SHA" ]; then
-        echo ",EMPTY_SHA:$REF:$REPO_CURL_URL"
+        # Send diagnostics to stderr; stdout is consumed as bundle list tokens.
+        echo "" >&2
+        echo "ERROR: Failed to find bundle image SHA for:" >&2
+        echo "  MOD_PATH: $MOD_PATH" >&2
+        echo "  BASE: $BASE" >&2
+        echo "  REF: $REF" >&2
+        echo "  REPO_URL: $REPO_URL" >&2
+        echo "  REPO_CURL_URL: $REPO_CURL_URL" >&2
+        echo "  Bundle: ${REPO_URL}/${BASE}-operator-bundle:$REF" >&2
+        echo "EMPTY_SHA:$BASE:$REF:$REPO_CURL_URL" >&2
         exit 1
     fi
 
@@ -85,8 +94,3 @@ for MOD_PATH in ${MOD_PATHS}; do
         echo -n ",${REPO_URL}/${BASE}-operator-bundle:$SHA"
     fi
 done
-# append the rabbitmq URL only if we aren't in Dockerfile mode
-if [ -z "$DOCKERFILE" ]; then
-    # pin rabbit to sha256 for our v2.9.0_patches fork
-    echo -n ",quay.io/openstack-k8s-operators/rabbitmq-cluster-operator-bundle@sha256:bad31e1b028840ac3c199efc3a8ecb3c87bdb68e6a11c8e32a7dbcd5a4d4114d"
-fi

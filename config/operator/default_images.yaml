@@ -3,7 +3,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: openstack-operator-controller-operator
+  name: openstack-operator-controller-init
   namespace: system
 spec:
   template:
@@ -40,7 +40,7 @@ spec:
         - name: RELATED_IMAGE_CEILOMETER_NOTIFICATION_IMAGE_URL_DEFAULT
           value: quay.io/podified-antelope-centos9/openstack-ceilometer-notification:current-podified
         - name: RELATED_IMAGE_CEILOMETER_MYSQLD_EXPORTER_IMAGE_URL_DEFAULT
-          value: quay.io/prometheus/mysqld-exporter:v0.16.0
+          value: quay.io/openstack-k8s-operators/mysqld_exporter:latest
         - name: RELATED_IMAGE_CEILOMETER_SGCORE_IMAGE_URL_DEFAULT
           value: quay.io/openstack-k8s-operators/sg-core:latest
         - name: RELATED_IMAGE_KSM_IMAGE_URL_DEFAULT
@@ -53,6 +53,10 @@ spec:
           value: quay.io/podified-antelope-centos9/openstack-cinder-scheduler:current-podified
         - name: RELATED_IMAGE_CINDER_VOLUME_IMAGE_URL_DEFAULT
           value: quay.io/podified-antelope-centos9/openstack-cinder-volume:current-podified
+        - name: RELATED_IMAGE_CLOUDKITTY_API_IMAGE_URL_DEFAULT
+          value: quay.rdoproject.org/podified-master-centos10/openstack-cloudkitty-api:current
+        - name: RELATED_IMAGE_CLOUDKITTY_PROC_IMAGE_URL_DEFAULT
+          value: quay.rdoproject.org/podified-master-centos10/openstack-cloudkitty-processor:current
         - name: RELATED_IMAGE_DESIGNATE_API_IMAGE_URL_DEFAULT
           value: quay.io/podified-antelope-centos9/openstack-designate-api:current-podified
         - name: RELATED_IMAGE_DESIGNATE_BACKENDBIND9_IMAGE_URL_DEFAULT
@@ -87,12 +91,12 @@ spec:
           value: quay.io/prometheus/node-exporter:v1.5.0
         - name: RELATED_IMAGE_EDPM_KEPLER_IMAGE_URL_DEFAULT
           value: quay.io/sustainable_computing_io/kepler:release-0.7.12
-        - name: RELATED_IMAGE_EDPM_OPENSTACK_NETWORK_EXPORTER_IMAGE_URL_DEFAULT
+        - name: RELATED_IMAGE_OPENSTACK_NETWORK_EXPORTER_IMAGE_URL_DEFAULT
           value: quay.io/openstack-k8s-operators/openstack-network-exporter:current-podified
         - name: RELATED_IMAGE_EDPM_OVN_BGP_AGENT_IMAGE_URL_DEFAULT
           value: quay.io/podified-antelope-centos9/openstack-ovn-bgp-agent:current-podified
         - name: RELATED_IMAGE_EDPM_PODMAN_EXPORTER_IMAGE_URL_DEFAULT
-          value: quay.io/navidys/prometheus-podman-exporter:v1.10.1
+          value: quay.io/openstack-k8s-operators/prometheus-podman-exporter:latest
         - name: RELATED_IMAGE_GLANCE_API_IMAGE_URL_DEFAULT
           value: quay.io/podified-antelope-centos9/openstack-glance-api:current-podified
         - name: RELATED_IMAGE_HEAT_API_IMAGE_URL_DEFAULT
@@ -181,6 +185,12 @@ spec:
           value: quay.io/podified-antelope-centos9/openstack-swift-proxy-server:current-podified
         - name: RELATED_IMAGE_TEST_TEMPEST_IMAGE_URL_DEFAULT
           value: quay.io/podified-antelope-centos9/openstack-tempest-all:current-podified
+        - name: RELATED_IMAGE_WATCHER_API_IMAGE_URL_DEFAULT
+          value: quay.io/podified-master-centos9/openstack-watcher-api:current-podified
+        - name: RELATED_IMAGE_WATCHER_APPLIER_IMAGE_URL_DEFAULT
+          value: quay.io/podified-master-centos9/openstack-watcher-applier:current-podified
+        - name: RELATED_IMAGE_WATCHER_DECISION_ENGINE_IMAGE_URL_DEFAULT
+          value: quay.io/podified-master-centos9/openstack-watcher-decision-engine:current-podified
           # NOTE: TEST_ images below do not get released downstream. They should not be prefixed with RELATED
         - name: TEST_TOBIKO_IMAGE_URL_DEFAULT
           value: quay.io/podified-antelope-centos9/openstack-tobiko:current-podified
@@ -190,8 +200,3 @@ spec:
           value: quay.io/podified-antelope-centos9/openstack-horizontest:current-podified
         - name: RELATED_IMAGE_OPENSTACK_MUST_GATHER_DEFAULT
           value: quay.io/openstack-k8s-operators/openstack-must-gather:latest
-          # will already be part of relatedImages as it is also directly set in the deployment in the
-          # bundle CSV. We also need an environment variable here to propagate this to the
-          # controller-manager and to other operators that require the same image to be set
-        - name: KUBE_RBAC_PROXY
-          value: quay.io/openstack-k8s-operators/kube-rbac-proxy:v0.16.0

@@ -58,6 +58,8 @@ spec:
     template:
       databaseInstance: openstack
       secret: osp-secret
+      notificationsBus:
+        cluster: rabbitmq  # Match Keystone for complete notification integration
       barbicanAPI:
         replicas: 1
         override:
@@ -82,7 +84,7 @@ spec:
       databaseInstance: openstack
       storage:
         storageClass: ""
-        storageRequest: 10G
+        storageRequest: 10Gi
       secret: osp-secret
       keystoneEndpoint: default
       customServiceConfig: |
@@ -128,12 +130,14 @@ spec:
               type: LoadBalancer
       databaseInstance: openstack
       secret: osp-secret
+      notificationsBus:
+        cluster: rabbitmq  # Required for Barbican KeystoneListener
   galera:
     templates:
       openstack:
-        storageRequest: 500M
+        storageRequest: 500Mi
       openstack-cell1:
-        storageRequest: 500M
+        storageRequest: 500Mi
   memcached:
     templates:
       memcached:
@@ -170,14 +174,16 @@ spec:
         cell0:
           cellDatabaseAccount: nova-cell0
           cellDatabaseInstance: openstack
-          cellMessageBusInstance: rabbitmq
+          messagingBus:
+            cluster: rabbitmq
           conductorServiceTemplate:
             replicas: 1
           hasAPIAccess: true
         cell1:
           cellDatabaseAccount: nova-cell1
           cellDatabaseInstance: openstack-cell1
-          cellMessageBusInstance: rabbitmq-cell1
+          messagingBus:
+            cluster: rabbitmq-cell1
           conductorServiceTemplate:
             replicas: 1
           hasAPIAccess: true
@@ -207,6 +213,7 @@ spec:
     apiOverride:
       route: {}
     template:
+      databaseInstance: openstack
       manilaAPI:
         replicas: 1
         networkAttachments:
@@ -233,11 +240,11 @@ spec:
       ovnDBCluster:
         ovndbcluster-nb:
           dbType: NB
-          storageRequest: 10G
+          storageRequest: 10Gi
           networkAttachment: internalapi
         ovndbcluster-sb:
           dbType: SB
-          storageRequest: 10G
+          storageRequest: 10Gi
           networkAttachment: internalapi
       ovnController:
         networkAttachment: tenant
@@ -318,7 +325,7 @@ spec:
         replicas: 1
       ironicConductors:
       - replicas: 1
-        storageRequest: 10G
+        storageRequest: 10Gi
       ironicInspector:
         replicas: 1
       ironicNeutronAgent:
@@ -336,7 +343,7 @@ spec:
             strategy: persistent
             retention: 24h
             persistent:
-              pvcStorageRequest: 20G
+              pvcStorageRequest: 10Gi
       autoscaling:
         enabled: false
         aodh:
@@ -344,10 +351,14 @@ spec:
           databaseAccount: aodh
           databaseInstance: openstack
           secret: osp-secret
+          notificationsBus:
+            cluster: rabbitmq  # Required for receiving notifications from OpenStack services
         heatInstance: heat
       ceilometer:
         enabled: true
         secret: osp-secret
+        notificationsBus:
+          cluster: rabbitmq  # Required for receiving notifications from OpenStack services
       logging:
         enabled: false
         ipaddr: 172.17.0.80
@@ -424,6 +435,6 @@ spec:
       designateBackendbind9:
         replicas: 1
         storageClass: local-storage
-        storageRequest: 10G
+        storageRequest: 10Gi
         networkAttachments:
           - designate

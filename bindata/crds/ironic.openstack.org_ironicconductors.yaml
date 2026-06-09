@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   creationTimestamp: null
   name: ironicconductors.ironic.openstack.org
 spec:
@@ -52,8 +52,20 @@ spec:
           spec:
             description: IronicConductorSpec defines the desired state of IronicConductor
             properties:
+              auth:
+                description: Auth - Parameters related to authentication (inherited
+                  from parent Ironic CR)
+                properties:
+                  applicationCredentialSecret:
+                    description: ApplicationCredentialSecret - Secret containing Application
+                      Credential ID and Secret
+                    type: string
+                type: object
               conductorGroup:
                 description: ConductorGroup - Ironic Conductor conductor group.
+                type: string
+              consoleImage:
+                description: ConsoleImage - Ironic Graphical Console Container Image
                 type: string
               containerImage:
                 description: ContainerImage - Ironic Conductor Container Image
@@ -79,12 +91,11 @@ spec:
                 description: |-
                   ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                   But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                  TODO: -> implement
                 type: object
               dhcpRanges:
                 description: DHCPRanges - List of DHCP ranges to use for provisioning
                 items:
-                  description: DHCPRange to define address range for DHCP requestes
+                  description: DHCPRange to define address range for DHCP requests
                   properties:
                     cidr:
                       description: Cidr - IP address prefix (CIDR) representing an
@@ -116,6 +127,15 @@ spec:
                   - start
                   type: object
                 type: array
+              graphicalConsoles:
+                default: Disabled
+                description: 'Whether to enable graphical consoles. NOTE: Setting
+                  this to Enabled is not supported.'
+                enum:
+                - Enabled
+                - Disabled
+                - ""
+                type: string
               ironicPythonAgentImage:
                 description: IronicPythonAgentImage - Image containing the ironic-python-agent
                   kernel and ramdisk
@@ -143,6 +163,12 @@ spec:
                   NodeSelector to target subset of worker nodes running this service. Setting here overrides
                   any global NodeSelector settings within the Ironic CR
                 type: object
+              notificationsURLSecret:
+                description: Secret containing RabbitMq notifications URL
+                type: string
+              novncproxyImage:
+                description: NoVNCProxyImage - Ironic NoVNCProxy Container Image
+                type: string
               passwordSelectors:
                 default:
                   service: IronicPassword
@@ -162,6 +188,9 @@ spec:
               pxeContainerImage:
                 description: PxeContainerImage - Ironic DHCP/TFTP/HTTP Container Image
                 type: string
+              region:
+                description: Region - OpenStack region name
+                type: string
               replicas:
                 default: 1
                 description: Replicas -
@@ -179,10 +208,8 @@ spec:
                       Claims lists the names of resources, defined in spec.resourceClaims,
                       that are used by this container.
 
-
                       This is an alpha field and requires enabling the
                       DynamicResourceAllocation feature gate.
-
 
                       This field is immutable. It can only be set for containers.
                     items:
@@ -193,6 +220,12 @@ spec:
                             Name must match the name of one entry in pod.spec.resourceClaims of
                             the Pod where this field is used. It makes that resource available
                             inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
                           type: string
                       required:
                       - name
@@ -257,6 +290,18 @@ spec:
               storageRequest:
                 description: StorageRequest
                 type: string
+              terminationGracePeriodSeconds:
+                default: 120
+                description: |-
+                  terminationGracePeriodSeconds - Pod termination grace period in seconds.
+                  Controls how long to wait for conductor pods to shut down gracefully before they are forcefully terminated.
+                  The default value is long enough for periodic tasks to complete but not for long-running tasks (deployment, cleaning).
+                  A node reserved for a long running task will be put into a failed state when the conductor reserving it is forcefully terminated.
+                  The terminationGracePeriodSeconds should be chosen with this and maintenance processes in mind.
+                  Changing terminationGracePeriodSeconds results in conductor pods being restarted with the old value.
+                format: int64
+                minimum: 30
+                type: integer
               tls:
                 description: TLS - Parameters related to the TLS
                 properties:

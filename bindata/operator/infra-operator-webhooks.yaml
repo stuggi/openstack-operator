@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/created-by: openstack-operator
     app.kubernetes.io/instance: webhook-service
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/name: service
+    app.kubernetes.io/name: infra-operator
     app.kubernetes.io/part-of: infra-operator
   name: infra-operator-webhook-service
   namespace: '{{ .OperatorNamespace }}'
@@ -16,7 +16,8 @@ spec:
     protocol: TCP
     targetPort: 9443
   selector:
-    openstack.org/operator-name: infra
+    app.kubernetes.io/name: infra-operator
+    control-plane: controller-manager
 ---
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -26,8 +27,7 @@ metadata:
     app.kubernetes.io/created-by: openstack-operator
     app.kubernetes.io/instance: serving-cert
     app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/name: certificate
-    app.kubernetes.io/part-of: infra-operator
+    app.kubernetes.io/name: infra-operator
   name: infra-operator-serving-cert
   namespace: '{{ .OperatorNamespace }}'
 spec:
@@ -38,21 +38,6 @@ spec:
     kind: Issuer
     name: infra-operator-selfsigned-issuer
   secretName: infra-operator-webhook-server-cert
----
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  labels:
-    app.kubernetes.io/component: certificate
-    app.kubernetes.io/created-by: openstack-operator
-    app.kubernetes.io/instance: selfsigned-issuer
-    app.kubernetes.io/managed-by: kustomize
-    app.kubernetes.io/name: issuer
-    app.kubernetes.io/part-of: infra-operator
-  name: infra-operator-selfsigned-issuer
-  namespace: '{{ .OperatorNamespace }}'
-spec:
-  selfSigned: {}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
@@ -72,7 +57,7 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: mdnsmasq.kb.io
+  name: mdnsmasq-v1beta1.kb.io
   rules:
     - apiGroups:
         - network.openstack.org
@@ -92,10 +77,10 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: minstanceha.kb.io
+  name: minstanceha-v1beta1.kb.io
   rules:
     - apiGroups:
-        - client.openstack.org
+        - instanceha.openstack.org
       apiVersions:
       - v1beta1
       operations:
@@ -108,11 +93,11 @@ webhooks:
     service:
       name: infra-operator-webhook-service
       namespace: '{{ .OperatorNamespace }}'
-      path: /mutate-client-openstack-org-v1beta1-instanceha
+      path: /mutate-instanceha-openstack-org-v1beta1-instanceha
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: mipset.kb.io
+  name: mipset-v1beta1.kb.io
   rules:
     - apiGroups:
         - network.openstack.org
@@ -132,7 +117,7 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: mmemcached.kb.io
+  name: mmemcached-v1beta1.kb.io
   rules:
     - apiGroups:
         - memcached.openstack.org
@@ -152,7 +137,7 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: mnetconfig.kb.io
+  name: mnetconfig-v1beta1.kb.io
   rules:
     - apiGroups:
         - network.openstack.org
@@ -172,7 +157,7 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: mrabbitmq.kb.io
+  name: mrabbitmq-v1beta1.kb.io
   rules:
     - apiGroups:
         - rabbitmq.openstack.org
@@ -192,7 +177,67 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: mredis.kb.io
+  name: mrabbitmqpolicy-v1beta1.kb.io
+  rules:
+    - apiGroups:
+        - rabbitmq.openstack.org
+      apiVersions:
+      - v1beta1
+      operations:
+        - CREATE
+        - UPDATE
+      resources:
+        - rabbitmqpolicies
+  sideEffects: None
+  clientConfig:
+    service:
+      name: infra-operator-webhook-service
+      namespace: '{{ .OperatorNamespace }}'
+      path: /mutate-rabbitmq-openstack-org-v1beta1-rabbitmqpolicy
+- admissionReviewVersions:
+  - v1
+  failurePolicy: Fail
+  name: mrabbitmquser-v1beta1.kb.io
+  rules:
+    - apiGroups:
+        - rabbitmq.openstack.org
+      apiVersions:
+      - v1beta1
+      operations:
+        - CREATE
+        - UPDATE
+      resources:
+        - rabbitmqusers
+  sideEffects: None
+  clientConfig:
+    service:
+      name: infra-operator-webhook-service
+      namespace: '{{ .OperatorNamespace }}'
+      path: /mutate-rabbitmq-openstack-org-v1beta1-rabbitmquser
+- admissionReviewVersions:
+  - v1
+  failurePolicy: Fail
+  name: mrabbitmqvhost-v1beta1.kb.io
+  rules:
+    - apiGroups:
+        - rabbitmq.openstack.org
+      apiVersions:
+      - v1beta1
+      operations:
+        - CREATE
+        - UPDATE
+      resources:
+        - rabbitmqvhosts
+  sideEffects: None
+  clientConfig:
+    service:
+      name: infra-operator-webhook-service
+      namespace: '{{ .OperatorNamespace }}'
+      path: /mutate-rabbitmq-openstack-org-v1beta1-rabbitmqvhost
+- admissionReviewVersions:
+  - v1
+  failurePolicy: Fail
+  name: mredis-v1beta1.kb.io
   rules:
     - apiGroups:
         - redis.openstack.org
@@ -212,7 +257,7 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: mreservation.kb.io
+  name: mreservation-v1beta1.kb.io
   rules:
     - apiGroups:
         - network.openstack.org
@@ -248,7 +293,7 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: vdnsmasq.kb.io
+  name: vdnsmasq-v1beta1.kb.io
   rules:
     - apiGroups:
         - network.openstack.org
@@ -268,10 +313,10 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: vinstanceha.kb.io
+  name: vinstanceha-v1beta1.kb.io
   rules:
     - apiGroups:
-        - client.openstack.org
+        - instanceha.openstack.org
       apiVersions:
       - v1beta1
       operations:
@@ -284,11 +329,11 @@ webhooks:
     service:
       name: infra-operator-webhook-service
       namespace: '{{ .OperatorNamespace }}'
-      path: /validate-client-openstack-org-v1beta1-instanceha
+      path: /validate-instanceha-openstack-org-v1beta1-instanceha
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: vipset.kb.io
+  name: vipset-v1beta1.kb.io
   rules:
     - apiGroups:
         - network.openstack.org
@@ -308,7 +353,7 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: vmemcached.kb.io
+  name: vmemcached-v1beta1.kb.io
   rules:
     - apiGroups:
         - memcached.openstack.org
@@ -328,7 +373,7 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: vnetconfig.kb.io
+  name: vnetconfig-v1beta1.kb.io
   rules:
     - apiGroups:
         - network.openstack.org
@@ -349,7 +394,7 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: vrabbitmq.kb.io
+  name: vrabbitmq-v1beta1.kb.io
   rules:
     - apiGroups:
         - rabbitmq.openstack.org
@@ -369,7 +414,67 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: vredis.kb.io
+  name: vrabbitmqpolicy-v1beta1.kb.io
+  rules:
+    - apiGroups:
+        - rabbitmq.openstack.org
+      apiVersions:
+      - v1beta1
+      operations:
+        - CREATE
+        - UPDATE
+      resources:
+        - rabbitmqpolicies
+  sideEffects: None
+  clientConfig:
+    service:
+      name: infra-operator-webhook-service
+      namespace: '{{ .OperatorNamespace }}'
+      path: /validate-rabbitmq-openstack-org-v1beta1-rabbitmqpolicy
+- admissionReviewVersions:
+  - v1
+  failurePolicy: Fail
+  name: vrabbitmquser-v1beta1.kb.io
+  rules:
+    - apiGroups:
+        - rabbitmq.openstack.org
+      apiVersions:
+      - v1beta1
+      operations:
+        - CREATE
+        - UPDATE
+      resources:
+        - rabbitmqusers
+  sideEffects: None
+  clientConfig:
+    service:
+      name: infra-operator-webhook-service
+      namespace: '{{ .OperatorNamespace }}'
+      path: /validate-rabbitmq-openstack-org-v1beta1-rabbitmquser
+- admissionReviewVersions:
+  - v1
+  failurePolicy: Fail
+  name: vrabbitmqvhost-v1beta1.kb.io
+  rules:
+    - apiGroups:
+        - rabbitmq.openstack.org
+      apiVersions:
+      - v1beta1
+      operations:
+        - CREATE
+        - UPDATE
+      resources:
+        - rabbitmqvhosts
+  sideEffects: None
+  clientConfig:
+    service:
+      name: infra-operator-webhook-service
+      namespace: '{{ .OperatorNamespace }}'
+      path: /validate-rabbitmq-openstack-org-v1beta1-rabbitmqvhost
+- admissionReviewVersions:
+  - v1
+  failurePolicy: Fail
+  name: vredis-v1beta1.kb.io
   rules:
     - apiGroups:
         - redis.openstack.org
@@ -389,7 +494,7 @@ webhooks:
 - admissionReviewVersions:
   - v1
   failurePolicy: Fail
-  name: vreservation.kb.io
+  name: vreservation-v1beta1.kb.io
   rules:
     - apiGroups:
         - network.openstack.org

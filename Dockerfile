@@ -1,5 +1,7 @@
-ARG GOLANG_BUILDER=registry.access.redhat.com/ubi9/go-toolset:1.21
-ARG OPERATOR_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:latest
+# TODO(amoralej) go-toolset image pinned until a fix is provided for
+# https://issues.redhat.com/browse/RHEL-128838
+ARG GOLANG_BUILDER=registry.access.redhat.com/ubi9/go-toolset:1.24.6-1762230058
+ARG OPERATOR_BASE_IMAGE=registry.access.redhat.com/ubi9/ubi-minimal:9.6
 # Build the manager binary
 FROM $GOLANG_BUILDER AS builder
 
@@ -20,12 +22,16 @@ WORKDIR $REMOTE_SOURCE_DIR/$REMOTE_SOURCE_SUBDIR
 USER root
 RUN mkdir -p ${DEST_ROOT}/usr/local/bin/
 
+# Remove go.work - not needed for the build and may reference a Go version
+# from the CI environment that is higher than the build image provides
+RUN rm -f go.work go.work.sum
+
 # cache deps before building and copying source so that we don't need to re-download as much
 # and so that source changes don't invalidate our downloaded layer
 RUN if [ ! -f $CACHITO_ENV_FILE ]; then go mod download ; fi
 
 # Build manager
-RUN if [ -f $CACHITO_ENV_FILE ] ; then source $CACHITO_ENV_FILE ; fi ; env ${GO_BUILD_EXTRA_ENV_ARGS} go build ${GO_BUILD_EXTRA_ARGS} -a -o ${DEST_ROOT}/manager main.go
+RUN if [ -f $CACHITO_ENV_FILE ] ; then source $CACHITO_ENV_FILE ; fi ; env ${GO_BUILD_EXTRA_ENV_ARGS} go build ${GO_BUILD_EXTRA_ARGS} -a -o ${DEST_ROOT}/manager cmd/main.go
 RUN if [ -f $CACHITO_ENV_FILE ] ; then source $CACHITO_ENV_FILE ; fi ; env ${GO_BUILD_EXTRA_ENV_ARGS} go build ${GO_BUILD_EXTRA_ARGS} -a -o ${DEST_ROOT}/operator cmd/operator/main.go
 
 RUN cp -r config/services ${DEST_ROOT}/services

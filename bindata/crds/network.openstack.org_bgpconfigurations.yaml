@@ -2,8 +2,12 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   creationTimestamp: null
+  labels:
+    backup.openstack.org/category: dataplane
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/restore-order: "20"
   name: bgpconfigurations.network.openstack.org
 spec:
   group: network.openstack.org
@@ -52,7 +56,7 @@ spec:
                 items:
                   description: FRRNodeConfigurationSelectorType -
                   properties:
-                    frrConfigurationNamespace:
+                    nodeName:
                       description: NodeName -  name of the node object as seen by
                         running the `oc get nodes` command
                       type: string
@@ -86,11 +90,13 @@ spec:
                                 items:
                                   type: string
                                 type: array
+                                x-kubernetes-list-type: atomic
                             required:
                             - key
                             - operator
                             type: object
                           type: array
+                          x-kubernetes-list-type: atomic
                         matchLabels:
                           additionalProperties:
                             type: string

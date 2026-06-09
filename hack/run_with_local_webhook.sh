@@ -5,6 +5,13 @@ set -ex
 cleanup() {
     echo "Caught signal, cleaning up local webhooks..."
     ./hack/clean_local_webhook.sh
+    # Remind the user how to restore the CSV since the earlier message
+    # may have scrolled off the terminal.
+    if [ -n "${CSV_FILE}" ]; then
+        printf \
+        "\n\tThe original OLM version of the operator's CSV has been copied to %s. To restore it, use:
+        oc patch -n openstack-operators %s --type=merge --patch-file=%s\n\n" "${CSV_FILE}" "${CSV_NAME}" "${CSV_FILE}"
+    fi
     exit 0
 }
 
@@ -14,9 +21,10 @@ trap cleanup SIGINT SIGTERM
 TMPDIR=${TMPDIR:-"/tmp/k8s-webhook-server/serving-certs"}
 SKIP_CERT=${SKIP_CERT:-false}
 CRC_IP=${CRC_IP:-$(/sbin/ip -o -4 addr list crc | awk '{print $4}' | cut -d/ -f1)}
+WEBHOOK_PORT=${WEBHOOK_PORT:-${WEBHOOK_PORT}}
 
-#Open 9443
-sudo firewall-cmd --zone=libvirt --add-port=9443/tcp || :
+#Open ${WEBHOOK_PORT}
+sudo firewall-cmd --zone=libvirt --add-port=${WEBHOOK_PORT}/tcp || :
 sudo firewall-cmd --runtime-to-permanent || :
 
 # Generate the certs and the ca bundle
@@ -48,7 +56,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/validate-core-openstack-org-v1beta1-openstackcontrolplane
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/validate-core-openstack-org-v1beta1-openstackcontrolplane
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: vopenstackcontrolplane.kb.io
@@ -76,7 +84,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/validate-client-openstack-org-v1beta1-openstackclient
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/validate-client-openstack-org-v1beta1-openstackclient
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: vopenstackclient.kb.io
@@ -104,7 +112,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/validate-core-openstack-org-v1beta1-openstackversion
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/validate-core-openstack-org-v1beta1-openstackversion
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: vopenstackversion.kb.io
@@ -132,7 +140,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/mutate-core-openstack-org-v1beta1-openstackcontrolplane
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/mutate-core-openstack-org-v1beta1-openstackcontrolplane
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: mopenstackcontrolplane.kb.io
@@ -160,7 +168,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/mutate-client-openstack-org-v1beta1-openstackclient
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/mutate-client-openstack-org-v1beta1-openstackclient
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: mopenstackclient.kb.io
@@ -188,7 +196,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/mutate-core-openstack-org-v1beta1-openstackversion
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/mutate-core-openstack-org-v1beta1-openstackversion
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: mopenstackversion.kb.io
@@ -216,7 +224,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/validate-dataplane-openstack-org-v1beta1-openstackdataplanenodeset
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/validate-dataplane-openstack-org-v1beta1-openstackdataplanenodeset
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: vopenstackdataplanenodeset.kb.io
@@ -244,7 +252,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/mutate-dataplane-openstack-org-v1beta1-openstackdataplanenodeset
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/mutate-dataplane-openstack-org-v1beta1-openstackdataplanenodeset
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: mopenstackdataplanenodeset.kb.io
@@ -272,7 +280,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/validate-dataplane-openstack-org-v1beta1-openstackdataplanedeployment
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/validate-dataplane-openstack-org-v1beta1-openstackdataplanedeployment
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: vopenstackdataplanedeployment.kb.io
@@ -300,7 +308,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/mutate-dataplane-openstack-org-v1beta1-openstackdataplanedeployment
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/mutate-dataplane-openstack-org-v1beta1-openstackdataplanedeployment
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: mopenstackdataplanedeployment.kb.io
@@ -328,7 +336,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/validate-dataplane-openstack-org-v1beta1-openstackdataplaneservice
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/validate-dataplane-openstack-org-v1beta1-openstackdataplaneservice
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: vopenstackdataplaneservice.kb.io
@@ -356,7 +364,7 @@ webhooks:
   - v1
   clientConfig:
     caBundle: ${CA_BUNDLE}
-    url: https://${CRC_IP}:9443/mutate-dataplane-openstack-org-v1beta1-openstackdataplaneservice
+    url: https://${CRC_IP}:${WEBHOOK_PORT}/mutate-dataplane-openstack-org-v1beta1-openstackdataplaneservice
   failurePolicy: Fail
   matchPolicy: Equivalent
   name: mopenstackdataplaneservice.kb.io
@@ -399,7 +407,11 @@ if [ -n "${CSV_NAME}" ]; then
 
     oc patch "${CSV_NAME}" -n openstack-operators --type=json -p="[{'op': 'replace', 'path': '/spec/install/spec/deployments/0/spec/replicas', 'value': 0}]"
     oc patch "${CSV_NAME}" -n openstack-operators --type=json -p="[{'op': 'replace', 'path': '/spec/webhookdefinitions', 'value': []}]"
+    oc wait -n openstack-operators --for=jsonpath='{.spec.replicas}'=0 deploy/openstack-operator-controller-init
+    oc scale --replicas=0 -n openstack-operators deploy/openstack-operator-controller-manager
+    oc delete --ignore-not-found=true validatingwebhookconfiguration openstack-operator-validating-webhook-configuration
+    oc delete --ignore-not-found=true mutatingwebhookconfiguration openstack-operator-mutating-webhook-configuration
 fi
 
 source hack/export_related_images.sh && \
-go run ./main.go -metrics-bind-address ":${METRICS_PORT}" -health-probe-bind-address ":${HEALTH_PORT}"
+go run ./cmd/main.go -metrics-bind-address ":${METRICS_PORT}" -health-probe-bind-address ":${HEALTH_PORT}" -pprof-bind-address ":${PPROF_PORT}" -webhook-bind-address "${WEBHOOK_PORT}"

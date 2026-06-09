@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   creationTimestamp: null
   name: ovncontrollers.ovn.openstack.org
 spec:
@@ -52,6 +52,31 @@ spec:
           spec:
             description: OVNControllerSpec defines the desired state of OVNController
             properties:
+              bondConfiguration:
+                additionalProperties:
+                  description: Bond defines the configuration of each bond interface
+                    in the deployment
+                  properties:
+                    links:
+                      default: []
+                      items:
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                    mode:
+                      default: active-backup
+                      type: string
+                    mtu:
+                      default: 1500
+                      format: int32
+                      type: integer
+                  type: object
+                description: Map of bond names to their configuration
+                type: object
+              exporterImage:
+                description: ExporterImage - Container Image URL for the openstack-network-exporter
+                  metrics daemonset (will be set to environmental default if empty)
+                type: string
               external-ids:
                 default: {}
                 description: OVSExternalIDs is a set of configuration options for
@@ -64,9 +89,18 @@ spec:
                     type: array
                   enable-chassis-as-gateway:
                     default: true
+                    description: |-
+                      DEPRECATED: To be removed in the next API version
+                      Any value set to this field is ignored
                     type: boolean
                   ovn-bridge:
                     default: br-int
+                    type: string
+                  ovn-encap-tos:
+                    default: "0"
+                    enum:
+                    - "0"
+                    - inherit
                     type: string
                   ovn-encap-type:
                     default: geneve
@@ -74,8 +108,27 @@ spec:
                     - geneve
                     - vxlan
                     type: string
+                  ovn-remote-probe-interval:
+                    default: 60000
+                    type: integer
                   system-id:
                     default: random
+                    type: string
+                type: object
+              metricsEnabled:
+                default: true
+                description: MetricsEnabled enables the metrics daemonset for collecting
+                  OVN metrics
+                type: boolean
+              metricsTLS:
+                description: MetricsTLS - Parameters related to TLS for metrics daemonset
+                properties:
+                  caBundleSecretName:
+                    description: CaBundleSecretName - holding the CA certs in a pre-created
+                      bundle file
+                    type: string
+                  secretName:
+                    description: SecretName - holding the cert, key for the service
                     type: string
                 type: object
               networkAttachment:
@@ -97,9 +150,33 @@ spec:
                 description: Image used for the ovn-controller container (will be
                   set to environmental default if empty)
                 type: string
+              ovnLogLevel:
+                default: info
+                description: OVNLogLevel - Set log level off, emer, err, warn, info
+                  or dbg. Default is info.
+                enum:
+                - "off"
+                - emer
+                - err
+                - warn
+                - info
+                - dbg
+                type: string
               ovsContainerImage:
                 description: Image used for the ovsdb-server and ovs-vswitchd containers
                   (will be set to environmental default if empty)
+                type: string
+              ovsLogLevel:
+                default: info
+                description: OVSLogLevel - Set log level off, emer, err, warn, info
+                  or dbg. Default is info.
+                enum:
+                - "off"
+                - emer
+                - err
+                - warn
+                - info
+                - dbg
                 type: string
               resources:
                 description: |-
@@ -111,10 +188,8 @@ spec:
                       Claims lists the names of resources, defined in spec.resourceClaims,
                       that are used by this container.
 
-
                       This is an alpha field and requires enabling the
                       DynamicResourceAllocation feature gate.
-
 
                       This field is immutable. It can only be set for containers.
                     items:
@@ -125,6 +200,12 @@ spec:
                             Name must match the name of one entry in pod.spec.resourceClaims of
                             the Pod where this field is used. It makes that resource available
                             inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
                           type: string
                       required:
                       - name
@@ -260,6 +341,10 @@ spec:
                       current project
                     type: string
                 type: object
+              metricsNumberReady:
+                description: MetricsNumberReady of metrics instances
+                format: int32
+                type: integer
               networkAttachments:
                 additionalProperties:
                   items:

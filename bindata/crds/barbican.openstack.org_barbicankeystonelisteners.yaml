@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   creationTimestamp: null
   name: barbicankeystonelisteners.barbican.openstack.org
 spec:
@@ -78,7 +78,6 @@ spec:
               databaseInstance:
                 description: |-
                   MariaDB instance name
-                  TODO(dmendiza): Is this comment right?
                   Right now required by the maridb-operator to get the credentials from the instance to create the DB
                   Might not be required in future
                 type: string
@@ -88,11 +87,10 @@ spec:
                 description: |-
                   ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                   But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                  TODO: -> implement
                 type: object
               enabledSecretStores:
                 items:
-                  description: This SecretStore type is used by the EnabledSecretStores
+                  description: SecretStore type is used by the EnabledSecretStores
                     variable inside the specification.
                   enum:
                   - simple_crypto
@@ -104,12 +102,28 @@ spec:
                 x-kubernetes-list-type: set
               globalDefaultSecretStore:
                 default: simple_crypto
-                description: This SecretStore type is used by the EnabledSecretStores
-                  variable inside the specification.
+                description: SecretStore type is used by the EnabledSecretStores variable
+                  inside the specification.
                 enum:
                 - simple_crypto
                 - pkcs11
                 type: string
+              messagingBus:
+                description: MessagingBus configuration (username, vhost, and cluster)
+                properties:
+                  cluster:
+                    description: Name of the cluster
+                    minLength: 1
+                    type: string
+                  user:
+                    description: User - RabbitMQ username
+                    type: string
+                  vhost:
+                    description: Vhost - RabbitMQ vhost name
+                    type: string
+                required:
+                - cluster
+                type: object
               networkAttachments:
                 description: NetworkAttachments is a list of NetworkAttachment resource
                   names to expose the services to the given network
@@ -123,6 +137,27 @@ spec:
                   NodeSelector to target subset of worker nodes running this component. Setting here overrides
                   any global NodeSelector settings within the Barbican CR.
                 type: object
+              notificationsBus:
+                description: NotificationsBus configuration (username, vhost, and
+                  cluster) for notifications
+                properties:
+                  cluster:
+                    description: Name of the cluster
+                    minLength: 1
+                    type: string
+                  user:
+                    description: User - RabbitMQ username
+                    type: string
+                  vhost:
+                    description: Vhost - RabbitMQ vhost name
+                    type: string
+                required:
+                - cluster
+                type: object
+              notificationsURLSecret:
+                description: NotificationsURLSecret - Secret containing notifications
+                  transport URL
+                type: string
               passwordSelectors:
                 default:
                   service: BarbicanPassword
@@ -171,10 +206,10 @@ spec:
                 - loginSecret
                 type: object
               rabbitMqClusterName:
-                default: rabbitmq
                 description: |-
                   RabbitMQ instance name
                   Needed to request a transportURL that is created and used in Barbican
+                  Deprecated: Use MessagingBus.Cluster instead
                 type: string
               replicas:
                 default: 1
@@ -193,10 +228,8 @@ spec:
                       Claims lists the names of resources, defined in spec.resourceClaims,
                       that are used by this container.
 
-
                       This is an alpha field and requires enabling the
                       DynamicResourceAllocation feature gate.
-
 
                       This field is immutable. It can only be set for containers.
                     items:
@@ -207,6 +240,12 @@ spec:
                             Name must match the name of one entry in pod.spec.resourceClaims of
                             the Pod where this field is used. It makes that resource available
                             inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
                           type: string
                       required:
                       - name
@@ -289,7 +328,6 @@ spec:
             - containerImage
             - databaseHostname
             - databaseInstance
-            - rabbitMqClusterName
             - serviceAccount
             type: object
           status:

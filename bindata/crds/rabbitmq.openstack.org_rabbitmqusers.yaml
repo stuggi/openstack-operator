@@ -1,0 +1,199 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  creationTimestamp: null
+  labels:
+    backup.openstack.org/category: controlplane
+    backup.openstack.org/restore: "true"
+    backup.openstack.org/restore-order: "40"
+  name: rabbitmqusers.rabbitmq.openstack.org
+spec:
+  group: rabbitmq.openstack.org
+  names:
+    categories:
+    - all
+    - rabbitmq
+    kind: RabbitMQUser
+    listKind: RabbitMQUserList
+    plural: rabbitmqusers
+    shortNames:
+    - rmquser
+    singular: rabbitmquser
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.rabbitmqClusterName
+      name: Cluster
+      type: string
+    - jsonPath: .status.username
+      name: Username
+      type: string
+    - jsonPath: .status.vhost
+      name: Vhost
+      type: string
+    - jsonPath: .status.conditions[0].status
+      name: Status
+      type: string
+    - jsonPath: .status.conditions[0].message
+      name: Message
+      type: string
+    name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: RabbitMQUser is the Schema for the rabbitmqusers API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: RabbitMQUserSpec defines the desired state of RabbitMQUser
+            properties:
+              credentialSelectors:
+                description: |-
+                  CredentialSelectors - selectors to identify username and password keys in the secret
+                  Defaults to {username: "username", password: "password"} when not specified
+                properties:
+                  password:
+                    default: password
+                    description: Password - key name for password in the secret (default
+                      "password")
+                    type: string
+                  username:
+                    default: username
+                    description: Username - key name for username in the secret (default
+                      "username")
+                    type: string
+                type: object
+              permissions:
+                description: Permissions - user permissions on the vhost
+                properties:
+                  configure:
+                    default: .*
+                    description: Configure - configure permission regex (default ".*"
+                      allows all, "" denies all)
+                    type: string
+                  read:
+                    default: .*
+                    description: Read - read permission regex (default ".*" allows
+                      all, "" denies all)
+                    type: string
+                  write:
+                    default: .*
+                    description: Write - write permission regex (default ".*" allows
+                      all, "" denies all)
+                    type: string
+                type: object
+              rabbitmqClusterName:
+                description: RabbitmqClusterName - the name of the RabbitMQ cluster
+                type: string
+              secret:
+                description: |-
+                  Secret - name of secret containing user credentials (username and password)
+                  If specified, credentials will be read from this secret instead of being auto-generated
+                type: string
+              tags:
+                description: Tags - RabbitMQ user tags
+                items:
+                  type: string
+                type: array
+              username:
+                description: Username - the username in RabbitMQ (defaults to CR name)
+                type: string
+              vhostRef:
+                description: VhostRef - reference to the RabbitMQVhost resource (defaults
+                  to default vhost "/" if empty)
+                type: string
+            required:
+            - rabbitmqClusterName
+            type: object
+          status:
+            description: RabbitMQUserStatus defines the observed state of RabbitMQUser
+            properties:
+              conditions:
+                description: Conditions
+                items:
+                  description: Condition defines an observation of a API resource
+                    operational state.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        Last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed. If that is not known, then using the time when
+                        the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: A human readable message indicating details about
+                        the transition.
+                      type: string
+                    reason:
+                      description: The reason for the condition's last transition
+                        in CamelCase.
+                      type: string
+                    severity:
+                      description: |-
+                        Severity provides a classification of Reason code, so the current situation is immediately
+                        understandable and could act accordingly.
+                        It is meant for situations where Status=False and it should be indicated if it is just
+                        informational, warning (next reconciliation might fix it) or an error (e.g. DB create issue
+                        and no actions to automatically resolve the issue can/should be done).
+                        For conditions where Status=Unknown or Status=True the Severity should be SeverityNone.
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: Type of condition in CamelCase.
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - status
+                  - type
+                  type: object
+                type: array
+              observedGeneration:
+                description: ObservedGeneration - the most recent generation observed
+                  for this resource
+                format: int64
+                type: integer
+              secretName:
+                description: SecretName - name of the secret containing user credentials
+                type: string
+              username:
+                description: Username - actual username used in RabbitMQ
+                type: string
+              vhost:
+                description: Vhost - actual vhost name used in RabbitMQ
+                type: string
+              vhostRef:
+                description: VhostRef - reference to the RabbitMQVhost CR (for tracking
+                  finalizers)
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: null
+  storedVersions: null

@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   creationTimestamp: null
   name: ironicinspectors.ironic.openstack.org
 spec:
@@ -57,6 +57,14 @@ spec:
                 description: APITimeout for HAProxy, Apache
                 minimum: 10
                 type: integer
+              auth:
+                description: Auth - Parameters related to authentication
+                properties:
+                  applicationCredentialSecret:
+                    description: ApplicationCredentialSecret - Secret containing Application
+                      Credential ID and Secret
+                    type: string
+                type: object
               containerImage:
                 description: ContainerImage - Ironic Inspector Container Image
                 type: string
@@ -87,12 +95,11 @@ spec:
                 description: |-
                   ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                   But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                  TODO: -> implement
                 type: object
               dhcpRanges:
                 description: DHCPRanges - List of DHCP ranges to use for provisioning
                 items:
-                  description: DHCPRange to define address range for DHCP requestes
+                  description: DHCPRange to define address range for DHCP requests
                   properties:
                     cidr:
                       description: Cidr - IP address prefix (CIDR) representing an
@@ -132,6 +139,23 @@ spec:
                 description: IronicPythonAgentImage - Image containing the ironic-python-agent
                   kernel and ramdisk
                 type: string
+              messagingBus:
+                description: MessagingBus configuration (username, vhost, and cluster)
+                  for RPC messaging
+                properties:
+                  cluster:
+                    description: Name of the cluster
+                    minLength: 1
+                    type: string
+                  user:
+                    description: User - RabbitMQ username
+                    type: string
+                  vhost:
+                    description: Vhost - RabbitMQ vhost name
+                    type: string
+                required:
+                - cluster
+                type: object
               networkAttachments:
                 description: NetworkAttachments is a list of NetworkAttachment resource
                   names to expose the services to the given network
@@ -144,6 +168,23 @@ spec:
                 description: |-
                   NodeSelector to target subset of worker nodes running this service. Setting here overrides
                   any global NodeSelector settings within the Ironic CR
+                type: object
+              notificationsBus:
+                description: NotificationsBus configuration (username, vhost, and
+                  cluster) for notifications
+                properties:
+                  cluster:
+                    description: Name of the cluster
+                    minLength: 1
+                    type: string
+                  user:
+                    description: User - RabbitMQ username
+                    type: string
+                  vhost:
+                    description: Vhost - RabbitMQ vhost name
+                    type: string
+                required:
+                - cluster
                 type: object
               override:
                 description: Override, provides the ability to override the generated
@@ -169,7 +210,7 @@ spec:
                                 Annotations is an unstructured key value map stored with a resource that may be
                                 set by external tools to store and retrieve arbitrary metadata. They are not
                                 queryable and should be preserved when modifying objects.
-                                More info: http://kubernetes.io/docs/user-guide/annotations
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
                               type: object
                             labels:
                               additionalProperties:
@@ -178,7 +219,7 @@ spec:
                                 Map of string keys and values that can be used to organize and categorize
                                 (scope and select) objects. May match selectors of replication controllers
                                 and services.
-                                More info: http://kubernetes.io/docs/user-guide/labels
+                                More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
                               type: object
                           type: object
                         spec:
@@ -326,10 +367,10 @@ spec:
                   Image
                 type: string
               rabbitMqClusterName:
-                default: rabbitmq
                 description: |-
                   RabbitMQ instance name
                   Needed to request a transportURL that is created and used in Ironic Inspector
+                  Deprecated: Use MessagingBus.Cluster instead
                 type: string
               replicas:
                 default: 1
@@ -348,10 +389,8 @@ spec:
                       Claims lists the names of resources, defined in spec.resourceClaims,
                       that are used by this container.
 
-
                       This is an alpha field and requires enabling the
                       DynamicResourceAllocation feature gate.
-
 
                       This field is immutable. It can only be set for containers.
                     items:
@@ -362,6 +401,12 @@ spec:
                             Name must match the name of one entry in pod.spec.resourceClaims of
                             the Pod where this field is used. It makes that resource available
                             inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
                           type: string
                       required:
                       - name
@@ -552,6 +597,10 @@ spec:
                   type: array
                 description: NetworkAttachments status of the deployment pods
                 type: object
+              notificationsURLSecret:
+                description: NotificationsURLSecret - Secret containing RabbitMQ notifications
+                  URL
+                type: string
               observedGeneration:
                 description: |-
                   ObservedGeneration - the most recent generation observed for this

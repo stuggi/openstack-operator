@@ -1,21 +1,14 @@
 # See the OWNERS_ALIASES docs: https://git.k8s.io/community/contributors/guide/owners.md#owners_aliases
 
 aliases:
-  ci-approvers:
-  - lewisdenny
-  - frenzyfriday
-  - viroel
   docs-approvers:
   - Jenny-Anne
   openstack-approvers:
   - abays
   - dprince
-  - olliewalsh
   - stuggi
   dataplane-approvers:
   - fultonj
   - rebtoor
   - slagle
-  - bshephar
   - rabi
-  - jpodivin

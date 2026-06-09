@@ -1,12 +1,18 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: openstack-operator
   name: openstack-operator-controller-manager
   namespace: '{{ .OperatorNamespace }}'
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: openstack-operator
   name: openstack-operator-leader-election-role
   namespace: '{{ .OperatorNamespace }}'
 rules:
@@ -50,46 +56,18 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - configmaps
+  - services
+  verbs:
+  - '*'
+- apiGroups:
+  - ""
+  resources:
   - imagestreamimages
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - imagestreammappings
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - imagestreams
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - imagestreams/layers
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - imagestreamtags
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - ""
-  resources:
   - imagetags
   verbs:
   - get
@@ -100,11 +78,12 @@ rules:
   resources:
   - namespaces
   verbs:
-  - get
+  - '*'
 - apiGroups:
   - ""
   resources:
   - pods
+  - secrets
   verbs:
   - create
   - delete
@@ -116,20 +95,75 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - serviceaccounts
+  verbs:
+  - '*'
+- apiGroups:
+  - ""
+  - project.openshift.io
+  resources:
   - projects
   verbs:
   - get
 - apiGroups:
-  - ""
+  - admissionregistration.k8s.io
   resources:
-  - serviceaccounts
+  - mutatingwebhookconfigurations
+  - validatingwebhookconfigurations
+  verbs:
+  - '*'
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - '*'
+  verbs:
+  - '*'
+- apiGroups:
+  - apiextensions.k8s.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
   verbs:
   - create
+  - delete
   - get
   - list
   - patch
   - update
   - watch
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - backup.openstack.org
+  resources:
+  - openstackbackupconfigs/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - barbican.openstack.org
   resources:
@@ -137,6 +171,43 @@ rules:
   verbs:
   - create
   - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - barbican.openstack.org
+  - baremetal.openstack.org
+  - cinder.openstack.org
+  - client.openstack.org
+  - core.openstack.org
+  - dataplane.openstack.org
+  - designate.openstack.org
+  - glance.openstack.org
+  - heat.openstack.org
+  - horizon.openstack.org
+  - instanceha.openstack.org
+  - ironic.openstack.org
+  - keystone.openstack.org
+  - manila.openstack.org
+  - mariadb.openstack.org
+  - memcached.openstack.org
+  - network.openstack.org
+  - neutron.openstack.org
+  - nova.openstack.org
+  - octavia.openstack.org
+  - ovn.openstack.org
+  - placement.openstack.org
+  - rabbitmq.openstack.org
+  - redis.openstack.org
+  - swift.openstack.org
+  - telemetry.openstack.org
+  - topology.openstack.org
+  - watcher.openstack.org
+  resources:
+  - '*'
+  verbs:
   - get
   - list
   - patch
@@ -183,17 +254,6 @@ rules:
   - cert-manager.io
   resources:
   - certificates
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - cert-manager.io
-  resources:
   - issuers
   verbs:
   - create
@@ -244,77 +304,18 @@ rules:
 - apiGroups:
   - config.openshift.io
   resources:
+  - clusterimagepolicies
+  - imagedigestmirrorsets
+  - images
   - networks
   verbs:
   - get
   - list
   - watch
 - apiGroups:
-  - ""
-  resources:
-  - configmaps
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - services
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - core.openstack.org
   resources:
   - openstackcontrolplanes
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - core.openstack.org
-  resources:
-  - openstackcontrolplanes/finalizers
-  verbs:
-  - patch
-  - update
-- apiGroups:
-  - core.openstack.org
-  resources:
-  - openstackcontrolplanes/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - core.openstack.org
-  resources:
   - openstackversions
   verbs:
   - create
@@ -327,6 +328,7 @@ rules:
 - apiGroups:
   - core.openstack.org
   resources:
+  - openstackcontrolplanes/finalizers
   - openstackversions/finalizers
   verbs:
   - patch
@@ -334,6 +336,7 @@ rules:
 - apiGroups:
   - core.openstack.org
   resources:
+  - openstackcontrolplanes/status
   - openstackversions/status
   verbs:
   - get
@@ -353,6 +356,8 @@ rules:
   - dataplane.openstack.org
   resources:
   - openstackdataplanedeployments/finalizers
+  - openstackdataplanenodesets/finalizers
+  - openstackdataplaneservices/finalizers
   verbs:
   - patch
   - update
@@ -360,6 +365,8 @@ rules:
   - dataplane.openstack.org
   resources:
   - openstackdataplanedeployments/status
+  - openstackdataplanenodesets/status
+  - openstackdataplaneservices/status
   verbs:
   - get
   - patch
@@ -368,6 +375,7 @@ rules:
   - dataplane.openstack.org
   resources:
   - openstackdataplanenodesets
+  - openstackdataplaneservices
   verbs:
   - create
   - delete
@@ -376,39 +384,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - dataplane.openstack.org
-  resources:
-  - openstackdataplanenodesets/finalizers
-  verbs:
-  - patch
-  - update
-- apiGroups:
-  - dataplane.openstack.org
-  resources:
-  - openstackdataplanenodesets/status
-  verbs:
-  - get
-  - patch
-  - update
-- apiGroups:
-  - dataplane.openstack.org
-  resources:
-  - openstackdataplaneservices
-  verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - dataplane.openstack.org
-  resources:
-  - openstackdataplaneservices/finalizers
-  verbs:
-  - patch
-  - update
 - apiGroups:
   - designate.openstack.org
   resources:
@@ -473,22 +448,10 @@ rules:
   - image.openshift.io
   resources:
   - imagestreamimages
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - image.openshift.io
-  resources:
   - imagestreammappings
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - image.openshift.io
-  resources:
   - imagestreams
+  - imagestreamtags
+  - imagetags
   verbs:
   - get
   - list
@@ -499,22 +462,6 @@ rules:
   - imagestreams/layers
   verbs:
   - get
-- apiGroups:
-  - image.openshift.io
-  resources:
-  - imagestreamtags
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
-  - image.openshift.io
-  resources:
-  - imagetags
-  verbs:
-  - get
-  - list
-  - watch
 - apiGroups:
   - ironic.openstack.org
   resources:
@@ -534,11 +481,14 @@ rules:
   verbs:
   - get
   - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - keystone.openstack.org
   resources:
   - keystoneapis
+  - keystoneapplicationcredentials
   verbs:
   - create
   - delete
@@ -547,6 +497,14 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - keystone.openstack.org
+  resources:
+  - keystoneapplicationcredentials/status
+  verbs:
+  - get
+  - patch
+  - update
 - apiGroups:
   - machineconfiguration.openshift.io
   resources:
@@ -592,51 +550,21 @@ rules:
   - update
   - watch
 - apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - servicemonitors
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
   - network.openstack.org
   resources:
   - dnsdata
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - network.openstack.org
-  resources:
-  - dnsdata/finalizers
-  verbs:
-  - patch
-  - update
-- apiGroups:
-  - network.openstack.org
-  resources:
-  - dnsdata/status
-  verbs:
-  - get
-- apiGroups:
-  - network.openstack.org
-  resources:
   - dnsmasqs
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - network.openstack.org
-  resources:
-  - dnsmasqs/status
-  verbs:
-  - get
-- apiGroups:
-  - network.openstack.org
-  resources:
   - ipsets
   verbs:
   - create
@@ -649,6 +577,7 @@ rules:
 - apiGroups:
   - network.openstack.org
   resources:
+  - dnsdata/finalizers
   - ipsets/finalizers
   verbs:
   - patch
@@ -656,6 +585,8 @@ rules:
 - apiGroups:
   - network.openstack.org
   resources:
+  - dnsdata/status
+  - dnsmasqs/status
   - ipsets/status
   verbs:
   - get
@@ -712,32 +643,47 @@ rules:
   - list
   - watch
 - apiGroups:
+  - operator.openstack.org
+  resources:
+  - openstacks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - operator.openstack.org
+  resources:
+  - openstacks/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - operator.openstack.org
+  resources:
+  - openstacks/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - operators.coreos.com
+  resources:
+  - clusterserviceversions
+  - installplans
+  - operators
+  - subscriptions
+  verbs:
+  - delete
+  - get
+  - list
+- apiGroups:
   - ovn.openstack.org
   resources:
   - ovncontrollers
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ovn.openstack.org
-  resources:
   - ovndbclusters
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - ovn.openstack.org
-  resources:
   - ovnnorthds
   verbs:
   - create
@@ -759,12 +705,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - project.openshift.io
-  resources:
-  - projects
-  verbs:
-  - get
 - apiGroups:
   - rabbitmq.com
   resources:
@@ -792,25 +732,17 @@ rules:
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
-  - rolebindings
+  - clusterrolebindings
+  - clusterroles
   verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
+  - '*'
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
+  - rolebindings
   - roles
   verbs:
-  - create
-  - get
-  - list
-  - patch
-  - update
-  - watch
+  - '*'
 - apiGroups:
   - redis.openstack.org
   resources:
@@ -892,21 +824,23 @@ rules:
   - list
   - update
   - watch
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: openstack-operator-metrics-reader
-rules:
-- nonResourceURLs:
-  - /metrics
+- apiGroups:
+  - watcher.openstack.org
+  resources:
+  - watchers
   verbs:
+  - create
+  - delete
   - get
+  - list
+  - patch
+  - update
+  - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: openstack-operator-proxy-role
+  name: openstack-operator-metrics-auth-role
 rules:
 - apiGroups:
   - authentication.k8s.io
@@ -922,8 +856,21 @@ rules:
   - create
 ---
 apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openstack-operator-metrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: openstack-operator
   name: openstack-operator-leader-election-rolebinding
   namespace: '{{ .OperatorNamespace }}'
 roleRef:
@@ -938,6 +885,9 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: openstack-operator
   name: openstack-operator-manager-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -951,28 +901,12 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: openstack-operator-proxy-rolebinding
+  name: openstack-operator-metrics-auth-rolebinding
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: openstack-operator-proxy-role
+  name: openstack-operator-metrics-auth-role
 subjects:
 - kind: ServiceAccount
   name: openstack-operator-controller-manager
   namespace: '{{ .OperatorNamespace }}'
----
-apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    control-plane: controller-manager
-  name: openstack-operator-controller-manager-metrics-service
-  namespace: '{{ .OperatorNamespace }}'
-spec:
-  ports:
-  - name: https
-    port: 8443
-    protocol: TCP
-    targetPort: https
-  selector:
-    openstack.org/operator-name: openstack

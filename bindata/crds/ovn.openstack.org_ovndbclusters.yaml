@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   creationTimestamp: null
   name: ovndbclusters.ovn.openstack.org
 spec:
@@ -67,6 +67,10 @@ spec:
                   to use on db creation (in milliseconds)
                 format: int32
                 type: integer
+              exporterImage:
+                description: ExporterImage - Container Image URL for the openstack-network-exporter
+                  metrics sidecar (will be set to environmental default if empty)
+                type: string
               inactivityProbe:
                 default: 60000
                 description: Probe interval for the OVSDB session (in milliseconds)
@@ -74,8 +78,32 @@ spec:
                 type: integer
               logLevel:
                 default: info
-                description: LogLevel - Set log level info, dbg, emer etc
+                description: LogLevel - Set log level off, emer, err, warn, info or
+                  dbg. Default is info.
+                enum:
+                - "off"
+                - emer
+                - err
+                - warn
+                - info
+                - dbg
                 type: string
+              metricsEnabled:
+                default: true
+                description: MetricsEnabled enables the metrics sidecar container
+                  for collecting OVN DB metrics
+                type: boolean
+              metricsTLS:
+                description: MetricsTLS - Parameters related to TLS for metrics sidecar
+                properties:
+                  caBundleSecretName:
+                    description: CaBundleSecretName - holding the CA certs in a pre-created
+                      bundle file
+                    type: string
+                  secretName:
+                    description: SecretName - holding the cert, key for the service
+                    type: string
+                type: object
               networkAttachment:
                 description: |-
                   NetworkAttachment is a NetworkAttachment resource name to expose the service to the given network.
@@ -107,7 +135,7 @@ spec:
                               Annotations is an unstructured key value map stored with a resource that may be
                               set by external tools to store and retrieve arbitrary metadata. They are not
                               queryable and should be preserved when modifying objects.
-                              More info: http://kubernetes.io/docs/user-guide/annotations
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
                             type: object
                           labels:
                             additionalProperties:
@@ -116,7 +144,7 @@ spec:
                               Map of string keys and values that can be used to organize and categorize
                               (scope and select) objects. May match selectors of replication controllers
                               and services.
-                              More info: http://kubernetes.io/docs/user-guide/labels
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
                             type: object
                         type: object
                       spec:
@@ -240,8 +268,10 @@ spec:
                 type: object
               probeIntervalToActive:
                 default: 60000
-                description: Active probe interval from standby to active ovsdb-server
-                  remote
+                description: |-
+                  DEPRECATED: ProbeIntervalToActive is only relevant for active/standby ovsdb configurations.
+                  This parameter is not used in RAFT clustered deployments and will be ignored.
+                  Active probe interval from standby to active ovsdb-server remote
                 format: int32
                 type: integer
               replicas:
@@ -261,10 +291,8 @@ spec:
                       Claims lists the names of resources, defined in spec.resourceClaims,
                       that are used by this container.
 
-
                       This is an alpha field and requires enabling the
                       DynamicResourceAllocation feature gate.
-
 
                       This field is immutable. It can only be set for containers.
                     items:
@@ -275,6 +303,12 @@ spec:
                             Name must match the name of one entry in pod.spec.resourceClaims of
                             the Pod where this field is used. It makes that resource available
                             inside a container.
+                          type: string
+                        request:
+                          description: |-
+                            Request is the name chosen for a request in the referenced claim.
+                            If empty, everything from the claim is made available, otherwise
+                            only the result of this request.
                           type: string
                       required:
                       - name

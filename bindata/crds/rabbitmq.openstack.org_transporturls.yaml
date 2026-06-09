@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   creationTimestamp: null
   name: transporturls.rabbitmq.openstack.org
 spec:
@@ -52,6 +52,18 @@ spec:
                 description: RabbitmqClusterName the name of the Rabbitmq cluster
                   which to configure the transport URL
                 type: string
+              userRef:
+                description: UserRef - reference to a RabbitMQUser resource. If not
+                  specified, Username will be used to create a RabbitMQUser on-demand
+                type: string
+              username:
+                description: Username - RabbitMQ username. If UserRef is not specified,
+                  a RabbitMQUser will be created with this username
+                type: string
+              vhost:
+                description: Vhost - RabbitMQ vhost name. If specified and vhost doesn't
+                  exist, a RabbitMQVhost will be created. Defaults to "/" if not specified
+                type: string
             required:
             - rabbitmqClusterName
             type: object
@@ -100,6 +112,12 @@ spec:
                   - type
                   type: object
                 type: array
+              nodeSetSynced:
+                description: |-
+                  NodeSetSynced - set to "false" when a credential rotation is detected
+                  and we are waiting for NodeSet deployments to push the new config.
+                  Cleared when the deployment completes and the old user is released.
+                type: string
               observedGeneration:
                 description: |-
                   ObservedGeneration - the most recent generation observed for this
@@ -108,6 +126,33 @@ spec:
                   the opentack-operator in the top-level CR (e.g. the ContainerImage)
                 format: int64
                 type: integer
+              previousRabbitmqUserRef:
+                description: |-
+                  PreviousRabbitmqUserRef - the name of a previous RabbitMQUser CR whose
+                  finalizer removal was deferred during a credential rotation, pending
+                  deployment verification. Only set while a rotation is in progress.
+                type: string
+              queueType:
+                description: QueueType - the queue type from the associated RabbitMq
+                  instance
+                type: string
+              rabbitmqClusterName:
+                description: |-
+                  RabbitmqClusterName - the cluster name used to build canonical vhost/user CR names.
+                  Stored in status so that spec changes can be compared against the previously reconciled value.
+                type: string
+              rabbitmqUserRef:
+                description: |-
+                  RabbitmqUserRef - the name of the RabbitMQUser CR that was created or referenced by this TransportURL.
+                  Empty if using default cluster admin credentials (no dedicated RabbitMQUser CR)
+                type: string
+              rabbitmqUsername:
+                description: RabbitmqUsername - the actual username used for the RabbitMQ
+                  user
+                type: string
+              rabbitmqVhost:
+                description: RabbitmqVhost - the actual vhost name used
+                type: string
               secretName:
                 description: SecretName - name of the secret containing the rabbitmq
                   transport URL

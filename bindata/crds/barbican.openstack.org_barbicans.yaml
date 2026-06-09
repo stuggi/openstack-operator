@@ -2,7 +2,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.14.0
+    controller-gen.kubebuilder.io/version: v0.18.0
   creationTimestamp: null
   name: barbicans.barbican.openstack.org
 spec:
@@ -53,6 +53,15 @@ spec:
                 description: Barbican API timeout
                 minimum: 10
                 type: integer
+              auth:
+                description: Auth - Parameters related to authentication for all Barbican
+                  services
+                properties:
+                  applicationCredentialSecret:
+                    description: ApplicationCredentialSecret - Secret containing Application
+                      Credential ID and Secret
+                    type: string
+                type: object
               barbicanAPI:
                 description: BarbicanAPI - Spec definition for the  API services of
                   this Barbican deployment
@@ -85,7 +94,6 @@ spec:
                     description: |-
                       ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                       But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                      TODO: -> implement
                     type: object
                   enableSecureRBAC:
                     default: true
@@ -129,7 +137,7 @@ spec:
                                     Annotations is an unstructured key value map stored with a resource that may be
                                     set by external tools to store and retrieve arbitrary metadata. They are not
                                     queryable and should be preserved when modifying objects.
-                                    More info: http://kubernetes.io/docs/user-guide/annotations
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/annotations/
                                   type: object
                                 labels:
                                   additionalProperties:
@@ -138,7 +146,7 @@ spec:
                                     Map of string keys and values that can be used to organize and categorize
                                     (scope and select) objects. May match selectors of replication controllers
                                     and services.
-                                    More info: http://kubernetes.io/docs/user-guide/labels
+                                    More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
                                   type: object
                               type: object
                             spec:
@@ -281,10 +289,8 @@ spec:
                           Claims lists the names of resources, defined in spec.resourceClaims,
                           that are used by this container.
 
-
                           This is an alpha field and requires enabling the
                           DynamicResourceAllocation feature gate.
-
 
                           This field is immutable. It can only be set for containers.
                         items:
@@ -295,6 +301,12 @@ spec:
                                 Name must match the name of one entry in pod.spec.resourceClaims of
                                 the Pod where this field is used. It makes that resource available
                                 inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
                               type: string
                           required:
                           - name
@@ -407,7 +419,6 @@ spec:
                     description: |-
                       ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                       But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                      TODO: -> implement
                     type: object
                   networkAttachments:
                     description: NetworkAttachments is a list of NetworkAttachment
@@ -439,10 +450,8 @@ spec:
                           Claims lists the names of resources, defined in spec.resourceClaims,
                           that are used by this container.
 
-
                           This is an alpha field and requires enabling the
                           DynamicResourceAllocation feature gate.
-
 
                           This field is immutable. It can only be set for containers.
                         items:
@@ -453,6 +462,12 @@ spec:
                                 Name must match the name of one entry in pod.spec.resourceClaims of
                                 the Pod where this field is used. It makes that resource available
                                 inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
                               type: string
                           required:
                           - name
@@ -535,7 +550,6 @@ spec:
                     description: |-
                       ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                       But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                      TODO: -> implement
                     type: object
                   networkAttachments:
                     description: NetworkAttachments is a list of NetworkAttachment
@@ -567,10 +581,8 @@ spec:
                           Claims lists the names of resources, defined in spec.resourceClaims,
                           that are used by this container.
 
-
                           This is an alpha field and requires enabling the
                           DynamicResourceAllocation feature gate.
-
 
                           This field is immutable. It can only be set for containers.
                         items:
@@ -581,6 +593,12 @@ spec:
                                 Name must match the name of one entry in pod.spec.resourceClaims of
                                 the Pod where this field is used. It makes that resource available
                                 inside a container.
+                              type: string
+                            request:
+                              description: |-
+                                Request is the name chosen for a request in the referenced claim.
+                                If empty, everything from the claim is made available, otherwise
+                                only the result of this request.
                               type: string
                           required:
                           - name
@@ -649,7 +667,6 @@ spec:
               databaseInstance:
                 description: |-
                   MariaDB instance name
-                  TODO(dmendiza): Is this comment right?
                   Right now required by the maridb-operator to get the credentials from the instance to create the DB
                   Might not be required in future
                 type: string
@@ -659,11 +676,10 @@ spec:
                 description: |-
                   ConfigOverwrite - interface to overwrite default config files like e.g. logging.conf or policy.json.
                   But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
-                  TODO(dmendiza): -> implement
                 type: object
               enabledSecretStores:
                 items:
-                  description: This SecretStore type is used by the EnabledSecretStores
+                  description: SecretStore type is used by the EnabledSecretStores
                     variable inside the specification.
                   enum:
                   - simple_crypto
@@ -675,18 +691,51 @@ spec:
                 x-kubernetes-list-type: set
               globalDefaultSecretStore:
                 default: simple_crypto
-                description: This SecretStore type is used by the EnabledSecretStores
-                  variable inside the specification.
+                description: SecretStore type is used by the EnabledSecretStores variable
+                  inside the specification.
                 enum:
                 - simple_crypto
                 - pkcs11
                 type: string
+              messagingBus:
+                description: MessagingBus configuration (username, vhost, and cluster)
+                properties:
+                  cluster:
+                    description: Name of the cluster
+                    minLength: 1
+                    type: string
+                  user:
+                    description: User - RabbitMQ username
+                    type: string
+                  vhost:
+                    description: Vhost - RabbitMQ vhost name
+                    type: string
+                required:
+                - cluster
+                type: object
               nodeSelector:
                 additionalProperties:
                   type: string
                 description: |-
                   NodeSelector to target subset of worker nodes running this component. Setting here overrides
                   any global NodeSelector settings within the Barbican CR.
+                type: object
+              notificationsBus:
+                description: NotificationsBus configuration (username, vhost, and
+                  cluster) for notifications
+                properties:
+                  cluster:
+                    description: Name of the cluster
+                    minLength: 1
+                    type: string
+                  user:
+                    description: User - RabbitMQ username
+                    type: string
+                  vhost:
+                    description: Vhost - RabbitMQ vhost name
+                    type: string
+                required:
+                - cluster
                 type: object
               passwordSelectors:
                 default:
@@ -741,10 +790,10 @@ spec:
                   e.g. to check logs
                 type: boolean
               rabbitMqClusterName:
-                default: rabbitmq
                 description: |-
                   RabbitMQ instance name
                   Needed to request a transportURL that is created and used in Barbican
+                  Deprecated: Use MessagingBus.Cluster instead
                 type: string
               secret:
                 default: osp-secret
@@ -786,7 +835,6 @@ spec:
             - barbicanKeystoneListener
             - barbicanWorker
             - databaseInstance
-            - rabbitMqClusterName
             - serviceAccount
             type: object
           status:
@@ -854,6 +902,9 @@ spec:
                   type: string
                 description: Map of hashes to track e.g. job status
                 type: object
+              notificationsURLSecret:
+                description: NotificationsURLSecret - Secret containing RabbitMQ notificationsURL
+                type: string
               observedGeneration:
                 description: |-
                   ObservedGeneration - the most recent generation observed for this
