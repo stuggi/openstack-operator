@@ -45,14 +45,10 @@ jobs:
       with:
         path: ./openstack-operator
 
-    - name: Get branch name
-      id: branch-name
-      uses: tj-actions/branch-names@v9
-
     - name: Set latest tag for non main branch
-      if: "${{ steps.branch-name.outputs.current_branch != 'main' }}"
+      if: "${{ github.ref_name != 'main' }}"
       run: |
-        echo "latesttag=${{ steps.branch-name.outputs.current_branch }}-latest" >> $GITHUB_ENV
+        echo "latesttag=${{ github.ref_name }}-latest" >> $GITHUB_ENV
 
     - name: Install opm
       uses: redhat-actions/openshift-tools-installer@v1
