@@ -52,6 +52,16 @@ spec:
                 default: 120
                 description: Designate API timeout
                 type: integer
+              azAwareMode:
+                description: |-
+                  AZAwareMode - when set to "Enabled", activates AZ-aware multipool mode with
+                  BIND views, per-pool TSIG keys, and per-AZ Unbound instances. Requires a valid
+                  multipool ConfigMap with view fields defined for each pool.
+                enum:
+                - ""
+                - Enabled
+                - Disabled
+                type: string
               backendMdnsServerProtocol:
                 description: |-
                   BackendTypeProtocol - Defines the backend protocol to be used between the designate-worker &
@@ -1628,6 +1638,9 @@ spec:
                       ConfigOverwrite - interface to overwrite default config files like e.g. policy.json.
                       But can also be used to add additional files. Those get added to the service config dir in /etc/<service> .
                     type: object
+                  netUtilsImage:
+                    description: NetUtilsImage - NetUtils container image
+                    type: string
                   networkAttachments:
                     description: NetworkAttachments is a list of NetworkAttachment
                       resource names to expose the services to the given network
@@ -2098,6 +2111,10 @@ spec:
                 required:
                 - containerImage
                 type: object
+              externalBindsSecret:
+                description: ExternalBindsSecret is the name of the secret containing
+                  external BIND9 configurations
+                type: string
               messagingBus:
                 description: MessagingBus configuration (cluster, username, and vhost)
                 properties:
