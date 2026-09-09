@@ -458,25 +458,31 @@ func (r *OpenStackClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Reconcile MCP Service
 	if instance.Spec.MCP != nil && instance.Spec.MCP.Enabled {
-		mcpService := &corev1.Service{
-			ObjectMeta: metav1.ObjectMeta{
+		mcpSvc, err := service.NewService(
+			service.GenericService(&service.GenericServiceDetails{
 				Name:      instance.Name + "-mcp",
 				Namespace: instance.Namespace,
-			},
-		}
-		_, err = controllerutil.CreateOrPatch(ctx, r.Client, mcpService, func() error {
-			mcpService.Spec.Selector = clientLabels
-			mcpService.Spec.Ports = []corev1.ServicePort{
-				{
-					Name:     "mcp",
-					Port:     8080,
-					Protocol: corev1.ProtocolTCP,
+				Labels:    clientLabels,
+				Selector:  clientLabels,
+				Ports: []corev1.ServicePort{
+					{
+						Name:     "mcp",
+						Port:     8080,
+						Protocol: corev1.ProtocolTCP,
+					},
 				},
-			}
-			return controllerutil.SetControllerReference(instance, mcpService, r.Scheme)
-		})
+			}),
+			5*time.Second,
+			nil,
+		)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("error creating MCP Service: %w", err)
+		}
+		ctrlResult, err := mcpSvc.CreateOrPatch(ctx, helper)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("error reconciling MCP Service: %w", err)
+		} else if (ctrlResult != ctrl.Result{}) {
+			return ctrlResult, nil
 		}
 
 		// Restrict access to the MCP port to OpenStackAssistant pods in the
