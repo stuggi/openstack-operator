@@ -19,7 +19,9 @@ import (
 
 	env "github.com/openstack-k8s-operators/lib-common/modules/common/env"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/helper"
+	"github.com/openstack-k8s-operators/lib-common/modules/common/pod"
 	"github.com/openstack-k8s-operators/lib-common/modules/common/tls"
+	"github.com/openstack-k8s-operators/lib-common/modules/users"
 	clientv1 "github.com/openstack-k8s-operators/openstack-operator/api/client/v1beta1"
 	telemetryv1 "github.com/openstack-k8s-operators/telemetry-operator/api/v1beta1"
 
@@ -83,19 +85,9 @@ func ClientPodSpec(
 				ImagePullPolicy: corev1.PullIfNotPresent,
 				Command:         []string{"/bin/sleep"},
 				Args:            []string{"infinity"},
-				SecurityContext: &corev1.SecurityContext{
-					RunAsUser:                ptr.To[int64](42401),
-					RunAsGroup:               ptr.To[int64](42401),
-					RunAsNonRoot:             ptr.To(true),
-					AllowPrivilegeEscalation: ptr.To(false),
-					Capabilities: &corev1.Capabilities{
-						Drop: []corev1.Capability{
-							"ALL",
-						},
-					},
-				},
-				Env:          env.MergeEnvs([]corev1.EnvVar{}, envVars),
-				VolumeMounts: volumeMounts,
+				SecurityContext: pod.RestrictiveSecurityContext(users.CloudAdminUID, users.CloudAdminGID),
+				Env:             env.MergeEnvs([]corev1.EnvVar{}, envVars),
+				VolumeMounts:    volumeMounts,
 			},
 		},
 		Tolerations: []corev1.Toleration{
@@ -179,16 +171,8 @@ func ClientPodSpec(
 			Ports: []corev1.ContainerPort{
 				{Name: "mcp", ContainerPort: 8080, Protocol: corev1.ProtocolTCP},
 			},
-			SecurityContext: &corev1.SecurityContext{
-				RunAsUser:                ptr.To[int64](42401),
-				RunAsGroup:               ptr.To[int64](42401),
-				RunAsNonRoot:             ptr.To(true),
-				AllowPrivilegeEscalation: ptr.To(false),
-				Capabilities: &corev1.Capabilities{
-					Drop: []corev1.Capability{"ALL"},
-				},
-			},
-			VolumeMounts: mcpVolumeMounts,
+			SecurityContext: pod.RestrictiveSecurityContext(users.CloudAdminUID, users.CloudAdminGID),
+			VolumeMounts:    mcpVolumeMounts,
 		})
 	}
 

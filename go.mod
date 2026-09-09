@@ -26,6 +26,7 @@ require (
 	github.com/openstack-k8s-operators/lib-common/modules/common v0.6.1-0.20260905135931-526eb6f05187
 	github.com/openstack-k8s-operators/lib-common/modules/storage v0.6.1-0.20260905135931-526eb6f05187
 	github.com/openstack-k8s-operators/lib-common/modules/test v0.6.1-0.20260905135931-526eb6f05187
+	github.com/openstack-k8s-operators/lib-common/modules/users v0.0.0-20260813160234-fdcb3ee3699d
 	github.com/openstack-k8s-operators/manila-operator/api v0.6.1-0.20260905072629-4f11bb174359
 	github.com/openstack-k8s-operators/mariadb-operator/api v0.6.1-0.20260907100554-0ff6a7cbefd8
 	github.com/openstack-k8s-operators/neutron-operator/api v0.6.1-0.20260904195320-fdfc16085397
