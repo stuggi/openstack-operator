@@ -331,7 +331,7 @@ func (r *OpenStackClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	instance.Status.Conditions.MarkTrue(condition.TLSInputReadyCondition, condition.InputReadyMessage)
 
 	// Reconcile MCP sidecar resources when enabled
-	mcpTLSCertSecret := ""
+	var mcpTLSSvc *tls.Service
 	if instance.Spec.MCP != nil && instance.Spec.MCP.Enabled {
 		if instance.Spec.MCPContainerImage == "" {
 			return ctrl.Result{}, fmt.Errorf("MCP is enabled but MCPContainerImage is not set")
@@ -382,11 +382,25 @@ func (r *OpenStackClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 					clientv1.OpenStackClientReadyRunningMessage))
 				return ctrlResult, nil
 			}
-			mcpTLSCertSecret = certSecret.Name
-			configVars[mcpTLSCertSecret] = env.SetValue(string(certSecret.Data["tls.crt"]) + string(certSecret.Data["tls.key"]))
+			mcpTLSSvc = &tls.Service{
+				SecretName: certSecret.Name,
+				CertMount:  ptr.To("/etc/pki/tls/mcp/tls.crt"),
+				KeyMount:   ptr.To("/etc/pki/tls/mcp/tls.key"),
+			}
+			certHash, err := mcpTLSSvc.ValidateCertSecret(ctx, helper, instance.Namespace)
+			if err != nil {
+				instance.Status.Conditions.Set(condition.FalseCondition(
+					clientv1.OpenStackClientReadyCondition,
+					condition.ErrorReason,
+					condition.SeverityWarning,
+					clientv1.OpenStackClientReadyErrorMessage,
+					err.Error()))
+				return ctrl.Result{}, err
+			}
+			configVars["mcp-tls"] = env.SetValue(certHash)
 		}
 
-		mcpTLSEnabled := mcpTLSCertSecret != ""
+		mcpTLSEnabled := mcpTLSSvc != nil
 
 		mcpCloudsYAML := openstackclient.MCPCloudsYAML(
 			internalAuthURL,
@@ -442,7 +456,7 @@ func (r *OpenStackClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	// Reconcile MCP Service after configVarsHash so the hash annotation captures all config changes
+	// Reconcile MCP Service
 	if instance.Spec.MCP != nil && instance.Spec.MCP.Enabled {
 		mcpService := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
@@ -450,19 +464,7 @@ func (r *OpenStackClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 				Namespace: instance.Namespace,
 			},
 		}
-		mcpServiceHash, err := util.ObjectHash(map[string]interface{}{
-			"containerImage":    instance.Spec.ContainerImage,
-			"mcpContainerImage": instance.Spec.MCPContainerImage,
-			"configVarsHash":    configVarsHash,
-		})
-		if err != nil {
-			return ctrl.Result{}, fmt.Errorf("error calculating MCP Service hash: %w", err)
-		}
 		_, err = controllerutil.CreateOrPatch(ctx, r.Client, mcpService, func() error {
-			if mcpService.Annotations == nil {
-				mcpService.Annotations = map[string]string{}
-			}
-			mcpService.Annotations["client.openstack.org/config-hash"] = mcpServiceHash
 			mcpService.Spec.Selector = clientLabels
 			mcpService.Spec.Ports = []corev1.ServicePort{
 				{
@@ -549,7 +551,7 @@ func (r *OpenStackClientReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		},
 	}
 
-	spec := openstackclient.ClientPodSpec(ctx, instance, helper, configVarsHash, mcpTLSCertSecret)
+	spec := openstackclient.ClientPodSpec(ctx, instance, helper, configVarsHash, mcpTLSSvc)
 
 	podSpecHash, err := util.ObjectHash(spec)
 	if err != nil {

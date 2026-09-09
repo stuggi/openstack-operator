@@ -34,7 +34,7 @@ func ClientPodSpec(
 	instance *clientv1.OpenStackClient,
 	helper *helper.Helper,
 	configHash string,
-	mcpTLSCertSecret string,
+	mcpTLSSvc *tls.Service,
 ) corev1.PodSpec {
 	envVars := map[string]env.Setter{}
 	envVars["OS_CLOUD"] = env.SetValue("default")
@@ -139,14 +139,8 @@ func ClientPodSpec(
 			mcpVolumeMounts = append(mcpVolumeMounts, instance.Spec.CreateVolumeMounts(nil)...)
 		}
 
-		if mcpTLSCertSecret != "" {
-			mcpVolumeMounts = append(mcpVolumeMounts,
-				corev1.VolumeMount{
-					Name:      "mcp-tls-cert",
-					MountPath: "/etc/pki/tls/mcp",
-					ReadOnly:  true,
-				},
-			)
+		if mcpTLSSvc != nil {
+			mcpVolumeMounts = append(mcpVolumeMounts, mcpTLSSvc.CreateVolumeMounts("mcp")...)
 		}
 
 		podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
@@ -160,16 +154,8 @@ func ClientPodSpec(
 			},
 		})
 
-		if mcpTLSCertSecret != "" {
-			podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
-				Name: "mcp-tls-cert",
-				VolumeSource: corev1.VolumeSource{
-					Secret: &corev1.SecretVolumeSource{
-						SecretName:  mcpTLSCertSecret,
-						DefaultMode: ptr.To[int32](0444),
-					},
-				},
-			})
+		if mcpTLSSvc != nil {
+			podSpec.Volumes = append(podSpec.Volumes, mcpTLSSvc.CreateVolume("mcp"))
 		}
 
 		mcpEnvVars := []corev1.EnvVar{
