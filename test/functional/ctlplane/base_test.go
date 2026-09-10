@@ -91,6 +91,7 @@ type Names struct {
 	CustomIssuerName                     types.NamespacedName
 	CustomServiceCertSecretName          types.NamespacedName
 	CABundleName                         types.NamespacedName
+	CABundleCertsName                    types.NamespacedName
 	OpenStackClientName                  types.NamespacedName
 	OVNNorthdName                        types.NamespacedName
 	OVNNorthdCertName                    types.NamespacedName
@@ -144,6 +145,9 @@ func CreateNames(openstackControlplaneName types.NamespacedName) Names {
 		CABundleName: types.NamespacedName{
 			Namespace: openstackControlplaneName.Namespace,
 			Name:      "combined-ca-bundle"},
+		CABundleCertsName: types.NamespacedName{
+			Namespace: openstackControlplaneName.Namespace,
+			Name:      "combined-ca-bundle-certs"},
 		CustomServiceCertSecretName: types.NamespacedName{
 			Namespace: openstackControlplaneName.Namespace,
 			Name:      "custom-service-cert"},

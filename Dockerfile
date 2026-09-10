@@ -71,6 +71,11 @@ ENV USER_UID=$USER_ID \
 
 WORKDIR /
 
+# openssl is used by the operator to compute OpenSSL subject-name hashes for the
+# combined-ca-bundle-certs directory-hash secret (internal/openstack/ca.go); libcrypto
+# is already present in the base image, this adds the CLI.
+RUN microdnf install -y openssl && microdnf clean all
+
 # Install operator binary to WORKDIR
 COPY --from=builder ${DEST_ROOT}/manager .
 COPY --from=builder ${DEST_ROOT}/operator .

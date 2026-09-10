@@ -1,0 +1,28 @@
+# PoC builder image for OSPRH-36600 / OSPRH-16670.
+#
+# Implements the ticket's proposed procedure:
+#   1. base image with the latest ca-certificates installed
+#   2. drop the custom (cert-manager) CAs into /etc/pki/ca-trust/sources/anchors
+#      and any distrusted CAs into /etc/pki/ca-trust/sources/blocklist
+#   3. run `update-ca-trust` so ALL extracted formats are regenerated
+#   4. (done by the host script) collect the generated bundles for a Secret
+#
+# We use ubi9 (not ubi9-minimal) so `update-ca-trust`, `trust`, `openssl` and
+# `keytool` are all present, matching what a dedicated builder image would ship.
+FROM registry.access.redhat.com/ubi9/ubi:latest
+
+# `ca-certificates` provides update-ca-trust + p11-kit extractors (pem/java/edk2).
+# `java-*-headless` gives us keytool purely to VERIFY the generated cacerts here;
+# a real builder would not need a JRE.
+RUN dnf -y install ca-certificates openssl java-21-openjdk-headless file \
+    && dnf clean all
+
+# The custom trust inputs (equivalent to what the operator would render from
+# cert-manager issuer CAs + spec.tls.caBundleSecretName + mirror-registry CAs).
+COPY sources/anchors/    /etc/pki/ca-trust/source/anchors/
+COPY sources/blocklist/  /etc/pki/ca-trust/source/blocklist/
+
+COPY extract-bundle.sh /usr/local/bin/extract-bundle.sh
+RUN chmod +x /usr/local/bin/extract-bundle.sh
+
+ENTRYPOINT ["/usr/local/bin/extract-bundle.sh"]

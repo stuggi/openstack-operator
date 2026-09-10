@@ -1,6 +1,7 @@
 package openstack
 
 import (
+	"bytes"
 	"context"
 	"crypto/x509"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"os/exec"
 	"slices"
 	"sort"
 	"strings"
@@ -496,6 +498,15 @@ func ReconcileCAs(ctx context.Context, instance *corev1.OpenStackControlPlane, h
 			return ctrl.Result{}, err
 		}
 	}
+	// Snapshot the custom (non-system) CAs before the operator image system bundle
+	// is appended. At this point `bundle` holds only the CAs we manage/inject
+	// (cert-manager issuer CAs + spec.tls.caBundleSecretName + mirror-registry).
+	// These are published separately as an OpenSSL directory-hash secret for rhel10
+	// SSL_CERT_DIR consumers; the public/system roots are intentionally excluded as
+	// the service base images already ship them. See docs/dev/ca-trust-spike/.
+	customCACerts := make([]caCert, len(bundle.certs))
+	copy(customCACerts, bundle.certs)
+
 	err = bundle.getCertsFromPEM(caBundle)
 	if err != nil {
 		return ctrl.Result{}, err
@@ -545,7 +556,110 @@ func ReconcileCAs(ctx context.Context, instance *corev1.OpenStackControlPlane, h
 
 	instance.Status.TLS.CaBundleSecretName = tls.CABundleSecret
 
+	// Additionally publish the custom CAs in OpenSSL directory-hash form
+	// (<hash>.<seq> per cert) for rhel10/UBI10 consumers that read the default
+	// SSL_CERT_DIR. See docs/dev/ca-trust-spike/rhel10-ca-trust-change.md.
+	if err := ensureCACertsDir(ctx, helper, instance, customCACerts); err != nil {
+		instance.Status.Conditions.Set(condition.FalseCondition(
+			corev1.OpenStackControlPlaneCAReadyCondition,
+			condition.ErrorReason,
+			condition.SeverityWarning,
+			corev1.OpenStackControlPlaneCAReadyErrorMessage,
+			"secret",
+			CABundleCertsSecret,
+			err.Error()))
+
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
+}
+
+// CABundleCertsSecret is the name of the secret holding the custom CAs in OpenSSL
+// directory-hash form (one "<subject-hash>.<seq>" file per cert). Consumers on
+// rhel10/UBI10 mount it and add it to SSL_CERT_DIR alongside the base image's
+// public hash dir. See docs/dev/ca-trust-spike/.
+const CABundleCertsSecret = "combined-ca-bundle-certs"
+
+// ensureCACertsDir renders the custom CAs into an OpenSSL directory-hash layout and
+// persists it as the CABundleCertsSecret secret.
+func ensureCACertsDir(
+	ctx context.Context,
+	helper *helper.Helper,
+	instance *corev1.OpenStackControlPlane,
+	certs []caCert,
+) error {
+	hashDir, err := buildCACertsHashDir(ctx, certs)
+	if err != nil {
+		return err
+	}
+
+	tmpl := []util.Template{
+		{
+			Name:         CABundleCertsSecret,
+			Namespace:    instance.Namespace,
+			Type:         util.TemplateTypeNone,
+			InstanceType: instance.Kind,
+			Annotations:  map[string]string{},
+			Labels: map[string]string{
+				CABundleCertsSecret: "",
+			},
+			CustomData:   hashDir,
+			SkipSetOwner: true, // match combined-ca-bundle ownership semantics
+		},
+	}
+
+	return secret.EnsureSecrets(ctx, helper, instance, tmpl, nil)
+}
+
+// buildCACertsHashDir returns a map of "<subject-hash>.<seq>" -> single-cert PEM,
+// matching the OpenSSL directory-hash (-CApath / SSL_CERT_DIR) layout. Certs are
+// sorted by their DER for stable output (avoids spurious secret updates), and
+// same-subject collisions get sequential suffixes (.0, .1, ...).
+func buildCACertsHashDir(ctx context.Context, certs []caCert) (map[string]string, error) {
+	sorted := make([]caCert, len(certs))
+	copy(sorted, certs)
+	slices.SortFunc(sorted, func(a, b caCert) int {
+		return bytes.Compare(a.cert.Raw, b.cert.Raw)
+	})
+
+	seq := map[string]int{}
+	data := map[string]string{}
+	for _, c := range sorted {
+		pemBytes := pem.EncodeToMemory(&pem.Block{
+			Type:  "CERTIFICATE",
+			Bytes: c.cert.Raw,
+		})
+		hash, err := opensslSubjectHash(ctx, pemBytes)
+		if err != nil {
+			return nil, err
+		}
+		key := fmt.Sprintf("%s.%d", hash, seq[hash])
+		seq[hash]++
+		data[key] = string(pemBytes)
+	}
+
+	return data, nil
+}
+
+// opensslSubjectHash returns the OpenSSL subject-name hash of a PEM certificate, as
+// used for directory-hash (-CApath) filenames. It shells out to the openssl CLI so
+// the hash matches exactly what consumers compute (the algorithm is stable across
+// OpenSSL >= 1.0.0). Requires the openssl binary in the operator image.
+func opensslSubjectHash(ctx context.Context, certPEM []byte) (string, error) {
+	cmd := exec.CommandContext(ctx, "openssl", "x509", "-hash", "-noout")
+	cmd.Stdin = bytes.NewReader(certPEM)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to compute openssl subject hash: %w", err)
+	}
+
+	hash := strings.TrimSpace(string(out))
+	if hash == "" {
+		return "", fmt.Errorf("openssl returned an empty subject hash")
+	}
+
+	return hash, nil
 }
 
 func ensureRootCA(

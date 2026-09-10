@@ -858,6 +858,16 @@ var _ = Describe("OpenStackOperator controller", func() {
 				g.Expect(caBundle.Data).Should(HaveLen(int(2)))
 				g.Expect(caBundle.Data).Should(HaveKey(tls.CABundleKey))
 				g.Expect(caBundle.Data).Should(HaveKey(tls.InternalCABundleKey))
+
+				// combined-ca-bundle-certs holds our custom CAs in OpenSSL
+				// directory-hash form (one "<hash>.<seq>" file per cert) for
+				// rhel10 SSL_CERT_DIR consumers.
+				certsSecret := th.GetSecret(names.CABundleCertsName)
+				g.Expect(len(certsSecret.Data)).Should(BeNumerically(">=", 1))
+				for key, val := range certsSecret.Data {
+					g.Expect(key).Should(MatchRegexp(`^[0-9a-f]{8}\.[0-9]+$`))
+					g.Expect(string(val)).Should(ContainSubstring("BEGIN CERTIFICATE"))
+				}
 			}, timeout, interval).Should(Succeed())
 		})
 
@@ -1116,6 +1126,16 @@ var _ = Describe("OpenStackOperator controller", func() {
 				g.Expect(caBundle.Data).Should(HaveLen(int(2)))
 				g.Expect(caBundle.Data).Should(HaveKey(tls.CABundleKey))
 				g.Expect(caBundle.Data).Should(HaveKey(tls.InternalCABundleKey))
+
+				// combined-ca-bundle-certs holds our custom CAs in OpenSSL
+				// directory-hash form (one "<hash>.<seq>" file per cert) for
+				// rhel10 SSL_CERT_DIR consumers.
+				certsSecret := th.GetSecret(names.CABundleCertsName)
+				g.Expect(len(certsSecret.Data)).Should(BeNumerically(">=", 1))
+				for key, val := range certsSecret.Data {
+					g.Expect(key).Should(MatchRegexp(`^[0-9a-f]{8}\.[0-9]+$`))
+					g.Expect(string(val)).Should(ContainSubstring("BEGIN CERTIFICATE"))
+				}
 			}, timeout, interval).Should(Succeed())
 		})
 
