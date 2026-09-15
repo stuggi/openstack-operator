@@ -57,8 +57,9 @@ import (
 // OpenStackReconciler reconciles a OpenStack object
 type OpenStackReconciler struct {
 	client.Client
-	Scheme  *runtime.Scheme
-	Kclient kubernetes.Interface
+	Scheme             *runtime.Scheme
+	Kclient            kubernetes.Interface
+	webhookOperatorSet map[string]bool // short op names with a bindata webhook manifest; populated once at startup
 }
 
 // GetLogger returns a logger object with a prefix of "controller.name" and additional controller context fields
@@ -507,11 +508,33 @@ func containerImageMatch(instance *operatorv1beta1.OpenStack) bool {
 	return false
 }
 
-func isWebhookEndpoint(name string) bool {
-	// NOTE: this is a static list for all operators with webhooks enabled
-	endpointNames := []string{"openstack-operator-webhook-service", "infra-operator-webhook-service", "openstack-baremetal-operator-webhook-service"}
-	for _, prefix := range endpointNames {
-		if strings.HasPrefix(name, prefix) {
+// loadWebhookOperatorSet globs bindata/operator/*-webhooks.yaml once at startup and returns
+// a set of short operator names (e.g. "keystone", "infra") that have a webhook manifest.
+func loadWebhookOperatorSet(bindir string) map[string]bool {
+	result := map[string]bool{}
+	files, _ := filepath.Glob(filepath.Join(bindir, "operator", "*-webhooks.yaml"))
+	for _, f := range files {
+		base := filepath.Base(f)
+		opName := strings.TrimSuffix(base, "-webhooks.yaml") // e.g. "keystone-operator"
+		shortName := strings.TrimSuffix(opName, "-operator") // e.g. "keystone"
+		result[shortName] = true
+	}
+	return result
+}
+
+// webhookServiceNames returns the expected webhook endpoint service names derived from
+// the operator's cached webhook set, plus the openstack-operator itself.
+func (r *OpenStackReconciler) webhookServiceNames() []string {
+	names := []string{"openstack-operator-webhook-service"}
+	for shortName := range r.webhookOperatorSet {
+		names = append(names, shortName+"-operator-webhook-service")
+	}
+	return names
+}
+
+func isWebhookEndpoint(name string, serviceNames []string) bool {
+	for _, svc := range serviceNames {
+		if strings.HasPrefix(name, svc) {
 			return true
 		}
 	}
@@ -521,6 +544,8 @@ func isWebhookEndpoint(name string) bool {
 // checkServiceEndpoints -
 func (r *OpenStackReconciler) checkServiceEndpoints(ctx context.Context, instance *operatorv1beta1.OpenStack) (ctrl.Result, error) {
 	Log := r.GetLogger(ctx)
+
+	expectedWebhookSvcs := r.webhookServiceNames()
 
 	endpointSliceList := &discoveryv1.EndpointSliceList{}
 	err := r.List(ctx, endpointSliceList, &client.ListOptions{Namespace: instance.Namespace})
@@ -535,7 +560,7 @@ func (r *OpenStackReconciler) checkServiceEndpoints(ctx context.Context, instanc
 	for _, endpointSlice := range endpointSliceList.Items {
 		endpointSliceName := endpointSlice.GetName()
 
-		if isWebhookEndpoint(endpointSliceName) {
+		if isWebhookEndpoint(endpointSliceName, expectedWebhookSvcs) {
 			// is deployment disabled ?
 			disabled := false
 			for _, op := range instance.Spec.OperatorOverrides {
@@ -683,7 +708,7 @@ func (r *OpenStackReconciler) applyOperator(ctx context.Context, instance *opera
 				serviceOp.Deployment.Manager.Env = append(serviceOp.Deployment.Manager.Env,
 					relatedImagesEnv...)
 			case operatorv1beta1.OpenStackBaremetalOperatorName:
-				// enable webhooks on the openstack-operator
+				// enable webhooks on the openstack-baremetal-operator
 				serviceOp.Deployment.Manager.Env = append(serviceOp.Deployment.Manager.Env,
 					corev1.EnvVar{
 						Name:  "ENABLE_WEBHOOKS",
@@ -700,11 +725,15 @@ func (r *OpenStackReconciler) applyOperator(ctx context.Context, instance *opera
 						Value: "true",
 					})
 			default:
-				// disable webhooks per default
+				// Enable webhooks for operators whose manifest was found at startup; others default false.
+				enableWebhooks := "false"
+				if r.webhookOperatorSet[op.Name] {
+					enableWebhooks = "true"
+				}
 				serviceOp.Deployment.Manager.Env = append(serviceOp.Deployment.Manager.Env,
 					corev1.EnvVar{
 						Name:  "ENABLE_WEBHOOKS",
-						Value: "false",
+						Value: enableWebhooks,
 					})
 			}
 
@@ -1135,6 +1164,8 @@ func (r *OpenStackReconciler) postCleanupObsoleteResources(ctx context.Context, 
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *OpenStackReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	bindir := util.GetEnvVar("BASE_BINDATA", "/bindata")
+	r.webhookOperatorSet = loadWebhookOperatorSet(bindir)
 	return ctrl.NewControllerManagedBy(mgr).
 		Owns(&appsv1.Deployment{}).
 		For(&operatorv1beta1.OpenStack{}).
