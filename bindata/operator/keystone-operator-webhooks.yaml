@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/created-by: openstack-operator
+    app.kubernetes.io/instance: webhook-service
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: keystone-operator
+    app.kubernetes.io/part-of: keystone-operator
+  name: keystone-operator-webhook-service
+  namespace: '{{ .OperatorNamespace }}'
+spec:
+  ports:
+  - port: 443
+    protocol: TCP
+    targetPort: 9443
+  selector:
+    app.kubernetes.io/name: keystone-operator
+    control-plane: controller-manager
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/component: certificate
+    app.kubernetes.io/created-by: openstack-operator
+    app.kubernetes.io/instance: serving-cert
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: keystone-operator
+  name: keystone-operator-serving-cert
+  namespace: '{{ .OperatorNamespace }}'
+spec:
+  dnsNames:
+  - keystone-operator-webhook-service.{{ .OperatorNamespace }}.svc
+  - keystone-operator-webhook-service.{{ .OperatorNamespace }}.svc.cluster.local
+  issuerRef:
+    kind: Issuer
+    name: keystone-operator-selfsigned-issuer
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  secretName: keystone-operator-webhook-server-cert
