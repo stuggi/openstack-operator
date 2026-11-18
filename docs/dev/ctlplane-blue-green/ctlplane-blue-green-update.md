@@ -11,18 +11,20 @@ Follow-up: [pre-staged variant](ctlplane-blue-green-update-prestaged.md). It sho
 
 - Two OCP clusters: **A** (active, version N) and **B** (standby). B's OCP, operators and networking are **prepared in advance**.
 - In the maintenance window:
-  1. **Freeze A**: disable InstanceHA, close the public API, fence A's autonomous actors, drain.
+  1. **Freeze A**: disable InstanceHA, close the public API, drain, then **stop all OpenStack services on A** while A's infrastructure (Galera, RabbitMQ, memcached, OVN, dnsmasq) keeps running.
   2. Back up A and restore it to B.
   3. Update B to N+1 and test.
   4. Switch the EDPM-facing endpoints to B.
 - EDPM nodes are **handed over** without any configuration change. Their control-plane endpoints are hostnames resolved via one DNS IP, and the CA and credentials are identical. The only sanctioned touch before the EDPM update is an OVN client reset (7.2).
-- **Rollback** until the commit point: switch back to A, which was frozen and never touched.
+- **Rollback** until the commit point: restart A's services and switch back. A's DBs haven't changed since the services were stopped.
 
 ### Why freeze A at backup time
-- **B's data matches reality.** A is frozen and its autonomous actors are fenced, so the restored DB describes the actual state of volumes, shares, ports, instances and load balancers. In the pre-staged variant, B acts on stale state for days, and that's what makes it destructive.
+- **B's data matches reality.** All OpenStack services on A are stopped before the backup. Nothing writes to A's DBs anymore, not even agent reports through RabbitMQ, so the backup is a real freeze and a consistent cut across all Galera clusters. The restored DB describes the actual state of volumes, shares, ports, instances and load balancers. In the pre-staged variant, B acts on stale state for days, and that's what makes it destructive.
+- **Only one actor at a time.** With A's services stopped, nothing on A can act on shared backends. B's fence list shrinks to what reacts to "EDPM not attached yet" (6.1).
+- **EDPM stays attached to A's infrastructure until the switch.** A's OVN DBs, northd, ctlplane `ovn-controller` and dnsmasq keep running, and OVN doesn't change because neutron is stopped. Flows stay stable, and north-south traffic through ctlplane gateways keeps working during the window.
 - **No final sync.** B's data simply *is* prod after the switch. No re-seed, no DB drop/import into an updated ctlplane, no re-run trigger for db sync, no config-freeze week.
 - **Works with today's operators** for the data path. The fresh restore runs db sync normally, and the update on B is the regular in-place update path. That holds for any minor update, including upstream release bumps (RHOSO 19).
-- Trade-off: the API outage, plus no InstanceHA and no LB failover, covers drain + backup + restore + update + validation (**hours**). Workloads keep running throughout. North-south traffic of centralized routers has a short outage at switch if the gateways run on the ctlplane OCP nodes (4.2).
+- Trade-off: from the service stop until the switch, prod has **no working control plane** (API, conductor, scheduler, LB failover, InstanceHA). That covers backup + restore + update + validation (**hours**). Workloads keep running throughout. North-south traffic of centralized routers has a short outage at switch if the gateways run on the ctlplane OCP nodes (4.2).
 
 ## 2. Prerequisites
 
@@ -97,22 +99,23 @@ Prepare        EDPM firewall/SSH for B (P4) via A       OCP clone of A (P8), ope
 -- maintenance window ---------------------------------------------------------------------------
 1 InstanceHA   disable on A (record previous state)
 2 Freeze       close A's public endpoint (3.2)
-3 Fence A      autonomous actors to 0 (6.2)
-4 Drain        no task_state != NULL, no *ing volumes,
+3 Drain        no task_state != NULL, no *ing volumes,
                no PENDING_* LBs, no migrations
+4 Stop A       all OpenStack services → 0 (6.2);
+               infra keeps running (EDPM attached)
 5 Backup       B/R backup steps 1–5 (OVN DB mandatory)
 6 Restore                                               B/R restore + B modifiers, fenced (6.2),
                                                         NodeSets without status, no step 15
 7 Update                                                operators → N+1 (InstallPlan), then
                                                         OpenStackVersion → N+1 (test NodeSet OVN, 7.3)
-8 Pre-switch                                            fence checks (6.3), A-vs-B state diff (4.3)
+8 Pre-switch                                            fence checks (6.3), DNSData check (4.3)
 9 Switch       cut A's EDPM-facing endpoints            advertise floating DNS IP, EDPM OVN reset,
                (4.1)                                    reconnect, minimal unfence (4.1)
 10 Validate                                             exit criteria (4.3), public endpoint closed
                ── rollback here: 4.2, zero data loss after test cleanup ──
 11 Commit                                               open B's public endpoint ◄── point of no return
 -- end of maintenance ---------------------------------------------------------------------------
-Post-commit    A = next standby (wipe/rebuild)          unfence autonomous actors, amphora reconfigure
+Post-commit    A = next standby (wipe/rebuild)          unfence aodh/heat/watcher, amphora reconfigure
                                                         → octavia HM, EDPM update, InstanceHA last (8)
 ```
 
@@ -120,6 +123,7 @@ Window ≈ steps 1–10. Measure it in a lab with prod-size data. Include the **
 
 ### 4.1 Switch sequence (step 9)
 1. **Cut A's EDPM-facing endpoints:**
+   - A's OpenStack services are already stopped (window step 4). What's left are A's infrastructure endpoints.
    - Withdraw A's MetalLB advertisements (removes A's DNS IP and every internal LB endpoint in one generic step).
    - Scale A's OVN DBs down. EDPM reaches them via pod NAD IPs, not MetalLB.
    - Remove A's ctlplane `ovn-controller` (`nicMappings: {}`, 6.2).
@@ -130,22 +134,24 @@ Window ≈ steps 1–10. Measure it in a lab with prod-size data. Include the **
 5. **Minimal unfence of B**, only what EDPM attachment and validation need:
    - If gateways run on the ctlplane: restore B's `nicMappings`, delete A's stale ctlplane chassis records from B's SB, and verify that **every `cr-lrp` is claimed by a B chassis**. North-south traffic is down from step 1 until this point. Budget it, and lab-test it.
    - Gateways on EDPM networker nodes are handed over unchanged.
-   - Autonomous actors stay fenced until commit (8).
+   - aodh, heat-engine, watcher and octavia health-manager/housekeeping stay fenced until commit (8).
 
 ### 4.2 Rollback sequence (before commit)
-Same steps, **roles swapped**, preceded by cleanup:
+**Before the switch** (failed restore, update or tests on B), EDPM never left A's infrastructure. Rollback is then just: stop B, restore A's service replicas, open A's public endpoint, and re-enable InstanceHA on A last. No OVN reset and no DNS move.
+
+**After the switch:** same steps as 4.1, **roles swapped**, preceded by cleanup:
 1. **Clean up test resources on B** (test VMs, volumes, images, ports, FIPs in the test project) while B's API is still up. Otherwise they stay behind as orphans unknown to A (libvirt domains, RBD images, OVS ports).
 2. **Cut B's EDPM-facing endpoints:** withdraw B's advertisements, including the floating DNS IP. Scale down B's OVN DBs, set B's `nicMappings: {}`, restart B's RabbitMQ.
 3. On A: re-create the advertisements, scale up the OVN DBs, restore `nicMappings`, and start RabbitMQ (already running).
 4. EDPM OVN client reset again. The cluster ID changes back.
 5. Wait for reconnect. Verify the `cr-lrp` claims.
-6. Unfence A's autonomous actors. Open A's public endpoint (3.2).
+6. Restore A's service replicas (6.2). Open A's public endpoint (3.2).
 7. **InstanceHA on A last**, restoring the state recorded in step 1 of the window.
 
-Rehearse the rollback in the lab and give it a time budget. It runs inside the same window.
+A's DBs haven't changed since its services were stopped, so A resumes exactly where it froze. Rollback time is mainly service startup (minutes). Rehearse both rollback paths in the lab and give them a time budget. They run inside the same window.
 
 ### 4.3 Pre-switch check and validation exit criteria
-- **A-vs-B state diff (step 8):** compare A's and B's view of instance host/power/task state, volume and attachment status, amphora set, LB provisioning status and router gateway bindings. **Abort on any difference.** A's agent-reported state (heartbeats, resource provider inventory) may differ and self-heals after reconnect.
+- **Pre-switch (step 8):** A couldn't change after its services were stopped, so no A-vs-B state diff is needed. Optional sanity check: compare instance, volume and LB counts and states between A's DB and B. Required: no DNSData entry with an IP from A's pools.
 - **Exit criteria (step 10), all required before commit:**
   - every prod nova-compute service up on B
   - every network agent alive
@@ -194,46 +200,52 @@ Example rule shape:
 
 ## 6. B must not affect prod
 
-This is the most critical part of the design. Freezing A and fencing its actors removes the **stale data** risk. Two risks remain:
-- **Reactions to "EDPM not attached"**: until the switch, prod EDPM is attached to A, so from B everything looks dead.
-- **Two actors**: B's services acting while A's still could.
+This is the most critical part of the design. Stopping all OpenStack services on A before the backup removes the **stale data** risk and the **two actors** risk: only B can act, and it acts on correct data. What remains are B's **reactions to "EDPM not attached"**: until the switch, prod EDPM is attached to A's infrastructure, so from B every compute, gateway and amphora looks dead.
 
 ### 6.1 Residual risks
 | Sev | Risk | Mitigation |
 |---|---|---|
-| **Critical** | **OVN gateway takeover**: B's ctlplane `ovn-controller` registers as a gateway chassis. That's always the case when `nicMappings` are set: the `enable-chassis-as-gateway` field is deprecated and ignored, and the script defaults to gateway on. B becomes active for prod routers, GARPs prod FIPs/router IPs, or advertises them via BGP | `nicMappings: {}` on B until the switch (removes the OVNController). Test networker nodes on isolated provider segments |
+| **Critical** | **OVN gateway takeover**: B's ctlplane `ovn-controller` registers as a gateway chassis. That's always the case when `nicMappings` are set: the `enable-chassis-as-gateway` field is deprecated and ignored, and the script defaults to gateway on. A's gateways are still active, so B would compete for prod routers, GARP prod FIPs/router IPs, or advertise them via BGP | `nicMappings: {}` on B until the switch (removes the OVNController). Test networker nodes on isolated provider segments |
 | **Critical** | **Two gateway sets after the switch**: A's ovn-controller keeps its flows when its SB disappears, and keeps answering for prod FIPs | Remove A's OVNController at switch (4.1). Verify the `cr-lrp` claims |
 | **Critical** | **InstanceHA** fences prod computes | Disabled on A **before the backup**, so it's restored disabled. Re-enabled only after the EDPM update (8) |
-| **High** | **Octavia** health manager fails over every amphora (heartbeats go to A's HM IPs) | HM/housekeeping/worker fenced until the amphora reconfigure after commit (8) |
-| **High** | Duplicate cinder-volume/backup, manila-share, ironic-conductor, designate worker/producer | Fenced on B until commit. A's are fenced at freeze |
-| **High** | aodh/heat act; ceilometer and usage audits publish duplicate samples to external billing/metrics | Fenced on B until commit |
-| **High** | **Rogue DHCP/PXE**: ironic-inspector dnsmasq on the shared provisioning L2 | Fenced on B until commit |
+| **High** | **Octavia** health manager fails over every amphora (heartbeats go to A's HM IPs) | Health-manager/housekeeping fenced until the amphora reconfigure after commit (8) |
+| **High** | **aodh, heat-engine, watcher** act on B's nova while prod computes aren't attached yet. Their DB changes (failed stacks, actions) would become prod | Fenced until commit |
 | **High** | **Tests** touching restored resources (attaching a prod volume to a test VM corrupts data; deleting prod images/volumes) or landing on prod computes after the switch | Dedicated test project, non-admin, test VMs pinned to the test NodeSet's aggregate/AZ, test-only images/volumes/networks/FIP range. Cleanup before rollback (4.2) |
 | Medium | Restored DNSData carries A's IPs until B's operators re-patch them | Pre-switch check (4.3) |
-| Low | B calling A's public API (public FQDNs resolve to A) | A's public endpoint is closed. Split DNS in B anyway |
+
+**No longer a risk with A's services stopped:** duplicate actors on shared backends (cinder-volume/backup, manila-share, ironic-conductor, designate worker/producer, ironic-inspector DHCP), duplicate billing/metrics samples, and B calling A's public API. These services run normally on B, which also makes the tests more realistic.
 
 ### 6.2 Fencing with existing knobs
-- **Fence A at freeze** (window step 3): scale A's autonomous actors to 0 (the list below). InstanceHA was already disabled in step 1.
-- **Fence B from restore** (resource modifiers, 5.2):
+- **Stop A's OpenStack services** (window step 4, after the drain):
+  - Set `replicas: 0` on **every** service template in A's `OpenStackControlPlane`, generated by a script from the CR. Exclude the infrastructure: Galera, RabbitMQ, memcached, OVN (DBs, northd, ovn-controller) and dnsmasq. Per-node services (octavia amphora controllers) get a non-matching node selector. Record the original values for rollback.
+  - **Never use `enabled: false`.** Disabling deletes the service CR, and the finalizers remove keystone users/endpoints and MariaDB databases/accounts. That destroys A's state and the rollback.
+  - The `infrastructure-only` deployment-stage annotation doesn't stop anything: on a running ctlplane it only stops *reconciling* services (`openstackcontrolplane_controller.go`).
+  - InstanceHA was already disabled in window step 1.
+- **Fence B from restore** (resource modifiers, 5.2). The short list:
   - `nicMappings: {}` on the ctlplane `ovn-controller`.
-  - Replicas 0, or a non-matching node selector for per-node services: cinder-volume/backup, manila-share, ironic-conductor and ironic-inspector, octavia health-manager/housekeeping/worker, designate worker/producer, aodh, heat-engine, watcher, ceilometer.
+  - octavia health-manager/housekeeping (non-matching node selector).
+  - aodh, heat-engine, watcher (replicas 0).
   - Exact CR paths to collect per service (10.7).
-- **At switch:** only the minimal unfence (4.1 step 5).
+- **At switch:** restore B's `nicMappings` (4.1 step 5).
 - **After commit:** the remaining unfence (8).
 
-The operator feature that replaces this patch list with one switch is the **standby mode** in the [pre-staged doc](ctlplane-blue-green-update-prestaged.md) (7.1). The simple variant works without it, but the patch list has to be complete and is easy to get wrong.
+The operator feature that replaces both patch lists with one switch is the **standby mode** in the [pre-staged doc](ctlplane-blue-green-update-prestaged.md) (7.1). It would cover "A after the backup" and "B before the switch". The simple variant works without it.
 
 ### 6.3 Generic network fence and checks
-The per-service list can miss something, so a second, generic layer applies on B until the switch:
-- **MultiNetworkPolicy** on the NADs (macvlan bypasses the OVN-Kubernetes NetworkPolicy/EgressFirewall) plus **EgressFirewall** on the cluster network. Block the BMC networks, provider/external segments, the provisioning network, external DNS backends and billing/notification sinks. Ceph stays reachable for the test project.
+A second, generic layer protects the provider networks on B until the switch:
+- **MultiNetworkPolicy** on the NADs (macvlan bypasses the OVN-Kubernetes NetworkPolicy/EgressFirewall) plus **EgressFirewall** on the cluster network. Block the provider/external segments, and no BGP sessions into the prod fabric until the switch. Storage, BMC and external sinks don't need blocking anymore, because B is the only actor.
 - **Split DNS in B** for the public FQDNs.
 
 **Checks during preparation:**
 - From B (cluster network and every NAD) and from the test nodes: no ARP/GARP/ND and no BGP sessions on the prod provider segments.
 - The floating DNS IP is not advertised by B.
 
+**Checks after the stop on A, before the backup:**
+- Every OpenStack service pod on A is gone. Only the infrastructure pods are running.
+- InstanceHA on A is disabled.
+
 **Checks after restore, before update:**
-- Every fenced service is at 0.
+- Every fenced service on B is at 0.
 - InstanceHA is disabled.
 - No OVNController exists on B.
 - No `cr-lrp` is claimed by a B or test chassis.
@@ -277,7 +289,7 @@ It also carries the handover drift: reissued leaf certs, regenerated config secr
 ### 7.5 B/R guide mapping
 | B/R guide step | Simple blue/green |
 |---|---|
-| — | **InstanceHA disabled on A**, A's public endpoint closed, A's actors fenced, drain |
+| — | **InstanceHA disabled on A**, A's public endpoint closed, drain, **all OpenStack services on A stopped** (infra keeps running) |
 | Backup 1–5 | As-is. OVN DB backup **mandatory** |
 | Restore 0 (modifiers) | Extended with the B rules (5.2) |
 | Restore 1–5 | As-is, NADs and `BGPConfiguration` excluded |
@@ -295,7 +307,7 @@ It also carries the handover drift: reissued leaf certs, regenerated config secr
 ## 8. Commit and post-commit
 - **Commit = opening B's public endpoint** (3.2). Before it, rollback loses nothing (after test cleanup). After it, rollback loses B's writes and leaves orphans.
 - **Post-commit order:**
-  1. Unfence B's remaining autonomous actors, except octavia health-manager/housekeeping.
+  1. Unfence aodh, heat-engine and watcher on B.
   2. **Reconfigure all amphorae** to B's health-manager/rsyslog IPs (`openstack loadbalancer amphora configure`, issued by B's worker over lb-mgmt). Then unfence health-manager and housekeeping.
   3. **EDPM update** (the first deployment from B, 7.4), soon after commit, to keep the version skew and the log gap short.
   4. **InstanceHA last:** re-enable on B only if it was enabled on A (state recorded in window step 1), after the EDPM update has re-rendered the heartbeat/kdump targets and all prod computes report up.
@@ -303,7 +315,7 @@ It also carries the handover drift: reissued leaf certs, regenerated config secr
 - Cost: a second ctlplane OCP cluster, which can alternate between the A and B roles across updates.
 
 ## 9. Operations
-- **Monitoring:** split alerting between A and B during the window (silence A's fenced services, B's "not deployed" NodeSets). Prometheus history stays on A. Export it if needed before A is wiped.
+- **Monitoring:** split alerting between A and B during the window (silence A's stopped services, B's fenced services and "not deployed" NodeSets). Prometheus history stays on A. Export it if needed before A is wiped.
 - **Runbook timing:** time budgets per step, including the rollback (4.2), all rehearsed in the lab.
 - **Test access:** test nodes via B's extra dnsmasq Service, API tests inside B on internal endpoints (3.1).
 
@@ -314,6 +326,6 @@ It also carries the handover drift: reissued leaf certs, regenerated config secr
 4. **EDPM OVN client reset** (7.2): confirm the stale-index rejection and the reset procedure. Measure EDPM reconnect and agent recovery after the switch (no DNS caching beyond the TTL; RabbitMQ reconnect).
 5. keystone-operator adopts the restored `keystone` secret and keeps rotating it.
 6. Designate bind9/unbound IPs (tenant-visible).
-7. Complete list of side-effecting services and their CR paths for 6.2 (per-operator audit).
+7. CR paths for 6.2: the script that sets every service template on A to 0 (and restores it), and B's short fence list. Plus a per-operator check for other reactions to "EDPM not attached" beyond 6.1.
 8. Window duration with prod-size data, including the Data Mover transfer, and the north-south outage at switch (ctlplane gateways).
 9. Floating IPs (dnsmasq, public VIPs): confirm that MetalLB on both clusters handles pools that are advertised on one cluster only, and measure how fast EDPM and clients converge (ARP/BGP).
